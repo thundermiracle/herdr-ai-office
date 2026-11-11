@@ -18,7 +18,7 @@ herdr-app のワークスペースを部屋に、AI エージェントをキャ�
 | `layouts/ai-office.json` | オフィスと、選んだエージェントのターミナルを並べたレイアウト |
 | `art/`、`scripts/build-art.py` | ドット絵の元データと、それを PNG / GIF にするスクリプト |
 | `hooks/` | Claude Code のフック（調べ物中を `office.act` ラベルで知らせる） |
-| `scripts/fake-agent.sh` | AI を使わずに状態を切り替える、テスト用の偽エージェント |
+| `scripts/fake-agent.sh`、`scripts/demo.sh` | AI を使わずに状態を報告する偽エージェントと、それを 6 人並べた見本のスペース |
 | `spike/` | 描画の確認用 mod（PoC の判断材料） |
 
 ## 開発
