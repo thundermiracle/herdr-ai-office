@@ -1,0 +1,7 @@
+.DS_Store
+# herdr-app が mod フォルダに書くもの
+gpui-kit.d.ts
+jsconfig.json
+node_modules/
+# 確認用のスクリーンショットなど
+tmp/
