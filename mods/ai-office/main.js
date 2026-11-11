@@ -96,7 +96,7 @@ async function skillDirs(dir, source, prefix = "") {
     const text = await readOrNull(`${dir}/${name}/SKILL.md`);
     if (text === null) continue;
     const meta = parseSkillFile(text, name);
-    out.push({ id: prefix + meta.name, name: meta.name, source, description: meta.description });
+    out.push({ id: prefix + meta.name, name: meta.name, source, description: meta.description, path: `${dir}/${name}/SKILL.md` });
   }
   return out;
 }
@@ -110,7 +110,8 @@ async function globalSkills(base) {
     try {
       const manifest = JSON.parse((await readOrNull(`${base}/.claude/skills/synced/${bucket}/manifest.json`)) ?? "{}");
       for (const s of manifest.skills ?? []) {
-        list.push({ id: `anthropic-skills:${s.name}`, name: s.name, source: "synced", description: s.description ?? "" });
+        list.push({ id: `anthropic-skills:${s.name}`, name: s.name, source: "synced", description: s.description ?? "",
+          path: `${base}/.claude/skills/synced/${bucket}/${s.name}/SKILL.md` });
       }
     } catch {}
   }
@@ -125,7 +126,7 @@ async function globalSkills(base) {
         for (const file of (await names(`${root}/commands`)).filter((f) => f.endsWith(".md"))) {
           const name = file.slice(0, -3);
           const meta = parseSkillFile(await readOrNull(`${root}/commands/${file}`), name);
-          list.push({ id: `${plugin}:${name}`, name, source: "plugin", description: meta.description });
+          list.push({ id: `${plugin}:${name}`, name, source: "plugin", description: meta.description, path: `${root}/commands/${file}` });
         }
       }
     }

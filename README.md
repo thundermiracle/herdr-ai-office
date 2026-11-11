@@ -85,8 +85,9 @@ model と effort は、Claude なら statusLine の effort-recorder が書くキ
 | 緑 | プラグインの skill とコマンド（`installed_plugins.json` の場所。呼ぶ名前は `<プラグイン>:<名前>`） |
 | 青緑 | Codex の skill（`~/.codex/skills`） |
 
-本棚にマウスを乗せると冊数、クリックで一覧（名前と説明。説明にマウスを乗せると全部）。
-`herdr-app do mod.open --name ai-office-skills` でも、今のスペースの一覧を開ける。1 段 13 冊 × 3 段 = 39 冊まで並び、
+本棚にマウスを乗せると冊数、クリックで一覧（名前と説明。多いとスクロール）。一覧の skill をクリックすると、
+その中身（`SKILL.md`。プラグインのコマンドはその `.md`）をマークダウンで出す。Esc か「閉じる」で一覧に戻る。
+`herdr-app do mod.open --name ai-office-skills` で今のスペースの一覧を、`--name ai-office-skill` で最後に開いた skill を開ける。1 段 13 冊 × 3 段 = 39 冊まで並び、
 それより多い分は一覧にだけ出る。Claude Code に組み込みの skill（`/code-review` など）はファイルがないので入らない。
 別のマシンのスペースの本棚は空（そのマシンの skill はまだ読んでいない）。60 秒ごとに読み直す。
 
@@ -101,7 +102,7 @@ skill を使うと（Claude の Skill ツール、または `/名前` で始ま�
 | キャラクター | そのエージェントを表示（`agent.focus`。`ai-office` レイアウトなら右に出る） |
 | 空いた椅子・その席のノート PC | 「雇う」ポップアップ。選んだエージェントを、その部屋のスペースの新しいタブで起動 |
 | 壁の名札 | そのスペースへ（`space.select`） |
-| 本棚 | 使える skill の一覧 |
+| 本棚 | 使える skill の一覧。その中の skill をクリックすると中身 |
 | 「+ 部屋」のドア | フォルダを選んで、新しいスペース（部屋）を作る（この Mac だけ） |
 
 ## 本棚（調べ物中）のフック
@@ -130,6 +131,7 @@ hooks/register.sh remove   # このフックだけ外す（ほかのフックは
 | `mods/ai-office-hire/` | 空いた席をクリックすると出る「雇う」ポップアップ |
 | `mods/ai-office-toggle/` | タブバーの右隣の「Office」ボタン（`layout.toggle`） |
 | `mods/ai-office-skills/` | 本棚をクリックすると出る、使える skill の一覧 |
+| `mods/ai-office-skill/` | 一覧の skill をクリックすると出る、その skill の中身 |
 | `layouts/ai-office.json` | オフィスと、選んだエージェントのターミナルを並べたレイアウト |
 | `layouts/main-dots-office.json` | main-dots に「Office」ボタンとオフィスの列を足したレイアウト |
 | `scripts/build-art.py` | ドット絵（文字の格子で描き、4 倍の PNG に書き出す）。`tmp/art-preview.png` に一覧と部屋の見本 |

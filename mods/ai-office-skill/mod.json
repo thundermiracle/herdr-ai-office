@@ -1,0 +1,9 @@
+{
+  "place": "none",
+  "title": "AI Office: skill",
+  "overlay": {
+    "kind": "dialog",
+    "width": 760,
+    "height": 0.8
+  }
+}
