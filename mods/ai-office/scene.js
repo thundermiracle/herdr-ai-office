@@ -8,6 +8,8 @@ export const SCALE = 2;
 export const TICK_ACTIVE = 250; // ms。窓がアクティブなとき（4fps。6fps だと main-dots の横で CPU 約 15%）
 export const TICK_INACTIVE = 500; // 窓が後ろにあるとき（2fps）
 export const SPEED = 14; // 歩く速さ（art px / 秒）
+export const RUN_SPEED = 32; // skill を取りに行くときの小走り
+export const ERRAND_READ_MS = 5000; // skill を使ったとき、資料室で読む時間
 
 // オフィスは 1 枚のフロア: 左に縦の廊下（一番上が資料室で、本棚はここに 1 つ）、その右に部屋をすき間なく並べる。
 // 部屋の左端は仕切りの壁で、奥から PART_END までをふさぎ、手前は通路として開けておく（廊下や隣の部屋とつながる）。
@@ -358,8 +360,20 @@ export class Office {
         c.roomRef = room;
         c.info = a;
         c.look = { look: lookOf(a.app, a.model), band: bandOf(a.effort), flame: a.effort === "max" };
-        const b = behaviorOf(a.status, a.act);
-        if (b !== c.behavior || relocated || (moved && b !== "wander" && b !== "read")) this.retarget(c, b);
+        // skill を使った出来事: office.skill_at（フックが使うたびに時刻を書く）が変わった。初めて見た値は出来事にしない
+        let errandNow = false;
+        if (c.skillAt === undefined) c.skillAt = a.skillAt ?? null;
+        else if (a.skillAt && a.skillAt !== c.skillAt) {
+          c.skillAt = a.skillAt;
+          if (a.skill) {
+            c.errand = { skill: a.skill, left: null }; // left: 資料室に着いてから読む残り時間
+            errandNow = true;
+          }
+        }
+        let b = behaviorOf(a.status, a.act);
+        if (c.errand && b === "raise") c.errand = null; // 質問・許可待ちは用事より先（すぐ手を挙げる）
+        if (c.errand) b = "read"; // 用事の途中は、エージェントが次のツールに移っても資料室で読む
+        if (errandNow || b !== c.behavior || relocated || (moved && b !== "wander" && b !== "read")) this.retarget(c, b);
       }
     }
     for (const k of [...this.chars.keys()]) if (!seen.has(k)) this.chars.delete(k);
@@ -383,6 +397,8 @@ export class Office {
     }
     const goal = behavior === "read" ? this.librarySpot(c) : { x: c.seat.cx, y: LANE_Y };
     c.path = planPath(c.roomRef, c, goal);
+    c.run = Boolean(c.errand) || c.returning === true; // skill を取りに行く・戻るときは小走り
+    c.returning = false;
     if (!c.path.length) this.arrive(c);
   }
 
@@ -397,11 +413,13 @@ export class Office {
   }
 
   arrive(c) {
+    c.run = false;
     if (c.behavior === "type" || c.behavior === "done") {
       c.seated = true;
       c.sitX = c.seat.cx;
     }
     if (c.behavior === "wander") c.wait = 3000 + this.rng() * 6000;
+    if (c.errand && c.behavior === "read") c.errand.left = ERRAND_READ_MS; // 資料室に着いた: ここから読む
   }
 
   wanderTarget(room) {
@@ -419,8 +437,18 @@ export class Office {
     this.t++;
     let changed = false;
     for (const c of this.chars.values()) {
+      // skill の用事: 読み終わったら、今の状態の動きに戻る（席へは小走り）
+      if (c.errand && c.errand.left !== null && !c.path.length) {
+        c.errand.left -= dt;
+        if (c.errand.left <= 0) {
+          c.errand = null;
+          c.returning = true;
+          this.retarget(c, behaviorOf(c.info.status, c.info.act));
+          changed = true;
+        }
+      }
       if (c.path.length) {
-        let budget = (SPEED * dt) / 1000;
+        let budget = ((c.run ? RUN_SPEED : SPEED) * dt) / 1000;
         while (budget > 0 && c.path.length) {
           const p = c.path[0];
           const dx = p.x - c.x;
@@ -533,8 +561,9 @@ export function drawables(room, office, skills = []) {
     else if (c.behavior === "raise") pose = `raise-${Math.floor(ph / 3) % 2}`;
     else pose = ph % 23 === 0 ? "blink" : "stand";
     person(pose, x - 9, y - 23, 24, y);
-    if (c.behavior === "read" && !c.path.length && c.info.skill) {
-      add({ id: `tag-${c.address}`, text: skillShort(c.info.skill), color: colorOf(c.info.skill), x, y: y - 33, z: 1001 });
+    const reading = c.errand?.skill ?? c.info.skill;
+    if (c.behavior === "read" && !c.path.length && reading) {
+      add({ id: `tag-${c.address}`, text: skillShort(reading), color: colorOf(reading), x, y: y - 33, z: 1001 });
     }
     if (c.behavior === "raise" && !c.path.length) {
       const kind = c.info.kind === "question" ? "bubble-ask" : "bubble-alert";
@@ -550,8 +579,8 @@ export function drawables(room, office, skills = []) {
  */
 export function floorDrawables(office, skills = []) {
   const reading = [...office.chars.values()]
-    .filter((c) => c.behavior === "read" && !c.path.length && c.info.skill)
-    .map((c) => c.info.skill);
+    .filter((c) => c.behavior === "read" && !c.path.length && (c.errand?.skill ?? c.info.skill))
+    .map((c) => c.errand?.skill ?? c.info.skill);
   const { books, more } = shelfBooks(skills);
   return [{ id: "shelf", img: "bookshelf-empty", x: SHELF.x, y: SHELF.y, w: 32, h: 42, z: 56,
     books: books.filter((b) => !reading.some((r) => sameSkill(r, b.skill.id))),

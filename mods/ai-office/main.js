@@ -45,6 +45,7 @@ function gather(meta, codexDefaults) {
       kind: t?.report?.kind ?? t?.status?.kind ?? null, // blocked のとき: permission / question
       act: t?.labels?.["office.act"] || null, // フックが付ける（本棚へ行くか）
       skill: t?.labels?.["office.skill"] || null, // フックが付ける（このターンで使った skill）
+      skillAt: t?.labels?.["office.skill_at"] || null, // skill を使うたびにフックが書く時刻（出来事として資料室へ行く）
       name: a.program?.name ?? a.app ?? "agent",
       where: `${a.space_name} / ${a.tab_name}`,
     }];

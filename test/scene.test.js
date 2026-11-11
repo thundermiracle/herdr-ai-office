@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  BACK, CORRIDOR_Y, DESK_X, HALL_W, LANE_Y, LEFT_PASS, LIBRARY, MIN_ROOM_W, PART_END, ROOM_H, SEAT_W,
+  BACK, CORRIDOR_Y, DESK_X, ERRAND_READ_MS, HALL_W, LANE_Y, LEFT_PASS, LIBRARY, MIN_ROOM_W, PART_END, ROOM_H, SEAT_W,
   Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride, drawables, floorDrawables, layoutFloor, lookOf,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
 } from "../mods/ai-office/scene.js";
@@ -415,5 +415,69 @@ describe("skills", () => {
     d = drawables(w.rooms[0], office, skills);
     expect(floorDrawables(office, skills)[0].books).toHaveLength(2);
     expect(d.find((x) => x.id === "tag-t1")).toMatchObject({ text: "herdr" });
+  });
+});
+
+describe("skill errands", () => {
+  // 部屋を並べてから、t1 の情報を少しずつ変えて同期する
+  function floorWorld(extra = {}) {
+    const w = world({ t1: "working" }, { acts: { t1: "edit" } });
+    Object.assign(w.info.get("t1"), extra);
+    return { rooms: layoutFloor(w.rooms, 1000).rooms.filter((r) => !r.newRoom), info: w.info };
+  }
+  const atLibrary = (office, rooms) => {
+    const c = office.chars.get("t1");
+    return c.x + rooms[0].ox === LIBRARY[0].x && c.y + rooms[0].oy === LIBRARY[0].y;
+  };
+  const runUntil = (office, done, ms = 60000) => {
+    for (let t = 0; t < ms && !done(); t += 160) office.tick(160);
+    return done();
+  };
+
+  test("using a skill sends them to the library even while the agent moves on, then they run back", () => {
+    const office = new Office(seeded(13));
+    let w = floorWorld();
+    office.sync(w.rooms, w.info);
+    const c = office.chars.get("t1");
+    expect(c.seated).toBe(true);
+    // skill を使った（エージェントはもう次のツール: act は edit のまま）
+    w = floorWorld({ skill: "herdr", skillAt: "100" });
+    office.sync(w.rooms, w.info);
+    expect([c.behavior, c.run, c.seated]).toEqual(["read", true, false]);
+    expect(runUntil(office, () => atLibrary(office, w.rooms))).toBe(true);
+    office.sync(w.rooms, w.info); // 着いても、状態（working・edit）に引き戻されない
+    expect(c.behavior).toBe("read");
+    const d = drawables(w.rooms[0], office, []);
+    expect(d.find((x) => x.id === "tag-t1")).toMatchObject({ text: "herdr" });
+    // 読み終わったら席へ戻ってタイピング
+    for (let t = 0; t < ERRAND_READ_MS + 160; t += 160) office.tick(160);
+    expect(c.errand).toBeNull();
+    expect(c.run).toBe(true);
+    expect(runUntil(office, () => c.seated)).toBe(true);
+    expect(c.behavior).toBe("type");
+  });
+
+  test("the value seen first is not an event; the same skill used again is", () => {
+    const office = new Office(seeded(14));
+    let w = floorWorld({ skill: "herdr", skillAt: "100" });
+    office.sync(w.rooms, w.info);
+    const c = office.chars.get("t1");
+    expect(c.errand ?? null).toBeNull();
+    w = floorWorld({ skill: "herdr", skillAt: "101" });
+    office.sync(w.rooms, w.info);
+    expect(c.errand).toMatchObject({ skill: "herdr" });
+  });
+
+  test("a question cuts the errand short: they raise a hand at once", () => {
+    const office = new Office(seeded(15));
+    let w = floorWorld();
+    office.sync(w.rooms, w.info);
+    w = floorWorld({ skill: "herdr", skillAt: "100" });
+    office.sync(w.rooms, w.info);
+    w = floorWorld({ skill: "herdr", skillAt: "100", status: "blocked" });
+    office.sync(w.rooms, w.info);
+    const c = office.chars.get("t1");
+    expect(c.errand).toBeNull();
+    expect(c.behavior).toBe("raise");
   });
 });

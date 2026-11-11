@@ -2,6 +2,8 @@
 # Claude Code のフック: これから何をするかを、herdr-core のターミナルのラベルに書く。
 #   office.act:   read（調べ物。AI Office ではキャラクターが本棚へ行く）/ edit / run / 空
 #   office.skill: このターンで使った skill（本棚でその本を読み、頭の上に名前の札が出る）
+#   office.skill_at: skill を使うたびに変わる値（秒-プロセス番号）。AI Office はこれが変わった出来事で、
+#                    キャラクターを資料室へ取りに行かせる（エージェントがすぐ次のツールに移っても、読んで戻ってくる）
 # イベントごとに:
 #   PreToolUse: Skill → read と、その skill。Read / Grep / Glob / LS / WebSearch / WebFetch / NotebookRead → read、
 #               Edit / Write / MultiEdit / NotebookEdit → edit、Bash → run、ほかのツール → act を消す（skill はそのまま）
@@ -25,12 +27,14 @@ case "$prev" in
   *) skill= ;;               # 前の版のメモ（act だけ）
 esac
 
+event= # skill を使った出来事なら、その値（office.skill_at）
 case "$(field .hook_event_name)" in
   PreToolUse)
     case "$(field .tool_name)" in
       Skill)
         act=read
         skill=$(field .tool_input.skill)
+        event="$(date +%s)-$$"
         ;;
       Read | Grep | Glob | LS | WebSearch | WebFetch | NotebookRead) act=read ;;
       Edit | Write | MultiEdit | NotebookEdit) act=edit ;;
@@ -41,7 +45,10 @@ case "$(field .hook_event_name)" in
   UserPromptSubmit)
     skill=$(field .prompt | sed -n '1s#^/\([A-Za-z0-9:_.-][A-Za-z0-9:_.-]*\).*#\1#p')
     act=
-    [ -n "$skill" ] && act=read
+    if [ -n "$skill" ]; then
+      act=read
+      event="$(date +%s)-$$"
+    fi
     ;;
   Stop | SessionEnd)
     act=
@@ -51,9 +58,13 @@ case "$(field .hook_event_name)" in
 esac
 
 next="$act|$skill"
-if [ -f "$memo" ] && [ "$prev" = "$next" ]; then
-  exit 0
+if [ -z "$event" ] && [ -f "$memo" ] && [ "$prev" = "$next" ]; then
+  exit 0 # 同じ値で、skill を使った出来事でもない
 fi
 printf '%s' "$next" >"$memo"
-hc label "$HC_TERMINAL_ID" "office.act=$act" "office.skill=$skill" </dev/null >/dev/null 2>&1 &
+if [ -n "$event" ]; then
+  hc label "$HC_TERMINAL_ID" "office.act=$act" "office.skill=$skill" "office.skill_at=$event" </dev/null >/dev/null 2>&1 &
+else
+  hc label "$HC_TERMINAL_ID" "office.act=$act" "office.skill=$skill" </dev/null >/dev/null 2>&1 &
+fi
 exit 0

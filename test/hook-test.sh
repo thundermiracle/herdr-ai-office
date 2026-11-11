@@ -56,5 +56,20 @@ check "plain prompt -> both cleared" "" "" "$(prompt 'hello there')"
 check "outside herdr-app (no HC_TERMINAL_ID)" "" "" "$(pre Read)" none
 check "UserPromptSubmit after Read -> cleared" "" "" "$(pre Read >/dev/null; prompt 'next please')"
 
+# 同じ skill をもう一度使うと、office.skill_at が変わる（AI Office はこれを出来事として資料室へ行く）
+at1=$(hc get "$term" --json | jq -r '.labels["office.skill_at"] // ""')
+printf '%s' "$(pre Skill '' '{"skill":"herdr"}')" | HC_TERMINAL_ID="$term" TMPDIR="$tmp" sh -c "$hook"
+sleep 0.4
+at2=$(hc get "$term" --json | jq -r '.labels["office.skill_at"] // ""')
+printf '%s' "$(pre Skill '' '{"skill":"herdr"}')" | HC_TERMINAL_ID="$term" TMPDIR="$tmp" sh -c "$hook"
+sleep 0.4
+at3=$(hc get "$term" --json | jq -r '.labels["office.skill_at"] // ""')
+if [ -n "$at2" ] && [ "$at2" != "$at1" ] && [ "$at3" != "$at2" ]; then
+  echo "yes  the same skill used twice is two events     skill_at: '$at1' -> '$at2' -> '$at3'"
+else
+  echo "no   the same skill used twice is two events     skill_at: '$at1' -> '$at2' -> '$at3'"
+  fails=$((fails + 1))
+fi
+
 echo "fails: $fails"
 [ "$fails" -eq 0 ]

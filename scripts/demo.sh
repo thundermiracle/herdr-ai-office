@@ -1,7 +1,8 @@
 #!/bin/bash
 # オフィスの見本: 偽エージェント 6 人のスペース「office-test」を作る / 消す（AI は使わない）。
 # 使い方: scripts/demo.sh start | stop
-#   タイピング（opus・max で炎）・完了（✓、fable）・本棚で herdr の skill を読む（haiku）・質問（?、Codex）・うろうろ（sonnet）・
+#   タイピング（opus・max で炎）・完了（✓、fable）・作業中に 20 秒ごとに herdr の skill を使い、資料室へ取りに行く（haiku）・
+#   質問（?、Codex）・うろうろ（sonnet）・
 #   全部を順に（cycle、ほかの AI）の 6 人。
 #   質問や完了を報告するので、herdr-app の通知音とトーストが出る（cycle は 40 秒ごとに質問する）。
 set -euo pipefail
@@ -30,7 +31,7 @@ case "${1:-}" in
       herdr-app do tab.new --space "$sp" --name "$mode" --argv "$(argv "$mode" "$app" $rest)" >/dev/null
     done <<'TABS'
 done fake-claude --model claude-fable-5-2 --effort high
-skill:herdr fake-claude --model claude-haiku-5-5 --effort medium
+skills:herdr fake-claude --model claude-haiku-5-5 --effort medium
 ask fake-codex -c model_reasoning_effort=xhigh
 idle fake-claude --model claude-sonnet-5-5 --effort low
 cycle fake
