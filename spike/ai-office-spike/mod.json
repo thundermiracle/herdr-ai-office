@@ -1,0 +1,10 @@
+{
+  "place": "none",
+  "title": "AI Office spike",
+  "overlay": {
+    "kind": "window",
+    "key": "ai-office-spike",
+    "width": 760,
+    "height": 420
+  }
+}
