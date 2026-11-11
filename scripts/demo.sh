@@ -1,7 +1,8 @@
 #!/bin/bash
 # オフィスの見本: 偽エージェント 6 人のスペース「office-test」を作る / 消す（AI は使わない）。
 # 使い方: scripts/demo.sh start | stop
-#   タイピング・本棚・質問（?）・完了（✓）・うろうろ・全部を順に（cycle）の 6 人。
+#   タイピング（opus・max で炎）・完了（✓、fable）・本棚（haiku）・質問（?、Codex）・うろうろ（sonnet）・
+#   全部を順に（cycle、ほかの AI）の 6 人。
 #   質問や完了を報告するので、herdr-app の通知音とトーストが出る（cycle は 40 秒ごとに質問する）。
 set -euo pipefail
 
@@ -20,12 +21,20 @@ case "${1:-}" in
       exit 1
     fi
     orig=$(herdr-app status | jq -r .space)
-    argv() { jq -cn --arg f "$fa" --arg m "$1" --arg a "$2" '[$f, $m, $a]'; }
-    sp=$(herdr-app do space.new --name "$name" --folder "$repo" --argv "$(argv working fake-claude)" | jq -r .space)
-    for spec in "done fake-claude" "read fake-claude" "ask fake-codex" "idle fake-codex" "cycle fake"; do
-      read -r mode app <<<"$spec"
-      herdr-app do tab.new --space "$sp" --name "$mode" --argv "$(argv "$mode" "$app")" >/dev/null
-    done
+    # fake-agent.sh は 3 つ目からの引数を使わないが、オフィスは起動引数から model と effort を読むので、見た目が変わる
+    argv() { printf '%s\n' "$fa" "$@" | jq -R . | jq -sc .; } # 引数を 1 行ずつ JSON の配列に（- で始まる引数も）
+    sp=$(herdr-app do space.new --name "$name" --folder "$repo" \
+      --argv "$(argv working fake-claude --model claude-opus-5-5 --effort max)" | jq -r .space)
+    while read -r mode app rest; do
+      # shellcheck disable=SC2086 # rest は model と effort の引数（空白で分ける）
+      herdr-app do tab.new --space "$sp" --name "$mode" --argv "$(argv "$mode" "$app" $rest)" >/dev/null
+    done <<'TABS'
+done fake-claude --model claude-fable-5-2 --effort high
+read fake-claude --model claude-haiku-5-5 --effort medium
+ask fake-codex -c model_reasoning_effort=xhigh
+idle fake-claude --model claude-sonnet-5-5 --effort low
+cycle fake
+TABS
     # 作ったタブは「見た」扱いになって done がすぐ idle に戻るので、元のスペースに戻しておく
     [ -n "$orig" ] && [ "$orig" != null ] && herdr-app do space.select --id "$orig" >/dev/null
     echo "「${name}」を作りました（${sp}）"

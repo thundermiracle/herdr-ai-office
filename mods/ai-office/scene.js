@@ -1,7 +1,7 @@
 // scene.js: オフィスの中身の計算。herdr も gpui-kit も import しない（bun test で試せる）。
 // 座標はすべて絵のピクセル（art px）。mod は SCALE 倍の論理 px で描く。
 // 絵の置き方は scripts/build-art.py の見本（preview）と同じ:
-//   立ち・歩き（18x22）は左上を (足の x-9, 足の y-21)、座り（18x16）は (席の x-9, BACK-16)、
+//   立ち・歩き（18x24）は左上を (足の x-9, 足の y-23)、座り（18x18）は (席の x-9, BACK-18)、
 //   椅子は (席の x-7, BACK-9)、ノート PC は (席の机の x+7, BACK-5)、手は (席の机の x, BACK)。
 
 export const SCALE = 2;
@@ -23,8 +23,6 @@ export const READ = { x: 22, y: 66 }; // 本棚の前
 export const GAP = 12; // 部屋と部屋のすき間
 export const NEW_ROOM_W = 64; // 「新しい部屋」の区画（ドア）
 
-export const HAIRS = ["black", "brown", "blond", "red", "navy", "silver"];
-
 export function hash(text) {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
@@ -34,15 +32,80 @@ export function hash(text) {
   return h;
 }
 
-/** 服の色はエージェントの種類（OSC 7501 の app、なければ program の key）で決める。 */
-export function shirtOf(app) {
-  if (/claude/i.test(app ?? "")) return "orange";
-  if (/codex/i.test(app ?? "")) return "teal";
-  return "violet";
+/** model の ID の系統（opus / sonnet / haiku / fable）。claude-opus-5-5[1m] や us.anthropic.claude-... でも。 */
+export function modelFamily(model) {
+  return /claude-(opus|sonnet|haiku|fable)/i.exec(model ?? "")?.[1].toLowerCase() ?? null;
 }
 
-export function looksOf(address, app) {
-  return { hair: HAIRS[hash(address) % HAIRS.length], shirt: shirtOf(app) };
+/** 表示用の model 名。claude-opus-5-5 → Opus 5.5、Claude 以外はそのまま。 */
+export function modelLabel(model) {
+  const m = /claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?/i.exec(model ?? "");
+  if (!m) return model ?? null;
+  const name = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+  return `${name} ${m[2]}${m[3] ? `.${m[3]}` : ""}`;
+}
+
+/**
+ * 見た目（img/char/<look>-<pose>.png の look）。服は AI の種類（OSC 7501 の app）、
+ * 髪の色と小物は model（opus: 眼鏡とネクタイ、sonnet: なし、haiku: 若葉、fable: 星のピン）。Claude で model が分からなければ sonnet。
+ */
+export function lookOf(app, model) {
+  if (/claude/i.test(app ?? "")) return `claude-${modelFamily(model) ?? "sonnet"}`;
+  if (/codex/i.test(app ?? "")) return "codex";
+  return "other";
+}
+
+/** effort の鉢巻きの色（img/band/<color>-<pose>.png）。low はなし。max は作業中に炎も出す（drawables）。 */
+export function bandOf(effort) {
+  return { medium: "blue", high: "white", xhigh: "red", max: "red" }[effort] ?? null;
+}
+
+/** 起動引数の値（--model X と --model=X のどちらも）。names のどれか。 */
+export function argvValue(argv, names) {
+  const list = argv ?? [];
+  for (let i = 0; i < list.length; i++) {
+    for (const n of names) {
+      if (list[i] === n && i + 1 < list.length) return list[i + 1];
+      if (list[i].startsWith(`${n}=`)) return list[i].slice(n.length + 1);
+    }
+  }
+  return null;
+}
+
+/** Codex の設定の上書き（-c model_reasoning_effort="high" など）。 */
+export function codexOverride(argv, key) {
+  const list = argv ?? [];
+  for (let i = 0; i < list.length - 1; i++) {
+    if (list[i] !== "-c" && list[i] !== "--config") continue;
+    const m = new RegExp(`^${key}\\s*=\\s*"?([^"]*)"?$`).exec(list[i + 1]);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/** ~/.codex/config.toml の、最初の [表] より前にある model と model_reasoning_effort。 */
+export function parseCodexConfig(text) {
+  const out = { model: null, effort: null };
+  for (const line of (text ?? "").split("\n")) {
+    if (/^\s*\[/.test(line)) break;
+    const m = /^\s*(model|model_reasoning_effort)\s*=\s*"([^"]*)"/.exec(line);
+    if (m) out[m[1] === "model" ? "model" : "effort"] = m[2];
+  }
+  return out;
+}
+
+/**
+ * エージェント 1 人の model と effort。手がかりの順:
+ * Claude は effort-recorder のキャッシュ（cached）→ 起動引数（--model / --effort）。
+ * Codex は起動引数（-m / --model、-c model_reasoning_effort=）→ ~/.codex/config.toml の既定（codexDefaults）。
+ */
+export function agentModel({ app, argv, cached, codexDefaults }) {
+  const codex = /codex/i.test(app ?? "");
+  const model = cached?.model || argvValue(argv, codex ? ["-m", "--model"] : ["--model"])
+    || (codex ? codexDefaults?.model : null) || null;
+  const effort = cached?.effort || (codex ? codexOverride(argv, "model_reasoning_effort") : argvValue(argv, ["--effort"]))
+    || (codex ? codexDefaults?.effort : null) || null;
+  return { model, effort };
 }
 
 /**
@@ -169,7 +232,7 @@ export class Office {
         c.seat = seat;
         c.roomRef = room;
         c.info = a;
-        c.looks = looksOf(seat.agent, a.app);
+        c.look = { look: lookOf(a.app, a.model), band: bandOf(a.effort), flame: a.effort === "max" };
         const b = behaviorOf(a.status, a.act);
         if (b !== c.behavior || (moved && b !== "wander" && b !== "read")) this.retarget(c, b);
       }
@@ -272,7 +335,7 @@ export function animating(office) {
 
 /**
  * 1 つの部屋に描くもの。奥から手前の順（z の小さい順）に並べて返す。
- * 1 つ 1 つ: { id, img, x, y, w, h, z, click?, tip?, char? }。img は img/ の下の名前（.png なし）。
+ * 1 つ 1 つ: { id, img, over?, x, y, w, h, z, click?, tip?, glow?, char? }。img と over（上に重ねる絵）は img/ の下の名前（.png なし）。
  */
 export function drawables(room, office) {
   const out = [];
@@ -299,14 +362,21 @@ export function drawables(room, office) {
 
   for (const c of office.chars.values()) {
     if (c.room !== room.id) continue;
-    const { hair, shirt } = c.looks;
+    const { look, band, flame } = c.look;
     const ph = office.t + c.phase;
     const click = { type: "focus", terminal: c.address };
-    const tip = [c.info.name, c.info.where, c.info.status].filter(Boolean).join(" · ");
+    const tip = [c.info.name, modelLabel(c.info.model), c.info.effort, c.info.where, c.info.status].filter(Boolean).join(" · ");
+    // キャラ。effort の鉢巻きは同じ大きさの重ね絵（over）で、キャラのすぐ上に描く
+    const person = (pose, x, y, h, z) => {
+      add({ id: `char-${c.address}`, img: `char/${look}-${pose}`, over: band ? `band/${band}-${pose}` : null,
+        x, y, w: 18, h, z, click, tip, char: c });
+    };
     if (c.seated) {
       const pose = c.behavior === "done" ? "sit-happy" : ph % 8 < 6 ? "sit-0" : "sit-1";
-      add({ id: `char-${c.address}`, img: `char/${hair}-${shirt}-${pose}`, x: c.seat.cx - 9, y: BACK - 16, w: 18, h: 16,
-        z: BACK - 1, click, tip, char: c });
+      if (flame && c.behavior === "type") {
+        add({ id: `flame-${c.address}`, img: `fx-flame-${ph % 2}`, x: c.seat.cx - 14, y: BACK - 15, w: 28, h: 10, z: BACK - 1.2 });
+      }
+      person(pose, c.seat.cx - 9, BACK - 18, 18, BACK - 1);
       const hands = c.behavior === "done" ? "hands-rest" : ph % 2 ? "hands-a" : "hands-b";
       add({ id: `hands-${c.address}`, img: hands, x: c.seat.segX, y: BACK, w: 24, h: 6, z: BACK + 15.7 });
       if (c.behavior === "done") {
@@ -321,7 +391,7 @@ export function drawables(room, office) {
     else if (c.behavior === "read") pose = ph % 12 < 9 ? "read-0" : "read-1";
     else if (c.behavior === "raise") pose = `raise-${Math.floor(ph / 3) % 2}`;
     else pose = ph % 23 === 0 ? "blink" : "stand";
-    add({ id: `char-${c.address}`, img: `char/${hair}-${shirt}-${pose}`, x: x - 9, y: y - 21, w: 18, h: 22, z: y, click, tip, char: c });
+    person(pose, x - 9, y - 23, 24, y);
     if (c.behavior === "raise" && !c.path.length) {
       const kind = c.info.kind === "question" ? "bubble-ask" : "bubble-alert";
       add({ id: `bubble-${c.address}`, img: kind, x: x - 6, y: y - 36 - (Math.floor(ph / 3) % 2), w: 13, h: 14, z: 1000 });

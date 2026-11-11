@@ -18,7 +18,7 @@ scripts/sync.sh                                  # mods/ と layouts/ を ~/.con
 herdr-app do layout.switch --name ai-office      # オフィスのレイアウトにする（ctrl-shift-l でも切り替わる）
 herdr-app do layout.switch --name main-dots      # 元に戻す
 herdr-app do mod.open --name ai-office           # 今のレイアウトの上に、浮いた窓で開く（もう一度で閉じる）
-scripts/demo.sh start                            # 見本: 偽エージェント 6 人のスペース「office-test」（AI は使わない）
+scripts/demo.sh start                            # 見本: 偽エージェント 6 人のスペース「office-test」（AI は使わない。model と effort もばらばら）
 scripts/demo.sh stop                             # 見本を消す
 ```
 
@@ -35,7 +35,21 @@ scripts/demo.sh stop                             # 見本を消す
 | done（見ていない間に完了） | 席で「✓」。herdr-app で一度見ると idle になる |
 | idle | 立ってうろうろ（机の奥の通路と手前の床） |
 
-服の色はエージェントの種類（Claude Code は橙、Codex は青緑、ほかは紫）、髪の色はターミナルごとに決まる。
+見た目は AI ごとに 1 人（Claude Code は橙の上着、Codex は青緑の上着とヘッドホン、ほかは紫）で、
+model と effort で見分ける（オフィスの右上の「凡例」にも出る）:
+
+| model（髪の色と小物） | effort（鉢巻き） |
+|---|---|
+| opus: こげ茶の髪・眼鏡・ネクタイ | low: なし |
+| sonnet: 茶色の髪（小物なし。model が分からないときも） | medium: 青 |
+| haiku: 金髪・若葉 | high: 白 |
+| fable: 薄紫の髪・星のピン | xhigh: 赤 |
+| Codex: 黒髪・ヘッドホン | max: 赤、作業中は両側に炎 |
+
+model と effort は、Claude なら statusLine の effort-recorder が書くキャッシュ（`~/.cache/claude-model/<セッション>`・
+`~/.cache/claude-effort/<セッション>`。セッションはターミナルの `resume.id` ラベル）を 10 秒ごとに読み、
+なければ起動引数（`--model`・`--effort`）。Codex は起動引数（`-m`・`-c model_reasoning_effort=`）か `~/.codex/config.toml`。
+同じ model と effort なら同じ見た目になるので、誰かはマウスを乗せたときの表示（場所・状態）で見分ける。
 
 ## クリック
 

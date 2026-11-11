@@ -17,10 +17,11 @@ def rgb(s):
     return tuple(int(s[i:i + 2], 16) for i in (0, 2, 4)) + (255,)
 
 
-# 全員に共通の色。h/H/j（髪）と c/C（服）は色違いごとに差し替える
+# 全員に共通の色。h/H/j（髪）と c/C（服）は見た目（LOOKS）ごとに、d/f（鉢巻き）は色ごとに差し替える
 BASE = {
     "o": "#3b2a2a",  # 輪郭
     "e": "#3b2a2a",  # 目
+    "l": "#3b2a2a",  # 眼鏡のふち
     "s": "#ffdbb8",  # 肌
     "S": "#f0b890",  # 肌の影
     "r": "#ff9c90",  # ほっぺ
@@ -31,22 +32,24 @@ BASE = {
     "b": "#5b3a2c",  # 靴
     "k": "#c0504a",  # 本の表紙
     "K": "#8f3530",
-    "y": "#f3d36b",  # 本の帯
+    "y": "#f3d36b",  # 本の帯、星のピン
+    "i": "#34407a",  # ネクタイ
+    "I": "#232c58",
+    "E": "#4a4f5c",  # ヘッドホン
+    "M": "#6fd6cf",  # ヘッドホンの光
 }
-HAIRS = {
-    "black": ("#3a3346", "#28222f", "#5d5572"),
-    "brown": ("#8a5634", "#673d22", "#b27a4c"),
-    "blond": ("#e5b94f", "#c08f2e", "#f7dc8a"),
-    "red": ("#c24f37", "#922f22", "#e57a58"),
-    "navy": ("#46549a", "#323d74", "#6d7cc0"),
-    "silver": ("#c3c4d2", "#9c9db0", "#e7e8f2"),
+# 見た目: 服は AI の種類ごと、髪の色と小物は model ごと（scene.js の lookOf と合わせる）
+CLAUDE = ("#e8804e", "#bf5f37")  # Claude Code のオレンジ
+LOOKS = {
+    "claude-opus": {"hair": ("#4a3426", "#33231a", "#6b4c38"), "shirt": CLAUDE, "acc": "glasses", "tie": True},
+    "claude-sonnet": {"hair": ("#8a5634", "#673d22", "#b27a4c"), "shirt": CLAUDE, "acc": None},
+    "claude-haiku": {"hair": ("#e5b94f", "#c08f2e", "#f7dc8a"), "shirt": CLAUDE, "acc": "sprout"},
+    "claude-fable": {"hair": ("#a98bd6", "#8468b4", "#cbb5ef"), "shirt": CLAUDE, "acc": "star"},
+    "codex": {"hair": ("#3a3346", "#28222f", "#5d5572"), "shirt": ("#3fa7a3", "#2b7d7a"), "acc": "headphones"},
+    "other": {"hair": ("#c3c4d2", "#9c9db0", "#e7e8f2"), "shirt": ("#8d6cc9", "#6a4fa6"), "acc": None},
 }
-# 服の色はエージェントの種類ごと（scene.js の shirtOf と合わせる）
-SHIRTS = {
-    "orange": ("#e8804e", "#bf5f37"),  # Claude Code
-    "teal": ("#3fa7a3", "#2b7d7a"),  # Codex
-    "violet": ("#8d6cc9", "#6a4fa6"),  # そのほか
-}
+# effort の鉢巻き（キャラに重ねる絵）。medium 青・high 白・xhigh と max 赤（max は作業中に炎も出す。scene.js の bandOf）
+BANDS = {"blue": ("#4a7fd0", "#33609f"), "white": ("#ffffff", "#d3d9e3"), "red": ("#e04545", "#a83232")}
 
 
 class Sprite:
@@ -190,9 +193,6 @@ CccccccccC
 CccccccccC
 """)
 
-EYES = {"open": [(3, 6), (3, 7), (8, 6), (8, 7)]}
-
-
 def eyes(sprite, x0, y0, kind, side=False):
     """目を描く。open は縦 2 ドット、blink は横線、happy は ^ の形。顔の格子の左上が (x0, y0)。"""
     cols = [9] if side else [3, 8]
@@ -211,7 +211,49 @@ def eyes(sprite, x0, y0, kind, side=False):
             sprite.put(x0 + c, y0 + 7, "s")
 
 
-def head(sprite, x0, y0, eye="open", side=False, mouth=None):
+def accessory(s, x0, y0, acc, side):
+    """model の小物。opus: 眼鏡、haiku: 若葉（頭のてっぺん）、fable: 星のピン、codex: ヘッドホン。"""
+    if acc == "glasses":
+        for c in [9] if side else [3, 8]:
+            for x in (c - 1, c, c + 1):
+                s.put(x0 + x, y0 + 5, "l")
+            for x in (c - 1, c + 1):
+                if x < 12:
+                    s.put(x0 + x, y0 + 6, "Q")
+                    s.put(x0 + x, y0 + 7, "Q")
+        if side:
+            for x in (5, 6, 7):  # つる
+                s.put(x0 + x, y0 + 6, "l")
+        else:
+            s.put(x0 + 5, y0 + 6, "l")  # ブリッジ
+            s.put(x0 + 6, y0 + 6, "l")
+    elif acc == "sprout":
+        cx = x0 + (5 if side else 6)
+        s.put(cx, y0 - 1, "V")
+        s.put(cx - 1, y0 - 2, "v")
+        s.put(cx + 1, y0 - 2, "u")
+    elif acc == "star":
+        cx, cy = (x0 + 3, y0 + 2) if side else (x0 + 2, y0 + 1)
+        for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)):
+            s.put(cx + dx, cy + dy, "y")
+    elif acc == "headphones":
+        if side:
+            for x in range(3, 9):
+                s.put(x0 + x, y0 - 1, "E")
+            for y in range(5, 8):
+                s.put(x0 + 4, y0 + y, "E")
+                s.put(x0 + 5, y0 + y, "M" if y == 6 else "E")
+        else:
+            for x in range(2, 10):
+                s.put(x0 + x, y0 - 1, "E")
+            s.put(x0 + 1, y0, "E")
+            s.put(x0 + 10, y0, "E")
+            for y in range(5, 8):
+                for x in (-1, 0, 11, 12):
+                    s.put(x0 + x, y0 + y, "M" if y == 6 and x in (-1, 12) else "E")
+
+
+def head(sprite, x0, y0, look, eye="open", side=False, mouth=None):
     sprite.blit(HEAD_SIDE if side else HEAD_FRONT, x0, y0)
     # 格子の "." の目の場所は肌で埋めてから目を描く
     for c in ([9] if side else [3, 8]):
@@ -223,70 +265,146 @@ def head(sprite, x0, y0, eye="open", side=False, mouth=None):
         sprite.put(x0 + 6, y0 + 8, "m")
         sprite.put(x0 + 5, y0 + 9, "m")
         sprite.put(x0 + 6, y0 + 9, "m")
+    accessory(sprite, x0, y0, look.get("acc"), side)
 
 
-def stand(eye="open"):
-    s = Sprite(CHAR_W, 22)
-    head(s, 3, 2, eye)
-    s.blit(TORSO_FRONT, 4, 12).blit(LEGS_FRONT, 4, 17)
-    return s.outline()
+def tie(s, tx, ty, look):
+    """opus のネクタイ（正面の胴。胴の格子の左上が (tx, ty)）。"""
+    if not look.get("tie"):
+        return
+    for dy, (a, b) in enumerate((("i", "i"), ("i", "I"), ("I", "I"))):
+        s.put(tx + 4, ty + 1 + dy, a)
+        s.put(tx + 5, ty + 1 + dy, b)
 
 
-def walk(frame):
+# 立ち・歩き（18x24）は頭の格子の左上が y=4、足の輪郭の下端が y=22。座り（18x18）は頭が y=3。
+# どの関数も (絵, 頭の位置 (x0, y0, 横向きか)) を返す。頭の位置は鉢巻きの重ね絵に使う。
+CHAR_W, CHAR_H, SIT_H = 18, 24, 18
+
+
+def stand(look, eye="open"):
+    s = Sprite(CHAR_W, CHAR_H)
+    head(s, 3, 4, look, eye)
+    s.blit(TORSO_FRONT, 4, 14).blit(LEGS_FRONT, 4, 19)
+    tie(s, 4, 14, look)
+    return s.outline(), (3, 4, False)
+
+
+def walk(look, frame):
     """右向きの歩き。0: 足を開いたコマ、1: 足をそろえて 1 ドット浮いたコマ。"""
-    s = Sprite(CHAR_W, 22)
+    s = Sprite(CHAR_W, CHAR_H)
     up = 0 if frame == 0 else -1
-    head(s, 3, 2 + up, side=True)
-    s.blit(TORSO_SIDE_A if frame == 0 else TORSO_SIDE_B, 5, 12 + up)
-    s.blit(LEGS_STRIDE if frame == 0 else LEGS_PASS, 5, 17 + up)
-    return s.outline()
+    head(s, 3, 4 + up, look, side=True)
+    s.blit(TORSO_SIDE_A if frame == 0 else TORSO_SIDE_B, 5, 14 + up)
+    s.blit(LEGS_STRIDE if frame == 0 else LEGS_PASS, 5, 19 + up)
+    return s.outline(), (3, 4 + up, True)
 
 
-def read(frame):
-    s = Sprite(CHAR_W, 22)
-    head(s, 3, 2 + frame, "blink" if frame else "open")
-    s.blit(TORSO_READ, 4, 12).blit(LEGS_FRONT, 4, 17)
-    return s.outline()
+def read(look, frame):
+    s = Sprite(CHAR_W, CHAR_H)
+    head(s, 3, 4 + frame, look, "blink" if frame else "open")
+    s.blit(TORSO_READ, 4, 14).blit(LEGS_FRONT, 4, 19)
+    return s.outline(), (3, 4 + frame, False)
 
 
-def raise_hand(frame):
-    s = Sprite(CHAR_W, 22)
-    head(s, 3, 2, mouth="open")
-    s.blit(TORSO_RAISE, 4, 12).blit(LEGS_FRONT, 4, 17)
+def raise_hand(look, frame):
+    s = Sprite(CHAR_W, CHAR_H)
+    head(s, 3, 4, look, mouth="open")
+    s.blit(TORSO_RAISE, 4, 14).blit(LEGS_FRONT, 4, 19)
+    tie(s, 4, 14, look)
     # 右手（見て右）を頭の横に上げる。frame 1 は少し外に振る
     x = 15 if frame == 0 else 16
-    s.put(14, 12, "C")
-    s.put(15, 11, "C")
-    for y in range(5, 11):
+    s.put(14, 14, "C")
+    s.put(15, 13, "C")
+    for y in range(7, 13):
         s.put(x, y, "C")
-    s.put(x, 4, "s")
-    s.put(x, 3, "s")
-    return s.outline()
+    s.put(x, 6, "s")
+    s.put(x, 5, "s")
+    return s.outline(), (3, 4, False)
 
 
-def sit(frame, eye="open"):
-    """机の奥に座っている上半身。frame 1 はうなずく（頭が 1 ドット下がる）。"""
-    s = Sprite(CHAR_W, 16)
-    head(s, 3, 1 + frame, eye)
-    s.blit(TORSO_SIT, 4, 12)
-    return s.outline(bottom=False)
+def sit(look, frame, eye="open"):
+    """机の奥に座っている上半身。frame 1 はうなずく（頭が 1 ドット下がる）。下の端は机に隠れるので輪郭なし。"""
+    s = Sprite(CHAR_W, SIT_H)
+    head(s, 3, 3 + frame, look, eye)
+    s.blit(TORSO_SIT, 4, 14)
+    tie(s, 4, 14, look)
+    return s.outline(bottom=False), (3, 3 + frame, False)
 
 
-CHAR_POSES = {
-    "stand": stand(),
-    "blink": stand("blink"),
-    "walk-r-0": walk(0),
-    "walk-r-1": walk(1),
-    "read-0": read(0),
-    "read-1": read(1),
-    "raise-0": raise_hand(0),
-    "raise-1": raise_hand(1),
-    "sit-0": sit(0),
-    "sit-1": sit(1),
-    "sit-happy": sit(0, "happy"),
+POSES = {
+    "stand": lambda L: stand(L),
+    "blink": lambda L: stand(L, "blink"),
+    "walk-r-0": lambda L: walk(L, 0),
+    "walk-r-1": lambda L: walk(L, 1),
+    "read-0": lambda L: read(L, 0),
+    "read-1": lambda L: read(L, 1),
+    "raise-0": lambda L: raise_hand(L, 0),
+    "raise-1": lambda L: raise_hand(L, 1),
+    "sit-0": lambda L: sit(L, 0),
+    "sit-1": lambda L: sit(L, 1),
+    "sit-happy": lambda L: sit(L, 0, "happy"),
 }
-CHAR_POSES["walk-l-0"] = CHAR_POSES["walk-r-0"].flipped()
-CHAR_POSES["walk-l-1"] = CHAR_POSES["walk-r-1"].flipped()
+MIRRORED = {"walk-l-0": "walk-r-0", "walk-l-1": "walk-r-1"}  # 左向きは右向きを裏返す
+
+
+def headband(body, head_pos):
+    """鉢巻きだけの重ね絵（body と同じ大きさ）。額の上に 1 行、結び目の端は頭の後ろ（横向き）か右に出る。
+    輪郭は、体からはみ出した端のまわりにだけ付ける。"""
+    x0, y0, side = head_pos
+    s = Sprite(body.w, body.h)
+    for x in range(12):
+        s.put(x0 + x, y0 + 3, "f" if x in (0, 11) else "d")
+    tails = [(-1, 3, "d"), (-2, 2, "d"), (-2, 4, "f")] if side else [(12, 3, "d"), (13, 2, "d"), (13, 4, "f")]
+    for dx, dy, k in tails:
+        s.put(x0 + dx, y0 + dy, k)
+    add = []
+    for y in range(s.h):
+        for x in range(s.w):
+            if s.px[y][x] is not None or body.px[y][x] is not None:
+                continue
+            if any(0 <= x + dx < s.w and 0 <= y + dy < s.h and s.px[y + dy][x + dx] in ("d", "f")
+                   for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                add.append((x, y))
+    for x, y in add:
+        s.px[y][x] = "o"
+    return s
+
+
+# 作業中の炎（effort max）。座った人の左右に 2 つ、2 コマ
+FLAME = [grid("""
+..y...
+..y...
+.yy...
+.yYy..
+.yYy..
+yYtYy.
+yYttYy
+yjttjy
+.jjjj.
+..jj..
+"""), grid("""
+...y..
+..yy..
+..yy..
+.yYy..
+.yYYy.
+.yYtYy
+yYttYy
+yjttjy
+.jjjj.
+..jj..
+""")]
+
+
+def flame(frame):
+    s = Sprite(28, 10).blit(FLAME[frame], 0, 0)
+    right = Sprite(6, 10).blit(FLAME[1 - frame], 0, 0).flipped()
+    for y in range(10):
+        for x in range(6):
+            if right.px[y][x] is not None:
+                s.put(22 + x, y, right.px[y][x])
+    return s
 
 
 # ---- 家具 ----
@@ -634,12 +752,30 @@ def save(im, name):
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     n = 0
-    for hair, (h, H, j) in HAIRS.items():
-        for shirt, (c, C) in SHIRTS.items():
-            p = pal({"h": h, "H": H, "j": j, "c": c, "C": C})
-            for pose, sp in CHAR_POSES.items():
-                save(sp.image(p), f"char/{hair}-{shirt}-{pose}")
-                n += 1
+    import shutil
+    for sub in ("char", "band"):
+        shutil.rmtree(OUT / sub, ignore_errors=True)
+    for name, look in LOOKS.items():
+        (h, H, j), (c, C) = look["hair"], look["shirt"]
+        p = pal({"h": h, "H": H, "j": j, "c": c, "C": C})
+        for pose, fn in POSES.items():
+            save(fn(look)[0].image(p), f"char/{name}-{pose}")
+            n += 1
+        for pose, src in MIRRORED.items():
+            save(POSES[src](look)[0].flipped().image(p), f"char/{name}-{pose}")
+            n += 1
+    plain = LOOKS["other"]  # 鉢巻きの輪郭は、小物のない体を基準にする
+    for color, (d, f) in BANDS.items():
+        p = pal({"d": d, "f": f})
+        for pose, fn in POSES.items():
+            save(headband(*fn(plain)).image(p), f"band/{color}-{pose}")
+            n += 1
+        for pose, src in MIRRORED.items():
+            save(headband(*POSES[src](plain)).flipped().image(p), f"band/{color}-{pose}")
+            n += 1
+    for i in range(2):
+        save(flame(i).image(pal()), f"fx-flame-{i}")
+        n += 1
     p = pal()
     furniture = {
         "desk-l": desk_end(False), "desk-m": desk_mid(), "desk-r": desk_end(True),
@@ -673,28 +809,38 @@ def main():
 
 
 def preview(p, furniture):
-    """確認用: 1 人ぶんのポーズ一覧、家具、部屋の見本を 1 枚に並べる（絵の 1 ピクセル = 4px）。"""
-    var = pal({"h": HAIRS["brown"][0], "H": HAIRS["brown"][1], "j": HAIRS["brown"][2],
-               "c": SHIRTS["orange"][0], "C": SHIRTS["orange"][1]})
-    var2 = pal({"h": HAIRS["navy"][0], "H": HAIRS["navy"][1], "j": HAIRS["navy"][2],
-                "c": SHIRTS["teal"][0], "C": SHIRTS["teal"][1]})
-    var3 = pal({"h": HAIRS["blond"][0], "H": HAIRS["blond"][1], "j": HAIRS["blond"][2],
-                "c": SHIRTS["violet"][0], "C": SHIRTS["violet"][1]})
-    sheet = Image.new("RGBA", (260, 240), rgb("#2a2d36"))
+    """確認用（絵の 1 ピクセル = 4px）: 見た目 6 種と鉢巻き、ポーズ一覧、家具、部屋の見本。"""
+    def char(name, pose, band=None):
+        (h, H, j), (c, C) = LOOKS[name]["hair"], LOOKS[name]["shirt"]
+        im = POSES[pose](LOOKS[name])[0].image(pal({"h": h, "H": H, "j": j, "c": c, "C": C}))
+        if band:
+            d, f = BANDS[band]
+            im.alpha_composite(headband(*POSES[pose](LOOKS["other"])).image(pal({"d": d, "f": f})))
+        return im
+
+    sheet = Image.new("RGBA", (290, 300), rgb("#2a2d36"))
     x = 4
-    for pose, sp in CHAR_POSES.items():
-        sheet.alpha_composite(sp.image(var), (x, 4))
+    for name in LOOKS:  # 1 行目: opus・sonnet・haiku・fable・codex・ほか
+        sheet.alpha_composite(char(name, "stand"), (x, 4))
+        x += 20
+    x += 8
+    for band in (None, "blue", "white", "red"):  # effort: low・medium・high・xhigh/max
+        sheet.alpha_composite(char("claude-sonnet", "stand", band), (x, 4))
+        x += 20
+    x = 4
+    for pose in POSES:  # 2 行目: ポーズ（opus・赤）
+        sheet.alpha_composite(char("claude-opus", pose, "red"), (x, 32))
         x += 20
     x = 4
     free_chair = furniture["chair"].image(pal({"x": "#5fbf8a", "X": "#3f9a6a", "z": "#9fe6bd"}))
     for name in ("bookshelf", "whiteboard", "window", "door", "plant", "chair", "chair-free", "laptop", "hire-sign",
                  "clock-face", "bubble-alert", "bubble-ask", "bubble-done"):
         im = free_chair if name == "chair-free" else furniture[name].image(p)
-        sheet.alpha_composite(im, (x, 32))
+        sheet.alpha_composite(im, (x, 62))
         x += im.width + 4
 
     # 部屋の見本（scene.js の寸法の下書き）: 幅 200、高さ 140。
-    # 壁は高さ 36、奥の通路は足が y=50、机の奥の縁が y=74、手前の床は足が y=100..132
+    # 壁は高さ 36、奥の通路は足が y=54、机の奥の縁が y=74、手前の床は足が y=104..132
     room = Image.new("RGBA", (200, 140), (0, 0, 0, 0))
     room.alpha_composite(floor_texture().crop((0, 0, 200, 104)), (0, 36))
     room.alpha_composite(wall_texture().crop((0, 0, 200, 36)), (0, 0))
@@ -703,16 +849,19 @@ def preview(p, furniture):
         room.alpha_composite(layer.image(p), (167, 8))
     room.alpha_composite(furniture["whiteboard"].image(p), (62, 7))
     room.alpha_composite(furniture["bookshelf"].image(p), (6, 14))
-    put = lambda im, cx, feet: room.alpha_composite(im, (cx - 9, feet - 21))
-    put(CHAR_POSES["walk-r-0"].image(var2), 110, 50)  # 奥の通路を歩く人
-    put(CHAR_POSES["read-0"].image(var3), 22, 62)  # 本棚の前で読む人
+    put = lambda im, cx, feet: room.alpha_composite(im, (cx - 9, feet - 23))
+    put(char("codex", "walk-r-0", "white"), 110, 54)  # 奥の通路を歩く Codex（high）
+    put(char("claude-haiku", "read-0", "blue"), 22, 66)  # 本棚の前で読む haiku（medium）
     desk_x, back, seats = 48, 74, 3  # 机の左端、机の奥の縁、席の数（最後は空席）
-    who = {0: (CHAR_POSES["sit-0"], var, "hands-a"), 1: (CHAR_POSES["sit-happy"], var3, "hands-rest")}
+    who = {0: ("claude-opus", "sit-0", "red", "hands-a"), 1: ("claude-fable", "sit-happy", None, "hands-rest")}
     for i in range(seats):
         cx = desk_x + 8 + i * 24 + 12
+        if i == 0:  # max で作業中: 炎
+            room.alpha_composite(flame(0).image(p), (cx - 14, back - 15))
         room.alpha_composite(furniture["chair"].image(p) if i in who else free_chair, (cx - 7, back - 9))
         if i in who:
-            room.alpha_composite(who[i][0].image(who[i][1]), (cx - 9, back - 16))
+            name, pose, band, _ = who[i]
+            room.alpha_composite(char(name, pose, band), (cx - 9, back - 18))
         else:
             room.alpha_composite(furniture["hire-sign"].image(p), (cx - 5, back - 24))  # 空いた席の「＋」
     room.alpha_composite(furniture["desk-l"].image(p), (desk_x, back))
@@ -723,12 +872,12 @@ def preview(p, furniture):
         seg = desk_x + 8 + i * 24
         if i in who:  # 空いた席にはノート PC を置かない
             room.alpha_composite(furniture["laptop"].image(p), (seg + 7, back - 5))
-            room.alpha_composite(furniture[who[i][2]].image(p), (seg, back))
-    room.alpha_composite(furniture["bubble-done"].image(p), (desk_x + 8 + 24 + 12, back - 30))
-    put(CHAR_POSES["raise-0"].image(var2), 150, 118)  # 手を挙げて待つ人
-    room.alpha_composite(furniture["bubble-alert"].image(p), (152, 118 - 21 - 13))
+            room.alpha_composite(furniture[who[i][3]].image(p), (seg, back))
+    room.alpha_composite(furniture["bubble-done"].image(p), (desk_x + 8 + 24 + 6, back - 31))
+    put(char("claude-sonnet", "raise-0", "white"), 150, 118)  # 手を挙げて待つ sonnet
+    room.alpha_composite(furniture["bubble-ask"].image(p), (144, 118 - 36))
     room.alpha_composite(furniture["plant"].image(p), (182, 78))
-    sheet.alpha_composite(room, (4, 80))
+    sheet.alpha_composite(room, (4, 100))
     PREVIEW.parent.mkdir(parents=True, exist_ok=True)
     sheet.resize((sheet.width * SCALE, sheet.height * SCALE), Image.NEAREST).save(PREVIEW)
     print(f"preview -> {PREVIEW.relative_to(ROOT)}")

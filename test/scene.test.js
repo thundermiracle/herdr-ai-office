@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   BACK, DESK_X, LANE_Y, LEFT_PASS, MIN_ROOM_W, READ, SEAT_W,
-  Office, behaviorOf, clockHands, drawables, layoutRooms, looksOf, planPath, roomOf, roomsOf, shirtOf,
+  Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride, drawables, layoutRooms, lookOf,
+  modelFamily, modelLabel, parseCodexConfig, planPath, roomOf, roomsOf,
 } from "../mods/ai-office/scene.js";
 
 // 毎回同じになる乱数
@@ -18,10 +19,11 @@ function seeded(seed = 1) {
 const space = (id, extra = {}) => ({ id, name: id, active: false, machine: null, ...extra });
 const agent = (address, spaceId, status = "idle", app = "claude-code") => ({ address, space: spaceId, status, app });
 
-function world(statuses, { acts = {}, kinds = {} } = {}) {
+function world(statuses, { acts = {}, kinds = {}, models = {} } = {}) {
   const agents = Object.entries(statuses).map(([address, status]) => agent(address, "sp1", status));
   const rooms = roomsOf([space("sp1")], agents);
-  const info = new Map(agents.map((a) => [a.address, { status: a.status, app: a.app, act: acts[a.address], kind: kinds[a.address] }]));
+  const info = new Map(agents.map((a) => [a.address,
+    { status: a.status, app: a.app, act: acts[a.address], kind: kinds[a.address], ...models[a.address] }]));
   return { rooms, info };
 }
 
@@ -43,11 +45,52 @@ describe("behaviorOf", () => {
 });
 
 describe("looks", () => {
-  test("shirt follows the agent kind, hair is stable per address", () => {
-    expect(shirtOf("claude-code")).toBe("orange");
-    expect(shirtOf("codex")).toBe("teal");
-    expect(shirtOf("pi")).toBe("violet");
-    expect(looksOf("t1", "codex")).toEqual(looksOf("t1", "codex"));
+  test("model ids map to a family, including [1m] and Bedrock ids", () => {
+    expect(modelFamily("claude-opus-5-5")).toBe("opus");
+    expect(modelFamily("claude-opus-5-5[1m]")).toBe("opus");
+    expect(modelFamily("us.anthropic.claude-sonnet-5-5-v1:0")).toBe("sonnet");
+    expect(modelFamily("claude-fable-5-2")).toBe("fable");
+    expect(modelFamily("claude-haiku-5-5")).toBe("haiku");
+    expect(modelFamily("gpt-6.1-sol")).toBeNull();
+    expect(modelFamily(null)).toBeNull();
+  });
+
+  test("model labels read like people say them", () => {
+    expect(modelLabel("claude-opus-5-5")).toBe("Opus 5.5");
+    expect(modelLabel("claude-fable-5-2[1m]")).toBe("Fable 5.2");
+    expect(modelLabel("gpt-6.1-sol")).toBe("gpt-6.1-sol");
+    expect(modelLabel(null)).toBeNull();
+  });
+
+  test("one look per AI, told apart by model; effort is a headband", () => {
+    expect(lookOf("claude-code", "claude-opus-5-5")).toBe("claude-opus");
+    expect(lookOf("claude-code", "claude-haiku-5-5")).toBe("claude-haiku");
+    expect(lookOf("claude-code", null)).toBe("claude-sonnet");
+    expect(lookOf("codex", "gpt-6.1-sol")).toBe("codex");
+    expect(lookOf("kiro", null)).toBe("other");
+    expect([null, "low", "medium", "high", "xhigh", "max"].map(bandOf)).toEqual([null, null, "blue", "white", "red", "red"]);
+  });
+
+  test("argv and Codex config are read as fallbacks", () => {
+    expect(argvValue(["--effort", "max", "--model", "claude-opus-5-5"], ["--model"])).toBe("claude-opus-5-5");
+    expect(argvValue(["--model=claude-haiku-5-5"], ["--model"])).toBe("claude-haiku-5-5");
+    expect(argvValue(["--no-daemon"], ["-m", "--model"])).toBeNull();
+    expect(codexOverride(["-c", 'model_reasoning_effort="high"'], "model_reasoning_effort")).toBe("high");
+    expect(parseCodexConfig('model = "gpt-6.1-sol"\nmodel_reasoning_effort = "max"\n[profiles.x]\nmodel = "other"\n'))
+      .toEqual({ model: "gpt-6.1-sol", effort: "max" });
+  });
+
+  test("agentModel: cache first, then argv, then Codex defaults", () => {
+    const codexDefaults = { model: "gpt-6.1-sol", effort: "max" };
+    expect(agentModel({ app: "claude-code", argv: ["--model", "claude-opus-5-5", "--effort", "xhigh"],
+      cached: { model: "claude-fable-5-2", effort: "high" } })).toEqual({ model: "claude-fable-5-2", effort: "high" });
+    expect(agentModel({ app: "claude-code", argv: ["--model", "claude-opus-5-5", "--effort", "xhigh"], cached: null }))
+      .toEqual({ model: "claude-opus-5-5", effort: "xhigh" });
+    expect(agentModel({ app: "claude-code", argv: [], cached: { model: null, effort: null }, codexDefaults }))
+      .toEqual({ model: null, effort: null });
+    expect(agentModel({ app: "codex", argv: ["--no-daemon"], codexDefaults })).toEqual(codexDefaults);
+    expect(agentModel({ app: "codex", argv: ["-m", "gpt-6.1-mini", "-c", "model_reasoning_effort=low"], codexDefaults }))
+      .toEqual({ model: "gpt-6.1-mini", effort: "low" });
   });
 });
 
@@ -205,6 +248,26 @@ describe("Office", () => {
 });
 
 describe("drawables", () => {
+  test("the look follows the model, the headband the effort, and max effort burns while typing", () => {
+    const office = new Office(seeded(10));
+    const w = world({ t1: "working", t2: "working", t3: "idle" }, {
+      models: { t1: { model: "claude-opus-5-5", effort: "max" }, t2: { model: "claude-haiku-5-5", effort: "low" },
+        t3: { model: "claude-fable-5-2", effort: "high" } },
+    });
+    office.sync(w.rooms, w.info);
+    const d = drawables(w.rooms[0], office);
+    const get = (id) => d.find((x) => x.id === id);
+    expect(get("char-t1").img).toMatch(/^char\/claude-opus-sit-[01]$/);
+    expect(get("char-t1").over).toBe(get("char-t1").img.replace(/^char\/claude-opus-/, "band/red-")); // 同じポーズの鉢巻き
+    expect(get("flame-t1").img).toMatch(/^fx-flame-[01]$/);
+    expect(get("char-t2").img).toMatch(/^char\/claude-haiku-sit-[01]$/);
+    expect(get("char-t2").over).toBeNull(); // low は鉢巻きなし
+    expect(get("flame-t2")).toBeUndefined();
+    expect(get("char-t3").img).toMatch(/^char\/claude-fable-(stand|blink)$/);
+    expect(get("char-t3").over).toMatch(/^band\/white-(stand|blink)$/);
+    expect(get("char-t1").tip).toContain("Opus 5.5 · max");
+  });
+
   test("painter's order: chair, seated agent, desk, laptop, hands; bubbles on top", () => {
     const office = new Office(seeded(6));
     const w = world({ t1: "working", t2: "done" });

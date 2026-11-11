@@ -3,23 +3,37 @@
 // 絵は 4 倍に拡大済みの PNG で、絵の 1 ピクセルを SCALE（2）論理 px で描く（にじまない大きさ）。
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, agents, terminals, theme, window, run, openOverlay, pickFolder } from "herdr";
-import { SCALE, WALL_H, TICK_ACTIVE, TICK_INACTIVE, Office, roomsOf, layoutRooms, drawables, clockHands } from "./scene.js";
+import { spaces, agents, terminals, theme, window, run, openOverlay, pickFolder, home, readTextFile } from "herdr";
+import {
+  SCALE, WALL_H, TICK_ACTIVE, TICK_INACTIVE, Office, roomsOf, layoutRooms, drawables, clockHands,
+  agentModel, parseCodexConfig,
+} from "./scene.js";
 
 const IMG = "mods/ai-office/img";
 const px = (v) => v * SCALE;
 const FLOOR_W = 512; // floor.png / wall.png の幅（art px）
 const WIDE = 260; // これ以上の幅の部屋にはホワイトボードも掛ける
+const META_MS = 10000; // model と effort を読み直す間隔
+const LEGEND = "見た目: 眼鏡とネクタイ = opus、なし = sonnet、若葉 = haiku、星のピン = fable、ヘッドホン = Codex"
+  + "　鉢巻き: なし = low、青 = medium、白 = high、赤 = xhigh、赤と炎 = max";
 
-/** herdr のデータを集める: スペースごとの部屋と、エージェントごとの状態。 */
-function gather() {
+/**
+ * herdr のデータを集める: スペースごとの部屋と、エージェントごとの状態・model・effort。
+ * meta: Claude のセッション ID → { model, effort }（loadMeta が読む）、codexDefaults: ~/.codex/config.toml の既定。
+ */
+function gather(meta, codexDefaults) {
   const ag = agents();
   const terms = new Map(terminals().map((t) => [t.address, t]));
   const info = new Map(ag.map((a) => {
     const t = terms.get(a.address);
+    const app = a.app ?? a.program?.key;
+    const sid = t?.labels?.["resume.id"]; // agent-resume が付ける Claude のセッション ID
+    const { model, effort } = agentModel({ app, argv: t?.foreground?.argv, cached: sid ? meta.get(sid) : null, codexDefaults });
     return [a.address, {
       status: a.status,
-      app: a.app ?? a.program?.key,
+      app,
+      model,
+      effort,
       kind: t?.report?.kind ?? t?.status?.kind ?? null, // blocked のとき: permission / question
       act: t?.labels?.["office.act"] || null, // フックが付ける（本棚へ行くか）
       name: a.program?.name ?? a.app ?? "agent",
@@ -29,13 +43,52 @@ function gather() {
   return { rooms: roomsOf(spaces(), ag), info };
 }
 
+// ファイルを読む。ないとき・読めないときは null
+async function readOrNull(path) {
+  try {
+    return await readTextFile(path);
+  } catch {
+    return null;
+  }
+}
+
 export default class AiOffice extends View {
   init(_props, cx) {
     this.office = new Office();
     this.width = 900; // on_size_change が来るまでの仮の幅（論理 px）
     this.last = Date.now();
     this.sig = "";
+    this.meta = new Map();
+    this.codexDefaults = {};
+    this.loadMeta(cx);
+    cx.timer.every(META_MS, (cx) => this.loadMeta(cx));
     this.schedule(cx);
+  }
+
+  // model と effort: Claude は effort-recorder（statusLine）がセッションごとに書くキャッシュ
+  // （~/.cache/claude-model/<id>、~/.cache/claude-effort/<id>）、Codex は ~/.codex/config.toml の既定。
+  // コマ送りのたびには読まない。変わったときだけ描き直す
+  loadMeta(cx) {
+    cx.spawn(async (cx) => {
+      const base = home();
+      const sids = new Set(terminals().map((t) => t.labels?.["resume.id"]).filter((id) => /^[0-9a-f-]{36}$/i.test(id ?? "")));
+      let changed = false;
+      for (const sid of sids) {
+        const model = (await readOrNull(`${base}/.cache/claude-model/${sid}`))?.trim() || null;
+        const effort = (await readOrNull(`${base}/.cache/claude-effort/${sid}`))?.trim() || null;
+        const old = this.meta.get(sid);
+        if (old?.model !== model || old?.effort !== effort) {
+          this.meta.set(sid, { model, effort });
+          changed = true;
+        }
+      }
+      const codex = parseCodexConfig(await readOrNull(`${base}/.codex/config.toml`));
+      if (codex.model !== this.codexDefaults.model || codex.effort !== this.codexDefaults.effort) {
+        this.codexDefaults = codex;
+        changed = true;
+      }
+      if (changed) cx.notify();
+    });
   }
 
   // コマ送り: 1 本のタイマーで全員の位置とコマを進める。ネイティブの loop / transition は
@@ -45,12 +98,12 @@ export default class AiOffice extends View {
       const now = Date.now();
       const dt = Math.min(now - this.last, 1000); // スリープ明けに瞬間移動しないよう
       this.last = now;
-      const { rooms, info } = gather();
+      const { rooms, info } = gather(this.meta, this.codexDefaults);
       this.office.sync(rooms, info);
       this.office.tick(dt);
       // 描く絵（名前と位置）が前のコマと同じなら描き直さない
       const { h, m } = clockHands(new Date()); // 時計の針が動いたときも描き直す
-      const sig = `${h}:${m}|` + rooms.map((r) => drawables(r, this.office).map((d) => `${d.img}@${d.x},${d.y}`).join(";")).join("|");
+      const sig = `${h}:${m}|` + rooms.map((r) => drawables(r, this.office).map((d) => `${d.img}+${d.over}@${d.x},${d.y}`).join(";")).join("|");
       if (sig !== this.sig) {
         this.sig = sig;
         cx.notify();
@@ -60,7 +113,16 @@ export default class AiOffice extends View {
   }
 
   sprite(d) {
+    if (d.over) return this.box(d).child(image(`${IMG}/${d.img}.png`).size_full()).child(this.overlay(d));
     return image(`${IMG}/${d.img}.png`).absolute().left(px(d.x)).top(px(d.y)).w(px(d.w)).h(px(d.h));
+  }
+
+  box(d) {
+    return div().absolute().left(px(d.x)).top(px(d.y)).w(px(d.w)).h(px(d.h));
+  }
+
+  overlay(d) {
+    return image(`${IMG}/${d.over}.png`).absolute().left(0).top(0).size_full();
   }
 
   // クリックできる絵。窓（mod.open）で開いたときに押した所から窓が動きださないよう、押下は止める
@@ -70,7 +132,8 @@ export default class AiOffice extends View {
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => onClick(cx))
       .when(Boolean(tip), (el) => el.tooltip(tip))
-      .child(image(`${IMG}/${d.img}.png`).size_full());
+      .child(image(`${IMG}/${d.img}.png`).size_full())
+      .when(Boolean(d.over), (el) => el.child(this.overlay(d)));
   }
 
   // scene.js の click: { type: "focus", terminal } / { type: "hire", space, machine }
@@ -137,7 +200,7 @@ export default class AiOffice extends View {
 
   render() {
     const t = theme();
-    const { rooms, info } = gather();
+    const { rooms, info } = gather(this.meta, this.codexDefaults);
     this.office.sync(rooms, info);
     const office = layoutRooms(rooms, this.width / SCALE);
     const counts = { working: 0, blocked: 0, done: 0, idle: 0 };
@@ -151,7 +214,9 @@ export default class AiOffice extends View {
       })
       .child(h_flex().h(32).flex_none().px(14).gap(14).items_center().text_size(12).text_color(t.muted)
         .child(div().font_semibold().text_color(t.foreground).child("AI Office"))
-        .child(div().child(`作業中 ${counts.working} · 待ち ${counts.blocked} · 完了 ${counts.done} · 待機 ${counts.idle}`)))
+        .child(div().child(`作業中 ${counts.working} · 待ち ${counts.blocked} · 完了 ${counts.done} · 待機 ${counts.idle}`))
+        .child(div().id("legend").ml_auto().px(6).rounded(4).text_color(t.dim).hover((s) => s.text_color(t.foreground))
+          .tooltip(LEGEND).child("凡例")))
       .child(div().id("scroll").flex_1().min_h(0).overflow_y_scroll()
         .child(div().relative().w(px(office.w)).h(px(office.h))
           .children(office.rooms.map((r) => (r.newRoom ? this.newRoom(r) : this.room(r, t))))));
