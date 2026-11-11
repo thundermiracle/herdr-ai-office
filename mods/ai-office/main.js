@@ -325,6 +325,9 @@ export default class AiOffice extends View {
       openOverlay({ mod: "ai-office-skills", kind: "popup", width: 400, height: 520,
         props: { title: "資料室", count: skills.length, groups } });
     }
+    if (click.type === "ask") {
+      openOverlay({ mod: "ai-office-ask", kind: "popup", width: 440, height: 520, props: { terminal: click.terminal, name: click.name } });
+    }
     if (click.type === "hire") {
       openOverlay({ mod: "ai-office-hire", kind: "popup", width: 240, height: 320, props: { space: click.space, machine: click.machine } });
     }
@@ -356,13 +359,21 @@ export default class AiOffice extends View {
     return ["clock-face", `clock-m-${m}`, `clock-h-${h}`].map((img) => this.sprite({ img, x, y, w: 13, h: 13 }));
   }
 
-  // 壁の名札（スペースの名前）。左の仕切りの右から、窓（広い部屋ではホワイトボード）の手前まで伸ばせる
+  // 壁の名札（スペースの名前）。左の仕切りの右から、窓（広い部屋ではホワイトボード）の手前まで伸ばせる。
+  // 左クリックでそのスペースを選び、herdr のスペースのメニュー（名前を変える・閉じる、git ならワークツリー）を出す。
+  // 右クリックはメニューだけ。閉じるときは herdr が確かめる（部屋のエージェントも終わる）
   plate(room) {
     const text = room.machine ? `${room.machine}: ${room.name}` : room.name;
     const right = room.w >= WIDE ? room.w - 116 : room.w - 76;
+    const menu = () => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "space", target: { id: room.id } } });
     return div().id(`plate-${room.id}`).absolute().left(px(room.ox + 10)).top(px(room.oy + 5)).h(px(12)).max_w(px(right - 14))
       .cursor_pointer().on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-      .on_click(() => run("space.select", { id: room.id }))
+      .on_click(() => {
+        run("space.select", { id: room.id });
+        menu();
+      })
+      .on_mouse_down("right", () => menu())
+      .tooltip("クリック: このスペースを選んで、メニュー（名前を変える・閉じる）")
       .px(8).flex().items_center().rounded(3).border(2).border_color("#5b3a2c").bg(room.active ? "#c58a55" : "#a8774c")
       .text_size(12).font_semibold().text_color("#fff4dc").whitespace_nowrap().text_ellipsis().overflow_hidden()
       .child(text);

@@ -5,12 +5,19 @@
 #   skill:<名前>: read に加えて office.skill=<名前>（本棚でその skill の本を読み、名前の札が出る）
 #   skills:<名前>: working（タイピング）のまま、20 秒ごとにその skill を使う（office.skill_at を変える。
 #                  フックが本物の Skill ツールで書くのと同じ出来事で、資料室へ取りに行って読み、戻ってくる）
-#   ask:   blocked（質問）、blocked: blocked（許可待ち）
+#   ask:   質問（選択肢の画面を出して、答えを受け取る。scripts/fake-question.py）、blocked: 許可待ち
 #   cycle: working → skill:herdr → read → ask → done → idle を 8 秒ずつ繰り返す
 #   app:   報告するエージェントの名前（オフィスの服の色: claude を含むと橙、codex を含むと青緑）
 # 状態は前に出ているプログラムの報告だけが残るので、Ctrl-C まで前で待ち続ける。
 mode=${1:-cycle}
 app=${2:-fake}
+shift 2 2>/dev/null || shift $#
+
+# 質問役（ask）は、Claude の選択式に似た画面を出して ↑↓・Enter で答えを受け取る（scripts/fake-question.py）。
+# 残りの引数（--model など）もそのまま渡す（オフィスは起動引数から model と effort を読む）
+if [ "$mode" = ask ]; then
+  exec python3 "$(dirname "$0")/fake-question.py" "$app" "$@"
+fi
 
 report() { printf '\033]7501;state=%s:app=%s%s\033\\' "$1" "$app" "$2"; }
 # office.act と office.skill（フック hooks/claude-office-act.sh と同じラベル）

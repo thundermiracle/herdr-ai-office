@@ -103,7 +103,8 @@ skill を使うと（Claude の Skill ツール、または `/名前` で始ま�
 |---|---|
 | キャラクター | そのエージェントを表示（`agent.focus`。`ai-office` レイアウトなら右に出る） |
 | 空いた椅子・その席のノート PC | 「雇う」ポップアップ。選んだエージェントを、その部屋のスペースの新しいタブで起動 |
-| 壁の名札 | そのスペースへ（`space.select`） |
+| 壁の名札 | そのスペースを選んで、herdr のスペースのメニュー（名前を変える・閉じる・ワークツリー）。右クリックはメニューだけ |
+| 質問の「?」 | 質問と選択肢を出す。選ぶと、その答えをターミナルに送る（↑↓ と Enter。送る直前に画面を読み直して確かめる） |
 | 資料室の本棚 | 使える skill の一覧。その中の skill をクリックすると中身 |
 | 空き部屋（「+ 部屋」のドア） | フォルダを選んで、新しいスペース（部屋）を作る（この Mac だけ） |
 
@@ -134,11 +135,12 @@ hooks/register.sh remove   # このフックだけ外す（ほかのフックは
 | `mods/ai-office-toggle/` | タブバーの右隣の「Office」ボタン（`layout.toggle`） |
 | `mods/ai-office-skills/` | 本棚をクリックすると出る、使える skill の一覧 |
 | `mods/ai-office-skill/` | 一覧の skill をクリックすると出る、その skill の中身 |
+| `mods/ai-office-ask/` | 質問の「?」をクリックすると出る、質問と選択肢（`parse.js` が画面から読む） |
 | `layouts/ai-office.json` | オフィスと、選んだエージェントのターミナルを並べたレイアウト |
 | `layouts/main-dots-office.json` | main-dots に「Office」ボタンとオフィスの列を足したレイアウト |
 | `scripts/build-art.py` | ドット絵（文字の格子で描き、4 倍の PNG に書き出す）。`tmp/art-preview.png` に一覧と部屋の見本 |
 | `hooks/` | Claude Code のフックと、その登録・削除 |
-| `scripts/fake-agent.sh`、`scripts/demo.sh` | AI を使わずに状態を報告する偽エージェントと、それを 6 人並べた見本 |
+| `scripts/fake-agent.sh`、`scripts/fake-question.py`、`scripts/demo.sh` | AI を使わずに状態を報告する偽エージェント、選択肢の画面で答えを受け取る偽の質問役、それを 6 人並べた見本 |
 | `scripts/sync.sh` | mod とレイアウトを ~/.config/herdr-app にコピーして `herdr-app check` |
 | `spike/` | 描画方針を決めたときの確認用 mod（アニメ画像・にじみ・アニメの負荷） |
 | `test/` | `bun test`（scene.js）と `test/hook-test.sh`（フック。使い捨てのターミナルで試す） |
@@ -149,6 +151,7 @@ hooks/register.sh remove   # このフックだけ外す（ほかのフックは
 uv run --with pillow scripts/build-art.py   # 絵を作り直す（mods/ai-office/img/ と tmp/art-preview.png）
 bun test                                    # scene.js
 test/hook-test.sh                           # フック
+test/ask-test.sh                            # 質問に答える流れ（偽の質問役で）
 scripts/sync.sh                             # コピーして check（herdr-app は自動で読み直す）
 herdr-app shot tmp/shot.png                 # 今の画面を撮って確かめる
 ```

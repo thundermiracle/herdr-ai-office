@@ -574,8 +574,12 @@ export function drawables(room, office, skills = []) {
       add({ id: `tag-${c.address}`, text: skillShort(reading), color: colorOf(reading), x, y: y - 33, z: 1001 });
     }
     if (c.behavior === "raise" && !c.path.length) {
-      const kind = c.info.kind === "question" ? "bubble-ask" : "bubble-alert";
-      add({ id: `bubble-${c.address}`, img: kind, x: x - 6, y: y - 36 - (Math.floor(ph / 3) % 2), w: 13, h: 14, z: 1000 });
+      // 質問の「?」はクリックで質問と選択肢を出す（ai-office-ask）。許可待ちの「!」は、キャラと同じくターミナルへ
+      const question = c.info.kind === "question";
+      add({ id: `bubble-${c.address}`, img: question ? "bubble-ask" : "bubble-alert", x: x - 6, y: y - 36 - (Math.floor(ph / 3) % 2),
+        w: 13, h: 14, z: 1000, glow: true,
+        click: question ? { type: "ask", terminal: c.address, name: tip } : click,
+        tip: question ? "クリックで質問に答える" : tip });
     }
   }
   return out.sort((a, b) => a.z - b.z);
