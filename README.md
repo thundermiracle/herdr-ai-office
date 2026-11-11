@@ -12,6 +12,25 @@ herdr-app のワークスペースを部屋に、AI エージェントをキャ�
 
 進み具合と、作りながら分かったこと（スパイクの計測など）は [TODO.md](TODO.md)。
 
+## 別の PC で試す
+
+必要なもの: herdr-app（と herdr-core）、`jq`、`rsync`（macOS には最初からある）。テストには `bun`、絵を作り直すには `uv`。
+
+```sh
+gh repo clone thundermiracle/herdr-ai-office ~/Code/herdr-ai-office
+cd ~/Code/herdr-ai-office
+scripts/sync.sh                                     # mod とレイアウトを ~/.config/herdr-app にコピー
+herdr-app do layout.switch --name main-dots-office  # いつもの main-dots に「Office」ボタン（右上）を足したもの
+hooks/register.sh add                               # 任意: 調べ物や skill で資料室へ行かせる Claude Code のフック
+```
+
+- `main-dots-office` は dotfiles（chezmoi）の main-dots を元にしていて、`spaces-dots` mod を使う。dotfiles を入れていない
+  PC では、`herdr-app do layout.switch --name ai-office` か、`herdr-app do mod.open --name ai-office`（浮いた窓）で開く。
+- Claude の model と effort は、dotfiles の effort-recorder（statusLine）と agent-resume（ターミナルの `resume.id` ラベル）が
+  あれば分かる。ない PC では起動引数（`--model`・`--effort`）だけで、それもなければ sonnet の見た目で鉢巻きなし。
+- フックはリポジトリの場所を指すので、clone した場所で `hooks/register.sh add` する。効くのはそのあとに起動した Claude から。
+  やめるときは `hooks/register.sh remove`。
+
 ## 使い方
 
 ```sh
