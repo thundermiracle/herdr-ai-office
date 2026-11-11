@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   BACK, DESK_X, LANE_Y, LEFT_PASS, MIN_ROOM_W, READ, SEAT_W,
-  Office, behaviorOf, drawables, layoutRooms, looksOf, planPath, roomOf, roomsOf, shirtOf,
+  Office, behaviorOf, clockHands, drawables, layoutRooms, looksOf, planPath, roomOf, roomsOf, shirtOf,
 } from "../mods/ai-office/scene.js";
 
 // 毎回同じになる乱数
@@ -241,5 +241,16 @@ describe("drawables", () => {
     expect(d.find((x) => x.id === "laptop-1")).toBeUndefined();
     expect(d.find((x) => x.id === "hire-1")?.img).toBe("hire-sign");
     expect(d.find((x) => x.id === "hire-0")).toBeUndefined();
+  });
+});
+
+describe("clockHands", () => {
+  const at = (h, m) => clockHands(new Date(2026, 10, 11, h, m));
+  test("the hour hand points at the hour (floored), the minute hand moves every 5 minutes", () => {
+    expect(at(0, 0)).toEqual({ h: 0, m: 0 });
+    expect(at(2, 31)).toEqual({ h: 2, m: 6 });
+    expect(at(12, 4)).toEqual({ h: 0, m: 0 });
+    expect(at(12, 5)).toEqual({ h: 0, m: 1 });
+    expect(at(23, 59)).toEqual({ h: 11, m: 11 });
   });
 });

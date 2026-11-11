@@ -438,20 +438,35 @@ aCCCCCCCCCCCCaaCCCCCCCCCCCCa
 aaaaaaaaaaaaaaaaaaaaaaaaaaaa
 """)
 
-# 時計（輪郭は自動にすると斜めが途切れるので、格子に描く）
-CLOCK = grid("""
-...ooooo...
-..oaaaaao..
-.oaaaoaaao.
-oaaaaoaaaao
-oaaaaoaaaao
-oaaaaoooaao
-oaaaaaaaaao
-oaaaaaaaaao
-.oaaaaaaao.
-..oaaaaao..
-...ooooo...
+# 時計の文字盤（13x13、中心は (6, 6)。輪郭は自動にすると斜めが途切れるので、格子に描く）。
+# 針は別の絵（clock_hand）を重ねる。12・3・6・9 時に目盛り
+CLOCK_FACE = grid("""
+....ooooo....
+..ooaanaaoo..
+.oaaaaaaaaao.
+.oaaaaaaaaao.
+oaaaaaaaaaaao
+oaaaaaaaaaaao
+onaaaaaaaaano
+oaaaaaaaaaaao
+oaaaaaaaaaaao
+.oaaaaaaaaao.
+.oaaaaaaaaao.
+..ooaanaaoo..
+....ooooo....
 """)
+
+
+def clock_hand(index, length):
+    """12 方向のうち index 番目（0 が 12 時、時計回り）の針。中心から length ドットの線と、中心の軸。"""
+    import math
+    s = Sprite(13, 13)
+    a = math.radians(index * 30)
+    ex, ey = 6 + length * math.sin(a), 6 - length * math.cos(a)
+    steps = max(abs(round(ex) - 6), abs(round(ey) - 6), 1)
+    for k in range(steps + 1):
+        s.put(round(6 + (ex - 6) * k / steps), round(6 + (ey - 6) * k / steps), "o")
+    return s
 
 DOOR = grid("""
 DDDDDDDDDDDDDDDD
@@ -634,7 +649,7 @@ def main():
         "hire-sign": Sprite(11, 11).blit(HIRE_SIGN, 0, 0),
         "plant": Sprite(12, 17).blit(PLANT, 0, 0).outline(),
         "window": Sprite(28, 16).blit(WINDOW, 0, 0).outline(),
-        "clock": Sprite(11, 11).blit(CLOCK, 0, 0),
+        "clock-face": Sprite(13, 13).blit(CLOCK_FACE, 0, 0),
         "door": Sprite(16, 20).blit(DOOR, 0, 0).outline(),
         "bookshelf": bookshelf(), "whiteboard": whiteboard(),
         "bubble-alert": bubble("alert"), "bubble-ask": bubble("ask"), "bubble-done": bubble("done"),
@@ -642,6 +657,11 @@ def main():
     for name, sp in furniture.items():
         save(sp.image(p), name)
         n += 1
+    # 時計の針: 時針（短い）と分針（長い、5 分ごと）を 12 方向ずつ
+    for i in range(12):
+        save(clock_hand(i, 3).image(p), f"clock-h-{i}")
+        save(clock_hand(i, 5).image(p), f"clock-m-{i}")
+        n += 2
     # 空いた席（雇える席）の椅子は緑
     save(furniture["chair"].image(pal({"x": "#5fbf8a", "X": "#3f9a6a", "z": "#9fe6bd"})), "chair-free")
     n += 1
@@ -668,7 +688,7 @@ def preview(p, furniture):
     x = 4
     free_chair = furniture["chair"].image(pal({"x": "#5fbf8a", "X": "#3f9a6a", "z": "#9fe6bd"}))
     for name in ("bookshelf", "whiteboard", "window", "door", "plant", "chair", "chair-free", "laptop", "hire-sign",
-                 "clock", "bubble-alert", "bubble-ask", "bubble-done"):
+                 "clock-face", "bubble-alert", "bubble-ask", "bubble-done"):
         im = free_chair if name == "chair-free" else furniture[name].image(p)
         sheet.alpha_composite(im, (x, 32))
         x += im.width + 4
@@ -679,7 +699,8 @@ def preview(p, furniture):
     room.alpha_composite(floor_texture().crop((0, 0, 200, 104)), (0, 36))
     room.alpha_composite(wall_texture().crop((0, 0, 200, 36)), (0, 0))
     room.alpha_composite(furniture["window"].image(p), (128, 6))
-    room.alpha_composite(furniture["clock"].image(p), (168, 9))
+    for layer in (furniture["clock-face"], clock_hand(10, 3), clock_hand(2, 5)):  # 10:10
+        room.alpha_composite(layer.image(p), (167, 8))
     room.alpha_composite(furniture["whiteboard"].image(p), (62, 7))
     room.alpha_composite(furniture["bookshelf"].image(p), (6, 14))
     put = lambda im, cx, feet: room.alpha_composite(im, (cx - 9, feet - 21))

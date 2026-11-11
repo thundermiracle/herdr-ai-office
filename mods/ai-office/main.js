@@ -4,7 +4,7 @@
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { spaces, agents, terminals, theme, window, run, openOverlay, pickFolder } from "herdr";
-import { SCALE, WALL_H, TICK_ACTIVE, TICK_INACTIVE, Office, roomsOf, layoutRooms, drawables } from "./scene.js";
+import { SCALE, WALL_H, TICK_ACTIVE, TICK_INACTIVE, Office, roomsOf, layoutRooms, drawables, clockHands } from "./scene.js";
 
 const IMG = "mods/ai-office/img";
 const px = (v) => v * SCALE;
@@ -49,7 +49,8 @@ export default class AiOffice extends View {
       this.office.sync(rooms, info);
       this.office.tick(dt);
       // 描く絵（名前と位置）が前のコマと同じなら描き直さない
-      const sig = rooms.map((r) => drawables(r, this.office).map((d) => `${d.img}@${d.x},${d.y}`).join(";")).join("|");
+      const { h, m } = clockHands(new Date()); // 時計の針が動いたときも描き直す
+      const sig = `${h}:${m}|` + rooms.map((r) => drawables(r, this.office).map((d) => `${d.img}@${d.x},${d.y}`).join(";")).join("|");
       if (sig !== this.sig) {
         this.sig = sig;
         cx.notify();
@@ -84,6 +85,12 @@ export default class AiOffice extends View {
     return d.click ? this.button(`${room.id}-${d.id}`, d, () => this.act(d.click), d.tip) : this.sprite(d);
   }
 
+  // 壁時計（今の時刻。文字盤に時針と分針を重ねる）
+  clock(x, y) {
+    const { h, m } = clockHands(new Date());
+    return ["clock-face", `clock-m-${m}`, `clock-h-${h}`].map((img) => this.sprite({ img, x, y, w: 13, h: 13 }));
+  }
+
   // 壁の名札（スペースの名前）。ホワイトボードは部屋が広いときだけ置くので、名札はそこまで伸ばせる
   plate(room) {
     const text = room.machine ? `${room.machine}: ${room.name}` : room.name;
@@ -107,7 +114,7 @@ export default class AiOffice extends View {
       .children(back)
       .when(room.w >= WIDE, (el) => el.child(this.sprite({ img: "whiteboard", x: room.w - 112, y: 7, w: 30, h: 18 })))
       .child(this.sprite({ img: "window", x: room.w - 72, y: 6, w: 28, h: 16 }))
-      .child(this.sprite({ img: "clock", x: room.w - 32, y: 9, w: 11, h: 11 }))
+      .children(this.clock(room.w - 33, 8))
       .child(this.plate(room))
       .children(drawables(room, this.office).map((d) => this.item(room, d)));
   }

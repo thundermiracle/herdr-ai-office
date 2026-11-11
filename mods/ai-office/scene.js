@@ -253,6 +253,14 @@ export class Office {
   }
 }
 
+/**
+ * 壁時計の針の向き（12 方向のどれか）。時針は時の数だけで決め（切り捨て。2:31 でも 2 時を指す）、
+ * 分針は 5 分ごと。絵は img/clock-h-<h>.png と img/clock-m-<m>.png。
+ */
+export function clockHands(date) {
+  return { h: date.getHours() % 12, m: Math.floor(date.getMinutes() / 5) };
+}
+
 /** 今のコマが動きを含むか（含まなければ tick しても絵は変わらない）。 */
 export function animating(office) {
   for (const c of office.chars.values()) {
