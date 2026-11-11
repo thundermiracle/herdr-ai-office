@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
-  BACK, DESK_X, LANE_Y, LEFT_PASS, MIN_ROOM_W, READ, SEAT_W,
-  Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride, drawables, layoutRooms, lookOf,
+  BACK, CORRIDOR_Y, DESK_X, HALL_W, LANE_Y, LEFT_PASS, LIBRARY, MIN_ROOM_W, PART_END, ROOM_H, SEAT_W,
+  Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride, drawables, floorDrawables, layoutFloor, lookOf,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
 } from "../mods/ai-office/scene.js";
 
@@ -112,13 +112,20 @@ describe("rooms", () => {
     expect(rooms[1].seats.map((s) => s.agent)).toEqual(["t2", null]);
   });
 
-  test("rooms wrap to the next row and the new-room lot comes last", () => {
-    const rooms = roomsOf([space("a"), space("b"), space("c")], []);
-    const { rooms: placed, h } = layoutRooms(rooms, 450);
-    expect(placed.map((r) => r.id)).toEqual(["a", "b", "c", "new-room"]);
-    expect(placed[0].oy).toBe(placed[1].oy);
-    expect(placed[2].oy).toBeGreaterThan(placed[1].oy);
-    expect(h).toBeGreaterThan(placed[2].oy + placed[2].h);
+  test("one floor: rooms side by side right of the hallway, rows squared off, the empty room last", () => {
+    const rooms = roomsOf([space("a"), space("b"), space("c")], [agent("t1", "a"), agent("t2", "a"), agent("t3", "a")]);
+    const floor = layoutFloor(rooms, HALL_W + 2 * MIN_ROOM_W + 40);
+    expect(floor.rooms.map((r) => r.id)).toEqual(["a", "b", "c", "new-room"]);
+    const [a, b, c, lot] = floor.rooms;
+    expect(a.ox).toBe(HALL_W); // 廊下のすぐ右
+    expect(b.ox).toBe(a.ox + a.w); // すき間なし
+    expect(c.oy).toBe(ROOM_H); // 入らなければ次の列
+    expect(c.ox).toBe(HALL_W);
+    expect(lot.oy).toBe(ROOM_H);
+    // 列の右端はそろう（フロアは四角）
+    expect(b.ox + b.w).toBe(floor.w);
+    expect(lot.ox + lot.w).toBe(floor.w);
+    expect(floor.h).toBe(2 * ROOM_H);
   });
 });
 
@@ -138,8 +145,30 @@ describe("planPath", () => {
   };
 
   test("behind the desk: along the lane", () => {
-    const pts = planPath(room, READ, { x: room.seats[1].cx, y: LANE_Y });
-    expect(pts).toEqual([{ x: READ.x, y: LANE_Y }, { x: room.seats[1].cx, y: LANE_Y }]);
+    const from = { x: LEFT_PASS, y: 66 };
+    const pts = planPath(room, from, { x: room.seats[1].cx, y: LANE_Y });
+    expect(pts).toEqual([{ x: LEFT_PASS, y: LANE_Y }, { x: room.seats[1].cx, y: LANE_Y }]);
+  });
+
+  test("to the library: around the desk, out along the front corridor, up the hallway", () => {
+    const placed = layoutFloor([room], 1000).rooms[0];
+    const from = { x: placed.seats[1].cx, y: LANE_Y };
+    const spot = { x: LIBRARY[0].x - placed.ox, y: LIBRARY[0].y - placed.oy };
+    const pts = planPath(placed, from, spot);
+    expect(pts.at(-1)).toEqual(spot);
+    expect(crossesDesk(from, pts)).toBe(false);
+    // 部屋の外（x < 0）に出るのは、手前の通路（仕切りより手前）か、廊下の中だけ
+    let p = from;
+    for (const q of pts) {
+      if (q.x < 0 && p.x >= 0) expect(q.y).toBe(CORRIDOR_Y);
+      if (q.x < 0 || p.x < 0) expect(Math.max(p.y, q.y) > PART_END || Math.max(p.x, q.x) <= -(placed.ox - HALL_W)).toBe(true);
+      expect(p.x === q.x || p.y === q.y).toBe(true);
+      p = q;
+    }
+    // 帰りも同じ道
+    const back = planPath(placed, spot, from);
+    expect(back.at(-1)).toEqual(from);
+    expect(crossesDesk(spot, back)).toBe(false);
   });
 
   test("seat to the front floor goes around the desk", () => {
@@ -162,7 +191,7 @@ describe("planPath", () => {
   test("every segment is horizontal or vertical", () => {
     const from = { x: 30, y: 125 };
     let p = from;
-    for (const q of planPath(room, from, READ)) {
+    for (const q of planPath(room, from, { x: LIBRARY[1].x - HALL_W, y: LIBRARY[1].y })) {
       expect(p.x === q.x || p.y === q.y).toBe(true);
       p = q;
     }
@@ -201,14 +230,30 @@ describe("Office", () => {
     expect(c.x).toBe(w.rooms[0].seats[0].cx);
   });
 
-  test("reading goes to the bookshelf", () => {
+  test("reading goes to the library at the top of the hallway; two readers stand side by side", () => {
     const office = new Office(seeded(3));
-    const w = world({ t1: "working" }, { acts: { t1: "read" } });
-    office.sync(w.rooms, w.info);
+    const w = world({ t1: "working", t2: "working" }, { acts: { t1: "read", t2: "read" } });
+    const placed = layoutFloor(w.rooms, 1000).rooms.filter((r) => !r.newRoom);
+    office.sync(placed, w.info);
     settle(office);
+    const room = placed[0];
+    const at = (addr) => { const c = office.chars.get(addr); return [c.x + room.ox, c.y + room.oy]; }; // フロア全体の座標
+    expect(at("t1")).toEqual([LIBRARY[0].x, LIBRARY[0].y]);
+    expect(at("t2")).toEqual([LIBRARY[1].x, LIBRARY[1].y]);
+    expect(office.chars.get("t1").seated).toBe(false);
+  });
+
+  test("when the rooms reflow, someone out in the hallway walks again from their room", () => {
+    const office = new Office(seeded(12));
+    const w = world({ t1: "working" }, { acts: { t1: "read" } });
+    let placed = layoutFloor(w.rooms, 1000).rooms.filter((r) => !r.newRoom);
+    office.sync(placed, w.info);
+    for (let t = 0; t < 4000; t += 160) office.tick(160); // 歩いている途中
+    placed = placed.map((r) => ({ ...r, ox: r.ox + 200, oy: r.oy + ROOM_H }));
+    office.sync(placed, w.info);
+    settle(office, 60000); // 部屋が遠くへ動いたので、道が長い
     const c = office.chars.get("t1");
-    expect([c.x, c.y]).toEqual([READ.x, READ.y]);
-    expect(c.seated).toBe(false);
+    expect([c.x + placed[0].ox, c.y + placed[0].oy]).toEqual([LIBRARY[0].x, LIBRARY[0].y]);
   });
 
   test("blocked stands behind its seat with a bubble, done sits with a check", () => {
@@ -357,8 +402,9 @@ describe("skills", () => {
     office.sync(w.rooms, w.info);
     settle(office);
     let d = drawables(w.rooms[0], office, skills);
-    const shelf = d.find((x) => x.id === "shelf");
-    expect(shelf.click).toEqual({ type: "skills", room: "sp1" });
+    expect(d.find((x) => x.id === "shelf")).toBeUndefined(); // 本棚は部屋ではなく資料室に 1 つ
+    const shelf = floorDrawables(office, skills)[0];
+    expect(shelf.click).toEqual({ type: "skills" });
     expect(shelf.books.map((b) => b.skill.id)).toEqual(["codex:rescue"]); // herdr は読まれているので棚にない
     expect(d.find((x) => x.id === "tag-t1")).toMatchObject({ text: "herdr" });
     // 調べ終わって席で作業（skill はターンが終わるまで残る）
@@ -367,7 +413,7 @@ describe("skills", () => {
     office.sync(w.rooms, w.info);
     settle(office);
     d = drawables(w.rooms[0], office, skills);
-    expect(d.find((x) => x.id === "shelf").books).toHaveLength(2);
+    expect(floorDrawables(office, skills)[0].books).toHaveLength(2);
     expect(d.find((x) => x.id === "tag-t1")).toMatchObject({ text: "herdr" });
   });
 });

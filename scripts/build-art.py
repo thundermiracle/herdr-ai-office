@@ -721,6 +721,25 @@ def floor_texture(w_tiles=32, h_tiles=10):
     return im
 
 
+def hall_texture(w=48, h=560):
+    """廊下の床（灰色の石のタイル 16x16、目地あり）。オフィスでは縦に並べて使う。"""
+    im = Image.new("RGBA", (w, h), rgb("#d9d5cc"))
+    rng = random.Random(5)
+    for ty in range(0, h, 16):
+        for tx in range(0, w, 16):
+            shade = rng.choice(["#d9d5cc", "#d4d0c6", "#dedad2"])
+            for y in range(ty, min(ty + 16, h)):
+                for x in range(tx, min(tx + 16, w)):
+                    if x == tx or y == ty:
+                        c = "#c3beb3"  # 目地
+                    elif x == tx + 1 or y == ty + 1:
+                        c = "#e6e2da"  # 明るい縁
+                    else:
+                        c = shade
+                    im.putpixel((x, y), rgb(c))
+    return im
+
+
 def wall_texture(w_tiles=32):
     """壁紙（縦じま）と、上の飾り縁、下の幅木。高さ 36。"""
     W, H = w_tiles * 16, 36
@@ -804,7 +823,8 @@ def main():
     n += 1
     save(floor_texture(), "floor")
     save(wall_texture(), "wall")
-    n += 2
+    save(hall_texture(), "hall")
+    n += 3
     print(f"{n} images -> {OUT.relative_to(ROOT)}")
     preview(p, furniture)
 

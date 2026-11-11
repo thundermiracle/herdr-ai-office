@@ -8,13 +8,16 @@ import {
   spaces, agents, terminals, panes, theme, window, run, openOverlay, pickFolder, home, readTextFile, layout, props, setShared,
 } from "herdr";
 import {
-  SCALE, WALL_H, TICK_ACTIVE, TICK_INACTIVE, Office, roomsOf, layoutRooms, drawables, clockHands,
-  agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
+  SCALE, TICK_ACTIVE, TICK_INACTIVE, HALL_W, PART_W, PART_END, Office, roomsOf, layoutFloor, drawables, floorDrawables,
+  clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
 } from "./scene.js";
 
 const IMG = "mods/ai-office/img";
 const px = (v) => v * SCALE;
 const FLOOR_W = 512; // floor.png / wall.png の幅（art px）
+const FLOOR_H = 160; // floor.png の高さ
+const HALL_TEX = { w: 48, h: 560 }; // hall.png（廊下の床）の大きさ
+const MARGIN = 6; // フロアのまわりの余白
 const WIDE = 260; // これ以上の幅の部屋にはホワイトボードも掛ける
 const META_MS = 10000; // model と effort を読み直す間隔
 const HIDDEN_MS = 1000; // 隠れている間は、この間隔で見えるようになったかだけ見る
@@ -198,10 +201,35 @@ export default class AiOffice extends View {
     });
   }
 
-  // 部屋の本棚の skill（別のマシンのスペースは、そのマシンの skill を読んでいないので空）
-  skillsFor(room) {
-    if (room.machine) return [];
-    return sortSkills([...this.skills.global, ...(this.skills.byFolder.get(room.folder) ?? [])]);
+  // 資料室の本棚の skill: どこでも使えるものと、各スペース（この Mac）のプロジェクトの skill。同じものは 1 冊
+  shelfSkills() {
+    const seen = new Set();
+    return sortSkills([...this.skills.global, ...[...this.skills.byFolder.values()].flat()].filter((s) => {
+      const key = `${s.source}:${s.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }));
+  }
+
+  // 今のフロア: 部屋の並び（フロア全体の位置 ox, oy 付き）。キャラもこの並びに合わせる
+  floorNow() {
+    const { rooms, info } = gather(this.meta, this.codexDefaults);
+    const floor = layoutFloor(rooms, this.width / SCALE - 2 * MARGIN);
+    const placed = floor.rooms.filter((r) => !r.newRoom);
+    this.office.sync(placed, info);
+    return { floor, placed, info };
+  }
+
+  // 描くもの（フロア全体の座標）: 資料室の本棚と、各部屋のもの。奥から手前の順に並べるので、
+  // ほかの部屋の手前の通路や廊下を歩く人も、正しく前後する
+  items(placed) {
+    const skills = this.shelfSkills();
+    return [
+      ...floorDrawables(this.office, skills),
+      ...placed.flatMap((r) => drawables(r, this.office, skills)
+        .map((d) => ({ ...d, id: `${r.id}-${d.id}`, x: d.x + r.ox, y: d.y + r.oy, z: d.z + r.oy }))),
+    ].sort((a, b) => a.z - b.z);
   }
 
   // model と effort: Claude は effort-recorder（statusLine）がセッションごとに書くキャッシュ
@@ -243,13 +271,12 @@ export default class AiOffice extends View {
       const now = Date.now();
       const dt = Math.min(now - this.last, 1000); // スリープ明けに瞬間移動しないよう
       this.last = now;
-      const { rooms, info } = gather(this.meta, this.codexDefaults);
-      this.office.sync(rooms, info);
+      const { placed } = this.floorNow();
       this.office.tick(dt);
       // 描く絵（名前と位置）が前のコマと同じなら描き直さない
       const { h, m } = clockHands(new Date()); // 時計の針が動いたときも描き直す
-      const sig = `${h}:${m}|` + rooms.map((r) => drawables(r, this.office, this.skillsFor(r))
-        .map((d) => `${d.img ?? d.text}+${d.over}+${d.books?.length ?? ""}@${d.x},${d.y}`).join(";")).join("|");
+      const sig = `${h}:${m}|` + this.items(placed)
+        .map((d) => `${d.img ?? d.text}+${d.over}+${d.books?.length ?? ""}@${d.x},${d.y}`).join(";");
       if (sig !== this.sig) {
         this.sig = sig;
         cx.notify();
@@ -283,26 +310,25 @@ export default class AiOffice extends View {
       .when(Boolean(d.books), (el) => el.children(d.books.map((b) => this.book(b))));
   }
 
-  // scene.js の click: { type: "focus", terminal } / { type: "hire", space, machine } / { type: "skills", room }
+  // scene.js の click: { type: "focus", terminal } / { type: "hire", space, machine } / { type: "skills" }
   act(click) {
     if (click.type === "focus") run("agent.focus", { terminal: click.terminal });
     if (click.type === "skills") {
-      const room = spaces().find((s) => s.id === click.room);
-      const skills = room ? this.skillsFor({ machine: room.machine, folder: placeOf(room, panes()) }) : [];
+      const skills = this.shelfSkills();
       const groups = Object.entries(SKILL_SOURCES)
         .map(([source, { label, color }]) => ({ label, color, skills: skills.filter((x) => x.source === source) }))
         .filter((g) => g.skills.length);
       openOverlay({ mod: "ai-office-skills", kind: "popup", width: 400, height: 520,
-        props: { title: room?.name ?? "", count: skills.length, remote: Boolean(room?.machine), groups } });
+        props: { title: "資料室", count: skills.length, groups } });
     }
     if (click.type === "hire") {
       openOverlay({ mod: "ai-office-hire", kind: "popup", width: 240, height: 320, props: { space: click.space, machine: click.machine } });
     }
   }
 
-  item(room, d) {
+  item(d) {
     if (d.text !== undefined) return this.tag(d);
-    return d.click ? this.button(`${room.id}-${d.id}`, d, () => this.act(d.click), d.tip) : this.sprite(d);
+    return d.click ? this.button(d.id, d, () => this.act(d.click), d.tip) : this.sprite(d);
   }
 
   // 本棚の本 1 冊（左の 1 列は本の色、右の 1 列は影。上から 2 ドット目に帯）
@@ -326,11 +352,11 @@ export default class AiOffice extends View {
     return ["clock-face", `clock-m-${m}`, `clock-h-${h}`].map((img) => this.sprite({ img, x, y, w: 13, h: 13 }));
   }
 
-  // 壁の名札（スペースの名前）。ホワイトボードは部屋が広いときだけ置くので、名札はそこまで伸ばせる
+  // 壁の名札（スペースの名前）。左の仕切りの右から、窓（広い部屋ではホワイトボード）の手前まで伸ばせる
   plate(room) {
     const text = room.machine ? `${room.machine}: ${room.name}` : room.name;
     const right = room.w >= WIDE ? room.w - 116 : room.w - 76;
-    return div().id(`plate-${room.id}`).absolute().left(px(44)).top(px(5)).h(px(12)).max_w(px(right - 44))
+    return div().id(`plate-${room.id}`).absolute().left(px(room.ox + 10)).top(px(room.oy + 5)).h(px(12)).max_w(px(right - 14))
       .cursor_pointer().on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click(() => run("space.select", { id: room.id }))
       .px(8).flex().items_center().rounded(3).border(2).border_color("#5b3a2c").bg(room.active ? "#c58a55" : "#a8774c")
@@ -338,43 +364,80 @@ export default class AiOffice extends View {
       .child(text);
   }
 
-  room(room, t) {
-    const back = [];
-    for (let x = 0; x < room.w; x += FLOOR_W) {
-      back.push(image(`${IMG}/floor.png`).absolute().left(px(x)).top(px(WALL_H)).w(px(FLOOR_W)).h(px(160)));
-      back.push(image(`${IMG}/wall.png`).absolute().left(px(x)).top(0).w(px(FLOOR_W)).h(px(36)));
-    }
-    return div().id(`room-${room.id}`).absolute().left(px(room.ox)).top(px(room.oy)).w(px(room.w)).h(px(room.h))
-      .overflow_hidden().rounded(4).border(2).border_color(room.active ? t.accent : "#1d1f26")
-      .children(back)
-      .when(room.w >= WIDE, (el) => el.child(this.sprite({ img: "whiteboard", x: room.w - 112, y: 7, w: 30, h: 18 })))
-      .child(this.sprite({ img: "window", x: room.w - 72, y: 6, w: 28, h: 16 }))
-      .children(this.clock(room.w - 33, 8))
-      .child(this.plate(room))
-      .children(drawables(room, this.office, this.skillsFor(room)).map((d) => this.item(room, d)));
+  // 奥の壁（wall.png を横に並べ、幅で切る）
+  wall(x, y, w) {
+    const tiles = [];
+    for (let dx = 0; dx < w; dx += FLOOR_W) tiles.push(image(`${IMG}/wall.png`).absolute().left(px(dx)).top(0).w(px(FLOOR_W)).h(px(36)));
+    return div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(36)).overflow_hidden().children(tiles);
   }
 
-  // 「新しい部屋」: フォルダを選んで、そこにスペースを作る（pickFolder はこの Mac だけ）
+  // 部屋の左の仕切り（奥から PART_END まで。上から見た壁の天端と、手前の端の面）
+  partition(x, y) {
+    return div().absolute().left(px(x)).top(px(y)).w(px(PART_W)).h(px(PART_END)).bg("#e3cfa6")
+      .child(div().absolute().left(0).top(0).w(px(1)).h_full().bg("#8a6040"))
+      .child(div().absolute().right(0).top(0).w(px(1)).h_full().bg("#8a6040"))
+      .child(div().absolute().left(0).bottom(0).w_full().h(px(6)).bg("#b07a4c"))
+      .child(div().absolute().left(0).bottom(0).w_full().h(px(1)).bg("#5b3a2c"));
+  }
+
+  // 部屋の後ろのもの: 奥の壁、左の仕切り、壁の飾り（ホワイトボード・窓・時計）と名札
+  roomBack(room) {
+    const { ox, oy, w } = room;
+    return [
+      this.wall(ox, oy, w),
+      this.partition(ox, oy),
+      ...(room.newRoom ? [] : [
+        ...(w >= WIDE ? [this.sprite({ img: "whiteboard", x: ox + w - 112, y: oy + 7, w: 30, h: 18 })] : []),
+        this.sprite({ img: "window", x: ox + w - 72, y: oy + 6, w: 28, h: 16 }),
+        ...this.clock(ox + w - 33, oy + 8),
+        this.plate(room),
+      ]),
+    ];
+  }
+
+  // 空き部屋: クリックでフォルダを選んで、そこにスペース（部屋）を作る（pickFolder はこの Mac だけ）
   newRoom(lot) {
-    return div().id("new-room").absolute().left(px(lot.ox)).top(px(lot.oy)).w(px(lot.w)).h(px(lot.h))
-      .rounded(4).border(2).border_color("#ffffff22").bg("#ffffff0d")
-      .cursor_pointer().hover((s) => s.bg("#ffffff1a"))
+    return div().id("new-room").absolute().left(px(lot.ox + PART_W)).top(px(lot.oy + 36)).w(px(lot.w - PART_W)).h(px(lot.h - 36))
+      .bg("#00000038").cursor_pointer().hover((s) => s.bg("#00000020"))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => cx.spawn(async () => {
         const folder = await pickFolder({ prompt: "この部屋にする" });
         if (folder) run("space.new", { folder });
       }))
-      .tooltip("新しい部屋（スペース）を作る")
-      .child(this.sprite({ img: "door", x: (lot.w - 16) / 2, y: 40, w: 16, h: 20 }))
-      .child(div().absolute().left(0).top(px(66)).w(px(lot.w)).flex().justify_center()
-        .text_size(11).text_color("#ffffffaa").child("+ 部屋"));
+      .tooltip("空き部屋: クリックで新しい部屋（スペース）を作る")
+      .child(this.sprite({ img: "door", x: (lot.w - PART_W - 16) / 2, y: 22, w: 16, h: 20 }))
+      .child(div().absolute().left(0).top(px(48)).w_full().flex().justify_center()
+        .text_size(11).text_color("#fff4dcdd").child("+ 部屋"));
+  }
+
+  // 1 枚のフロア: 部屋の床と廊下の床、資料室の奥の壁、各部屋の後ろのもの、描くもの、選んでいる部屋の枠、外枠
+  building(floor, items, t) {
+    const floorTiles = [];
+    for (let y = 0; y < floor.h; y += FLOOR_H) {
+      for (let x = HALL_W; x < floor.w; x += FLOOR_W) {
+        floorTiles.push(image(`${IMG}/floor.png`).absolute().left(px(x)).top(px(y)).w(px(FLOOR_W)).h(px(FLOOR_H)));
+      }
+    }
+    const hallTiles = [];
+    for (let y = 0; y < floor.h; y += HALL_TEX.h) {
+      hallTiles.push(image(`${IMG}/hall.png`).absolute().left(0).top(px(y)).w(px(HALL_TEX.w)).h(px(HALL_TEX.h)));
+    }
+    const active = floor.rooms.find((r) => r.active);
+    return div().relative().w(px(floor.w)).h(px(floor.h)).overflow_hidden().rounded(4)
+      .children(floorTiles)
+      .child(div().absolute().left(0).top(0).w(px(HALL_W)).h(px(floor.h)).overflow_hidden().children(hallTiles))
+      .child(this.wall(0, 0, HALL_W))
+      .children(floor.rooms.flatMap((r) => this.roomBack(r)))
+      .children(floor.rooms.filter((r) => r.newRoom).map((r) => this.newRoom(r)))
+      .children(items.map((d) => this.item(d)))
+      .when(Boolean(active), (el) => el.child(div().absolute().left(px(active.ox)).top(px(active.oy))
+        .w(px(active.w)).h(px(active.h)).border(2).border_color(t.accent)))
+      .child(div().absolute().left(0).top(0).size_full().rounded(4).border(2).border_color("#1d1f26"));
   }
 
   render() {
     const t = theme();
-    const { rooms, info } = gather(this.meta, this.codexDefaults);
-    this.office.sync(rooms, info);
-    const office = layoutRooms(rooms, this.width / SCALE);
+    const { floor, placed, info } = this.floorNow();
     const counts = { working: 0, blocked: 0, done: 0, idle: 0 };
     for (const a of info.values()) counts[a.status] = (counts[a.status] ?? 0) + 1;
     return v_flex().id("root").size_full().bg(t.canvas).text_color(t.foreground)
@@ -390,7 +453,6 @@ export default class AiOffice extends View {
         .child(div().id("legend").ml_auto().px(6).rounded(4).text_color(t.dim).hover((s) => s.text_color(t.foreground))
           .tooltip(LEGEND).child("凡例")))
       .child(div().id("scroll").flex_1().min_h(0).overflow_scroll() // 細い列（Office ボタン）では横にも
-        .child(div().relative().w(px(office.w)).h(px(office.h))
-          .children(office.rooms.map((r) => (r.newRoom ? this.newRoom(r) : this.room(r, t))))));
+        .child(div().p(px(MARGIN)).child(this.building(floor, this.items(placed), t))));
   }
 }

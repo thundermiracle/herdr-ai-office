@@ -9,19 +9,26 @@ export const TICK_ACTIVE = 250; // ms。窓がアクティブなとき（4fps。
 export const TICK_INACTIVE = 500; // 窓が後ろにあるとき（2fps）
 export const SPEED = 14; // 歩く速さ（art px / 秒）
 
+// オフィスは 1 枚のフロア: 左に縦の廊下（一番上が資料室で、本棚はここに 1 つ）、その右に部屋をすき間なく並べる。
+// 部屋の左端は仕切りの壁で、奥から PART_END までをふさぎ、手前は通路として開けておく（廊下や隣の部屋とつながる）。
+// 部屋の中の座標は部屋の左上から、フロア全体の座標はフロアの左上（廊下の左上）から。
 export const ROOM_H = 140;
 export const WALL_H = 36;
 export const LANE_Y = 54; // 机の奥の通路（足の y）。席を立つとここに出る
 export const BACK = 74; // 机の奥の縁
-export const DESK_X = 48; // 机の左端
+export const DESK_X = 26; // 机の左端（左の仕切りの内側）
 export const DESK_END = 8; // 机の端の板の幅
 export const SEAT_W = 24;
 export const FRONT_Y = [104, 132]; // 手前の床（足の y）
-export const MIN_ROOM_W = 200;
-export const LEFT_PASS = 38; // 机の左の通り道（x）。右は部屋ごと（room.rightPass）
-export const READ = { x: 22, y: 66 }; // 本棚の前
-export const GAP = 12; // 部屋と部屋のすき間
-export const NEW_ROOM_W = 64; // 「新しい部屋」の区画（ドア）
+export const CORRIDOR_Y = 118; // 手前の通路を通って廊下へ行くときの高さ（足の y）
+export const PART_W = 4; // 部屋の左の仕切りの厚さ
+export const PART_END = 96; // 仕切りは奥からここまで（手前は開いている）
+export const MIN_ROOM_W = 160;
+export const LEFT_PASS = 14; // 机の左の通り道（x）。右は部屋ごと（room.rightPass）
+export const HALL_W = 44; // 左の廊下の幅
+// 資料室（廊下の一番上）で本を読む場所（フロア全体の座標）。本棚の前から、読む人が増えると順に並ぶ
+export const LIBRARY = [{ x: 22, y: 66 }, { x: 12, y: 78 }, { x: 32, y: 78 }, { x: 22, y: 90 }];
+export const NEW_ROOM_W = 72; // 空き部屋（クリックで新しい部屋）
 
 export function hash(text) {
   let h = 0x811c9dc5;
@@ -162,7 +169,7 @@ export function sameSkill(a, b) {
   return (!a.includes(":") || !b.includes(":")) && skillShort(a) === skillShort(b);
 }
 
-// 本棚（bookshelf-empty.png、部屋の (6, 14) に置く）の中で本を立てる場所。scripts/build-art.py の bookshelf と同じ寸法:
+// 本棚（bookshelf-empty.png、資料室＝フロアの (6, 14) に置く）の中で本を立てる場所。scripts/build-art.py の bookshelf と同じ寸法:
 // 3 段で、本の下端の次の行が y = 14・27・40、横は x = 3〜28。本は幅 2 で、1 段に 13 冊
 export const SHELF = { x: 6, y: 14, bases: [14, 27, 40], left: 3, right: 29, bookW: 2 };
 
@@ -208,7 +215,7 @@ export function roomOf(space, agentsHere) {
     machine: space.machine ?? null,
     folder: space.folder ?? "",
     status: space.status ?? null,
-    w: Math.max(MIN_ROOM_W, deskEnd + 40),
+    w: Math.max(MIN_ROOM_W, deskEnd + 30),
     h: ROOM_H,
     deskEnd,
     rightPass: deskEnd + 10,
@@ -224,33 +231,62 @@ export function roomsOf(spaces, agents) {
   return spaces.map((s) => roomOf(s, agents.filter((a) => a.space === s.id)));
 }
 
-/** 部屋を左から並べ、幅に入らなければ次の行へ。最後に「新しい部屋」の区画を置く。 */
-export function layoutRooms(rooms, widthArt) {
+/**
+ * 1 枚のフロアに並べる: 廊下の右に部屋をすき間なく左から並べ、幅（廊下を除く）に入らなければ次の列へ。
+ * 列の右端はそろえる（列のいちばん右の部屋を広げる）ので、フロアは四角になる。最後に空き部屋を置く。
+ * 返す部屋には、フロアの中の位置（ox, oy。部屋の左上）が付く。
+ */
+export function layoutFloor(rooms, widthArt) {
   const lots = [...rooms, { id: "new-room", newRoom: true, w: NEW_ROOM_W, h: ROOM_H }];
-  let x = GAP;
-  let y = GAP;
-  let rowH = 0;
-  let maxX = 0;
-  const placed = lots.map((r) => {
-    if (x > GAP && x + r.w > widthArt - GAP) {
-      x = GAP;
-      y += rowH + GAP;
-      rowH = 0;
+  const avail = Math.max(widthArt - HALL_W, MIN_ROOM_W);
+  const rows = [[]];
+  let rowW = 0;
+  for (const lot of lots) {
+    if (rows.at(-1).length && rowW + lot.w > avail) {
+      rows.push([]);
+      rowW = 0;
     }
-    const p = { ...r, ox: x, oy: y };
-    x += r.w + GAP;
-    rowH = Math.max(rowH, r.h);
-    maxX = Math.max(maxX, x);
-    return p;
+    rows.at(-1).push(lot);
+    rowW += lot.w;
+  }
+  const sum = (row) => row.reduce((n, lot) => n + lot.w, 0);
+  const width = Math.max(...rows.map(sum));
+  const placed = [];
+  rows.forEach((row, ri) => {
+    const extra = width - sum(row);
+    let x = HALL_W;
+    row.forEach((lot, i) => {
+      const w = lot.w + (i === row.length - 1 ? extra : 0);
+      placed.push({ ...lot, w, ox: x, oy: ri * ROOM_H, row: ri });
+      x += w;
+    });
   });
-  return { rooms: placed, w: maxX, h: y + rowH + GAP };
+  return { rooms: placed, w: HALL_W + width, h: rows.length * ROOM_H };
+}
+
+// 同じ点が続かないように並べ直す（from と同じ点も除く）
+function tidy(from, pts) {
+  const out = [];
+  for (const p of pts) {
+    const last = out.at(-1) ?? from;
+    if (last.x !== p.x || last.y !== p.y) out.push(p);
+  }
+  return out;
 }
 
 /**
- * from から to への道（曲がり角の列、from は含まない）。縦横にだけ動く。
+ * from から to への道（曲がり角の列、from は含まない）。縦横にだけ動く。座標は room の中。
  * 机より奥（y < BACK）と手前を行き来するときは、机の左右の通り道を通る。
+ * 部屋の左の外（x < 0。廊下や、左の部屋の手前の通路）とは、手前の通路（CORRIDOR_Y）を通って行き来する。
  */
 export function planPath(room, from, to) {
+  const outside = (p) => p.x < 0;
+  if (outside(from) || outside(to)) {
+    const door = { x: LEFT_PASS, y: CORRIDOR_Y }; // 部屋の手前の、左の端
+    if (outside(from) && outside(to)) return tidy(from, [{ x: from.x, y: to.y }, to]);
+    if (outside(to)) return tidy(from, [...planPath(room, from, door), { x: to.x, y: CORRIDOR_Y }, to]);
+    return tidy(from, [{ x: from.x, y: CORRIDOR_Y }, door, ...planPath(room, door, to)]);
+  }
   const back = (p) => p.y < BACK;
   const pts = [];
   const go = (x, y) => {
@@ -308,12 +344,22 @@ export class Office {
           this.chars.set(seat.agent, c);
         }
         const moved = c.seat && c.seat.cx !== seat.cx;
+        const origin = `${room.ox},${room.oy}`;
+        // 窓の幅が変わって部屋が並び直すと、部屋の外（廊下など）の座標はずれる。部屋の手前に戻して歩き直す
+        const relocated = c.origin !== undefined && c.origin !== origin && (c.x < 0 || c.path.some((p) => p.x < 0));
+        if (relocated) {
+          c.x = LEFT_PASS;
+          c.y = CORRIDOR_Y;
+          c.path = [];
+          c.seated = false;
+        }
+        c.origin = origin;
         c.seat = seat;
         c.roomRef = room;
         c.info = a;
         c.look = { look: lookOf(a.app, a.model), band: bandOf(a.effort), flame: a.effort === "max" };
         const b = behaviorOf(a.status, a.act);
-        if (b !== c.behavior || (moved && b !== "wander" && b !== "read")) this.retarget(c, b);
+        if (b !== c.behavior || relocated || (moved && b !== "wander" && b !== "read")) this.retarget(c, b);
       }
     }
     for (const k of [...this.chars.keys()]) if (!seen.has(k)) this.chars.delete(k);
@@ -322,6 +368,7 @@ export class Office {
   retarget(c, behavior) {
     const sits = (b) => b === "type" || b === "done";
     c.behavior = behavior;
+    if (behavior !== "read") c.spot = undefined;
     if (c.seated && sits(behavior) && c.sitX === c.seat.cx) return; // 座ったまま
     if (c.seated) {
       c.seated = false; // 席を立って、座っていた椅子の後ろに出る（席がずれたなら、そこから新しい席へ歩く）
@@ -334,9 +381,19 @@ export class Office {
       c.wait = 400 + this.rng() * 1500; // 少し間をおいて歩きだす
       return;
     }
-    const goal = behavior === "read" ? READ : { x: c.seat.cx, y: LANE_Y };
+    const goal = behavior === "read" ? this.librarySpot(c) : { x: c.seat.cx, y: LANE_Y };
     c.path = planPath(c.roomRef, c, goal);
     if (!c.path.length) this.arrive(c);
+  }
+
+  // 資料室で読む場所（部屋の中の座標で）。ほかの人がいない場所のうち、本棚にいちばん近いところ
+  librarySpot(c) {
+    const taken = new Set([...this.chars.values()].filter((o) => o !== c && o.spot !== undefined).map((o) => o.spot));
+    let i = 0;
+    while (taken.has(i) && i < LIBRARY.length - 1) i++;
+    c.spot = i;
+    const { ox = HALL_W, oy = 0 } = c.roomRef;
+    return { x: LIBRARY[i].x - ox, y: LIBRARY[i].y - oy };
   }
 
   arrive(c) {
@@ -354,7 +411,7 @@ export class Office {
         y: FRONT_Y[0] + Math.round(this.rng() * (FRONT_Y[1] - FRONT_Y[0])),
       };
     }
-    return { x: 44 + Math.round(this.rng() * (room.w - 58)), y: LANE_Y };
+    return { x: LEFT_PASS + Math.round(this.rng() * (room.w - 2 * LEFT_PASS)), y: LANE_Y };
   }
 
   /** dt ミリ秒ぶん進める。何か変わったら true（描き直しが要る）。 */
@@ -413,24 +470,15 @@ export function animating(office) {
 }
 
 /**
- * 1 つの部屋に描くもの。奥から手前の順（z の小さい順）に並べて返す。
+ * 1 つの部屋に描くもの（部屋の中の座標。廊下へ出ている人は x < 0）。奥から手前の順（z の小さい順）に並べて返す。
  * 1 つ 1 つ: { id, img, over?, books?, x, y, w, h, z, click?, tip?, glow?, char? } か、札 { id, text, color, x（中心）, y, z }。
  * img と over（上に重ねる絵）は img/ の下の名前（.png なし）。books は本棚の上に描く本（shelfBooks、本棚の左上から）。
- * skills は部屋の本棚に並べる skill（sortSkills 済み）。
+ * skills は資料室の本棚の skill（札の色に使う）。
  */
 export function drawables(room, office, skills = []) {
   const out = [];
   const add = (d) => out.push(d);
-  // 本棚: 1 冊 = 1 つの skill。今この部屋で読まれている skill の本は抜いておく
-  const reading = [...office.chars.values()]
-    .filter((c) => c.room === room.id && c.behavior === "read" && !c.path.length && c.info.skill)
-    .map((c) => c.info.skill);
-  const { books, more } = shelfBooks(skills);
   const colorOf = (id) => SKILL_SOURCES[skills.find((x) => sameSkill(id, x.id))?.source]?.color ?? "#9aa4b4";
-  add({ id: "shelf", img: "bookshelf-empty", x: SHELF.x, y: SHELF.y, w: 32, h: 42, z: 56,
-    books: books.filter((b) => !reading.some((r) => sameSkill(r, b.skill.id))),
-    click: { type: "skills", room: room.id },
-    tip: `本棚: 使える skill ${skills.length} 冊${more > 0 ? `（棚に入りきらない ${more} 冊も）` : ""}。クリックで一覧` });
   add({ id: "plant", img: "plant", x: room.w - 18, y: 78, w: 12, h: 17, z: 95 });
   add({ id: "desk-l", img: "desk-l", x: DESK_X, y: BACK, w: 8, h: 21, z: BACK + 15 });
   for (const seat of room.seats) {
@@ -494,4 +542,19 @@ export function drawables(room, office, skills = []) {
     }
   }
   return out.sort((a, b) => a.z - b.z);
+}
+
+/**
+ * フロア全体に 1 つだけ描くもの（フロア全体の座標）: 資料室の本棚。1 冊 = 1 つの skill で、
+ * 今読まれている skill の本は抜いておく。クリックで一覧。
+ */
+export function floorDrawables(office, skills = []) {
+  const reading = [...office.chars.values()]
+    .filter((c) => c.behavior === "read" && !c.path.length && c.info.skill)
+    .map((c) => c.info.skill);
+  const { books, more } = shelfBooks(skills);
+  return [{ id: "shelf", img: "bookshelf-empty", x: SHELF.x, y: SHELF.y, w: 32, h: 42, z: 56,
+    books: books.filter((b) => !reading.some((r) => sameSkill(r, b.skill.id))),
+    click: { type: "skills" },
+    tip: `資料室の本棚: 使える skill ${skills.length} 冊${more > 0 ? `（棚に入りきらない ${more} 冊も）` : ""}。クリックで一覧` }];
 }
