@@ -1,0 +1,9 @@
+{
+  "place": "none",
+  "title": "AI Office: skills",
+  "overlay": {
+    "kind": "popup",
+    "width": 400,
+    "height": 520
+  }
+}

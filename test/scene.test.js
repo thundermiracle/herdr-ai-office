@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   BACK, DESK_X, LANE_Y, LEFT_PASS, MIN_ROOM_W, READ, SEAT_W,
   Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride, drawables, layoutRooms, lookOf,
-  modelFamily, modelLabel, parseCodexConfig, planPath, roomOf, roomsOf,
+  modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
 } from "../mods/ai-office/scene.js";
 
 // 毎回同じになる乱数
@@ -315,5 +315,59 @@ describe("clockHands", () => {
     expect(at(12, 4)).toEqual({ h: 0, m: 0 });
     expect(at(12, 5)).toEqual({ h: 0, m: 1 });
     expect(at(23, 59)).toEqual({ h: 11, m: 11 });
+  });
+});
+
+describe("skills", () => {
+  test("SKILL.md front matter: plain, quoted, folded, and missing", () => {
+    expect(parseSkillFile("---\nname: herdr\ndescription: \"Control Herdr: panes\"\n---\nbody", "dir"))
+      .toEqual({ name: "herdr", description: "Control Herdr: panes", invocable: true });
+    expect(parseSkillFile("---\nname: x\ndescription: >\n  one\n  two\nuser-invocable: false\n---\n", "dir"))
+      .toEqual({ name: "x", description: "one two", invocable: false });
+    expect(parseSkillFile("# New Skill\n", "new-skill")).toEqual({ name: "new-skill", description: "", invocable: true });
+  });
+
+  test("books line up by source then name, three rows of 13", () => {
+    const sk = (id, source) => ({ id, name: id, source, description: "" });
+    const sorted = sortSkills([sk("b", "plugin"), sk("z", "user"), sk("a", "codex"), sk("y", "user")]);
+    expect(sorted.map((x) => x.id)).toEqual(["y", "z", "b", "a"]);
+    const many = Array.from({ length: 41 }, (_, i) => sk(`s${String(i).padStart(2, "0")}`, "user"));
+    const { books, more } = shelfBooks(many);
+    expect(books).toHaveLength(39);
+    expect(more).toBe(2);
+    expect(books[0]).toMatchObject({ x: SHELF.left, w: 2 });
+    expect(books[0].y + books[0].h).toBe(SHELF.bases[0]);
+    expect(books[13].y + books[13].h).toBe(SHELF.bases[1]);
+    expect(books[12].x + books[12].w).toBeLessThanOrEqual(SHELF.right);
+  });
+
+  test("a used skill matches its book with or without the namespace", () => {
+    expect(sameSkill("herdr", "herdr")).toBe(true);
+    expect(sameSkill("pdf", "anthropic-skills:pdf")).toBe(true);
+    expect(sameSkill("codex:rescue", "codex:rescue")).toBe(true);
+    expect(sameSkill("codex:rescue", "other:rescue")).toBe(false);
+    expect(sameSkill(null, "herdr")).toBe(false);
+  });
+
+  test("reading a skill takes its book off the shelf and shows its name; at the desk the tag stays", () => {
+    const office = new Office(seeded(11));
+    const skills = sortSkills([{ id: "herdr", name: "herdr", source: "user" }, { id: "codex:rescue", name: "rescue", source: "plugin" }]);
+    let w = world({ t1: "working" }, { acts: { t1: "read" } });
+    w.info.get("t1").skill = "herdr";
+    office.sync(w.rooms, w.info);
+    settle(office);
+    let d = drawables(w.rooms[0], office, skills);
+    const shelf = d.find((x) => x.id === "shelf");
+    expect(shelf.click).toEqual({ type: "skills", room: "sp1" });
+    expect(shelf.books.map((b) => b.skill.id)).toEqual(["codex:rescue"]); // herdr は読まれているので棚にない
+    expect(d.find((x) => x.id === "tag-t1")).toMatchObject({ text: "herdr" });
+    // 調べ終わって席で作業（skill はターンが終わるまで残る）
+    w = world({ t1: "working" }, { acts: { t1: "edit" } });
+    w.info.get("t1").skill = "herdr";
+    office.sync(w.rooms, w.info);
+    settle(office);
+    d = drawables(w.rooms[0], office, skills);
+    expect(d.find((x) => x.id === "shelf").books).toHaveLength(2);
+    expect(d.find((x) => x.id === "tag-t1")).toMatchObject({ text: "herdr" });
   });
 });

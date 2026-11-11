@@ -108,6 +108,84 @@ export function agentModel({ app, argv, cached, codexDefaults }) {
   return { model, effort };
 }
 
+// ---- skill（本棚の本） ----
+
+/** skill の出どころと本の色。この順に本棚へ並べる（左上から）。 */
+export const SKILL_SOURCES = {
+  user: { label: "自分の skill", color: "#4a7fd0" },
+  project: { label: "このプロジェクト", color: "#e04545" },
+  synced: { label: "claude.ai から同期", color: "#e8804e" },
+  plugin: { label: "プラグイン", color: "#3aa050" },
+  codex: { label: "Codex", color: "#3fa7a3" },
+};
+
+/**
+ * SKILL.md（プラグインのコマンドの .md も）の先頭の --- から name・description・user-invocable を読む。
+ * 先頭がなければ fallback の名前で、説明なし。description は "..." や、> / | の複数行にも対応。
+ */
+export function parseSkillFile(text, fallback) {
+  const out = { name: fallback, description: "", invocable: true };
+  const lines = (text ?? "").split("\n");
+  if (lines[0]?.trim() !== "---") return out;
+  for (let i = 1; i < lines.length && lines[i].trim() !== "---"; i++) {
+    const m = /^([A-Za-z-]+):\s*(.*)$/.exec(lines[i]);
+    if (!m) continue;
+    let value = m[2].trim();
+    if (/^[>|][-+]?$/.test(value)) {
+      const parts = [];
+      while (i + 1 < lines.length && /^\s+\S/.test(lines[i + 1])) parts.push(lines[++i].trim());
+      value = parts.join(" ");
+    }
+    value = value.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+    if (m[1] === "name" && value) out.name = value;
+    if (m[1] === "description") out.description = value;
+    if (m[1] === "user-invocable") out.invocable = value !== "false";
+  }
+  return out;
+}
+
+/** 本棚の並び（出どころの順、同じ出どころは名前の順）。 */
+export function sortSkills(skills) {
+  const order = Object.keys(SKILL_SOURCES);
+  return [...skills].sort((a, b) => order.indexOf(a.source) - order.indexOf(b.source) || a.id.localeCompare(b.id));
+}
+
+/** skill の短い名前（codex:rescue → rescue）。札に出す。 */
+export function skillShort(id) {
+  return (id ?? "").split(":").pop();
+}
+
+/** 使っている skill（office.skill）と本が同じか。片方に名前空間（codex: など）がなければ短い名前で比べる。 */
+export function sameSkill(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return (!a.includes(":") || !b.includes(":")) && skillShort(a) === skillShort(b);
+}
+
+// 本棚（bookshelf-empty.png、部屋の (6, 14) に置く）の中で本を立てる場所。scripts/build-art.py の bookshelf と同じ寸法:
+// 3 段で、本の下端の次の行が y = 14・27・40、横は x = 3〜28。本は幅 2 で、1 段に 13 冊
+export const SHELF = { x: 6, y: 14, bases: [14, 27, 40], left: 3, right: 29, bookW: 2 };
+
+/** 本棚に立てる本（1 冊 = 1 つの skill）。座標は本棚の左上から。入りきらない数は more。 */
+export function shelfBooks(skills) {
+  const per = Math.floor((SHELF.right - SHELF.left) / SHELF.bookW);
+  const shown = skills.slice(0, per * SHELF.bases.length);
+  return {
+    books: shown.map((skill, i) => {
+      const h = 7 + (hash(skill.id) % 4);
+      return {
+        skill,
+        x: SHELF.left + (i % per) * SHELF.bookW,
+        y: SHELF.bases[Math.floor(i / per)] - h,
+        w: SHELF.bookW,
+        h,
+        color: SKILL_SOURCES[skill.source]?.color ?? "#9aa4b4",
+      };
+    }),
+    more: skills.length - shown.length,
+  };
+}
+
 /**
  * 状態から動きを決める。act はターミナルのラベル office.act（read / edit / run ...）。
  * type: 席でタイピング、read: 本棚で読む、raise: 手を挙げて待つ、done: 席で ✓、wander: うろうろ
@@ -128,6 +206,7 @@ export function roomOf(space, agentsHere) {
     name: space.name,
     active: !!space.active,
     machine: space.machine ?? null,
+    folder: space.folder ?? "",
     status: space.status ?? null,
     w: Math.max(MIN_ROOM_W, deskEnd + 40),
     h: ROOM_H,
@@ -335,12 +414,23 @@ export function animating(office) {
 
 /**
  * 1 つの部屋に描くもの。奥から手前の順（z の小さい順）に並べて返す。
- * 1 つ 1 つ: { id, img, over?, x, y, w, h, z, click?, tip?, glow?, char? }。img と over（上に重ねる絵）は img/ の下の名前（.png なし）。
+ * 1 つ 1 つ: { id, img, over?, books?, x, y, w, h, z, click?, tip?, glow?, char? } か、札 { id, text, color, x（中心）, y, z }。
+ * img と over（上に重ねる絵）は img/ の下の名前（.png なし）。books は本棚の上に描く本（shelfBooks、本棚の左上から）。
+ * skills は部屋の本棚に並べる skill（sortSkills 済み）。
  */
-export function drawables(room, office) {
+export function drawables(room, office, skills = []) {
   const out = [];
   const add = (d) => out.push(d);
-  add({ id: "shelf", img: "bookshelf", x: 6, y: 14, w: 32, h: 42, z: 56 });
+  // 本棚: 1 冊 = 1 つの skill。今この部屋で読まれている skill の本は抜いておく
+  const reading = [...office.chars.values()]
+    .filter((c) => c.room === room.id && c.behavior === "read" && !c.path.length && c.info.skill)
+    .map((c) => c.info.skill);
+  const { books, more } = shelfBooks(skills);
+  const colorOf = (id) => SKILL_SOURCES[skills.find((x) => sameSkill(id, x.id))?.source]?.color ?? "#9aa4b4";
+  add({ id: "shelf", img: "bookshelf-empty", x: SHELF.x, y: SHELF.y, w: 32, h: 42, z: 56,
+    books: books.filter((b) => !reading.some((r) => sameSkill(r, b.skill.id))),
+    click: { type: "skills", room: room.id },
+    tip: `本棚: 使える skill ${skills.length} 冊${more > 0 ? `（棚に入りきらない ${more} 冊も）` : ""}。クリックで一覧` });
   add({ id: "plant", img: "plant", x: room.w - 18, y: 78, w: 12, h: 17, z: 95 });
   add({ id: "desk-l", img: "desk-l", x: DESK_X, y: BACK, w: 8, h: 21, z: BACK + 15 });
   for (const seat of room.seats) {
@@ -377,6 +467,9 @@ export function drawables(room, office) {
         add({ id: `flame-${c.address}`, img: `fx-flame-${ph % 2}`, x: c.seat.cx - 14, y: BACK - 15, w: 28, h: 10, z: BACK - 1.2 });
       }
       person(pose, c.seat.cx - 9, BACK - 18, 18, BACK - 1);
+      if (c.behavior === "type" && c.info.skill) {
+        add({ id: `tag-${c.address}`, text: skillShort(c.info.skill), color: colorOf(c.info.skill), x: c.seat.cx, y: BACK - 28, z: 1001 });
+      }
       const hands = c.behavior === "done" ? "hands-rest" : ph % 2 ? "hands-a" : "hands-b";
       add({ id: `hands-${c.address}`, img: hands, x: c.seat.segX, y: BACK, w: 24, h: 6, z: BACK + 15.7 });
       if (c.behavior === "done") {
@@ -392,6 +485,9 @@ export function drawables(room, office) {
     else if (c.behavior === "raise") pose = `raise-${Math.floor(ph / 3) % 2}`;
     else pose = ph % 23 === 0 ? "blink" : "stand";
     person(pose, x - 9, y - 23, 24, y);
+    if (c.behavior === "read" && !c.path.length && c.info.skill) {
+      add({ id: `tag-${c.address}`, text: skillShort(c.info.skill), color: colorOf(c.info.skill), x, y: y - 33, z: 1001 });
+    }
     if (c.behavior === "raise" && !c.path.length) {
       const kind = c.info.kind === "question" ? "bubble-ask" : "bubble-alert";
       add({ id: `bubble-${c.address}`, img: kind, x: x - 6, y: y - 36 - (Math.floor(ph / 3) % 2), w: 13, h: 14, z: 1000 });

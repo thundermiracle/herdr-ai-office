@@ -652,8 +652,9 @@ def bubble(kind):
     return s.outline()
 
 
-def bookshelf():
-    """幅 32・高さ 42 の本棚。本の色と幅は毎回同じになるよう種を決めて散らす。"""
+def bookshelf(books=True):
+    """幅 32・高さ 42 の本棚。本の色と幅は毎回同じになるよう種を決めて散らす。
+    books=False は棚だけ（オフィスでは本 = 使える skill を mod が上に描く。scene.js の shelfBooks と寸法を合わせる）。"""
     rng = random.Random(7)
     s = Sprite(32, 42)
     for y in range(42):
@@ -666,7 +667,7 @@ def bookshelf():
             s.put(x, top + 11, "D")  # 棚板
             s.put(x, top + 12, "W")
         x = 3
-        while x < 29:
+        while books and x < 29:
             w = rng.choice([2, 2, 3, 3, 4])
             h = rng.choice([7, 8, 9, 10])
             c = rng.choice(colors)
@@ -787,7 +788,7 @@ def main():
         "window": Sprite(28, 16).blit(WINDOW, 0, 0).outline(),
         "clock-face": Sprite(13, 13).blit(CLOCK_FACE, 0, 0),
         "door": Sprite(16, 20).blit(DOOR, 0, 0).outline(),
-        "bookshelf": bookshelf(), "whiteboard": whiteboard(),
+        "bookshelf": bookshelf(), "bookshelf-empty": bookshelf(books=False), "whiteboard": whiteboard(),
         "bubble-alert": bubble("alert"), "bubble-ask": bubble("ask"), "bubble-done": bubble("done"),
     }
     for name, sp in furniture.items():
