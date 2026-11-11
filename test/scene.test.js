@@ -223,8 +223,23 @@ describe("drawables", () => {
     const w = world({ t1: "working" });
     office.sync(w.rooms, w.info);
     const d = drawables(w.rooms[0], office);
-    expect(d.find((x) => x.id === "chair-0").click).toBeNull();
-    expect(d.find((x) => x.id === "chair-1").click).toEqual({ type: "hire", space: "sp1", machine: null });
+    const hire = { type: "hire", space: "sp1", machine: null };
+    expect(d.find((x) => x.id === "chair-0").click).toBeUndefined();
+    expect(d.find((x) => x.id === "chair-1").click).toEqual(hire);
+    expect(d.find((x) => x.id === "hire-1").click).toEqual(hire);
     expect(d.find((x) => x.id === "char-t1").click).toEqual({ type: "focus", terminal: "t1" });
+  });
+
+  test("the empty seat looks different: green chair, no laptop, a + sign", () => {
+    const office = new Office(seeded(9));
+    const w = world({ t1: "idle" }); // 席を立っていても、本人の席は空席にならない
+    office.sync(w.rooms, w.info);
+    const d = drawables(w.rooms[0], office);
+    expect(d.find((x) => x.id === "chair-0").img).toBe("chair");
+    expect(d.find((x) => x.id === "laptop-0")).toBeDefined();
+    expect(d.find((x) => x.id === "chair-1").img).toBe("chair-free");
+    expect(d.find((x) => x.id === "laptop-1")).toBeUndefined();
+    expect(d.find((x) => x.id === "hire-1")?.img).toBe("hire-sign");
+    expect(d.find((x) => x.id === "hire-0")).toBeUndefined();
   });
 });

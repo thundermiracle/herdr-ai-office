@@ -273,12 +273,19 @@ export function drawables(room, office) {
   add({ id: "plant", img: "plant", x: room.w - 18, y: 78, w: 12, h: 17, z: 95 });
   add({ id: "desk-l", img: "desk-l", x: DESK_X, y: BACK, w: 8, h: 21, z: BACK + 15 });
   for (const seat of room.seats) {
-    const hire = seat.agent ? null : { type: "hire", space: room.id, machine: room.machine };
-    add({ id: `chair-${seat.i}`, img: "chair", x: seat.cx - 7, y: BACK - 9, w: 14, h: 9, z: BACK - 2, click: hire,
-      tip: hire ? "空いた席: クリックでエージェントを雇う" : undefined });
     add({ id: `desk-${seat.i}`, img: "desk-m", x: seat.segX, y: BACK, w: 24, h: 21, z: BACK + 15 });
-    add({ id: `laptop-${seat.i}`, img: "laptop", x: seat.segX + 7, y: BACK - 5, w: 10, h: 9, z: BACK + 15.5, click: hire,
-      tip: hire ? "空いた席: クリックでエージェントを雇う" : undefined });
+    if (seat.agent) {
+      // 誰かの席: いつもの椅子とノート PC（本人が歩き回っていても置いたまま）
+      add({ id: `chair-${seat.i}`, img: "chair", x: seat.cx - 7, y: BACK - 9, w: 14, h: 9, z: BACK - 2 });
+      add({ id: `laptop-${seat.i}`, img: "laptop", x: seat.segX + 7, y: BACK - 5, w: 10, h: 9, z: BACK + 15.5 });
+      continue;
+    }
+    // 空いた席（雇える席）: 緑の椅子、ノート PC なし、上に「＋」の札が揺れる
+    const hire = { type: "hire", space: room.id, machine: room.machine };
+    const tip = "空いた席: クリックでエージェントを雇う";
+    add({ id: `chair-${seat.i}`, img: "chair-free", x: seat.cx - 7, y: BACK - 9, w: 14, h: 9, z: BACK - 2, click: hire, tip, glow: true });
+    add({ id: `hire-${seat.i}`, img: "hire-sign", x: seat.cx - 5, y: BACK - 24 - (Math.floor(office.t / 4) % 2), w: 11, h: 11,
+      z: BACK - 1.5, click: hire, tip, glow: true });
   }
   add({ id: "desk-r", img: "desk-r", x: room.deskEnd - DESK_END, y: BACK, w: 8, h: 21, z: BACK + 15 });
 

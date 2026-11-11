@@ -65,6 +65,7 @@ export default class AiOffice extends View {
   // クリックできる絵。窓（mod.open）で開いたときに押した所から窓が動きださないよう、押下は止める
   button(id, d, onClick, tip) {
     return div().id(id).absolute().left(px(d.x)).top(px(d.y)).w(px(d.w)).h(px(d.h)).cursor_pointer()
+      .when(Boolean(d.glow), (el) => el.rounded(6).hover((s) => s.bg("#ffffff59"))) // 絵はほぼ透明なので後ろを明るくする
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => onClick(cx))
       .when(Boolean(tip), (el) => el.tooltip(tip))

@@ -476,6 +476,21 @@ DFFFFFFFFFFFFFFD
 DDDDDDDDDDDDDDDD
 """)
 
+# 空いた席の上に浮かぶ「＋」の札（輪郭は格子に描く）
+HIRE_SIGN = grid("""
+...ooooo...
+.ooJJJJJoo.
+.oJJJJJJJo.
+oJJJJaJJJJo
+oJJJJaJJJJo
+oJJaaaaaJJo
+oJJJJaJJJJo
+oJJJJaJJJJo
+.oJJJJJJJo.
+.ooJJJJJoo.
+...ooooo...
+""")
+
 BUBBLE = grid("""
 .aaaaaaaaa.
 aaaaaaaaaaa
@@ -616,6 +631,7 @@ def main():
         "laptop": Sprite(10, 9).blit(LAPTOP, 0, 0),
         "hands-a": hands("a"), "hands-b": hands("b"), "hands-rest": hands("rest"),
         "chair": Sprite(14, 9).blit(CHAIR, 0, 0).outline(),
+        "hire-sign": Sprite(11, 11).blit(HIRE_SIGN, 0, 0),
         "plant": Sprite(12, 17).blit(PLANT, 0, 0).outline(),
         "window": Sprite(28, 16).blit(WINDOW, 0, 0).outline(),
         "clock": Sprite(11, 11).blit(CLOCK, 0, 0),
@@ -626,6 +642,9 @@ def main():
     for name, sp in furniture.items():
         save(sp.image(p), name)
         n += 1
+    # 空いた席（雇える席）の椅子は緑
+    save(furniture["chair"].image(pal({"x": "#5fbf8a", "X": "#3f9a6a", "z": "#9fe6bd"})), "chair-free")
+    n += 1
     save(floor_texture(), "floor")
     save(wall_texture(), "wall")
     n += 2
@@ -647,9 +666,10 @@ def preview(p, furniture):
         sheet.alpha_composite(sp.image(var), (x, 4))
         x += 20
     x = 4
-    for name in ("bookshelf", "whiteboard", "window", "door", "plant", "chair", "laptop", "clock",
-                 "bubble-alert", "bubble-ask", "bubble-done"):
-        im = furniture[name].image(p)
+    free_chair = furniture["chair"].image(pal({"x": "#5fbf8a", "X": "#3f9a6a", "z": "#9fe6bd"}))
+    for name in ("bookshelf", "whiteboard", "window", "door", "plant", "chair", "chair-free", "laptop", "hire-sign",
+                 "clock", "bubble-alert", "bubble-ask", "bubble-done"):
+        im = free_chair if name == "chair-free" else furniture[name].image(p)
         sheet.alpha_composite(im, (x, 32))
         x += im.width + 4
 
@@ -669,17 +689,19 @@ def preview(p, furniture):
     who = {0: (CHAR_POSES["sit-0"], var, "hands-a"), 1: (CHAR_POSES["sit-happy"], var3, "hands-rest")}
     for i in range(seats):
         cx = desk_x + 8 + i * 24 + 12
-        room.alpha_composite(furniture["chair"].image(p), (cx - 7, back - 9))
+        room.alpha_composite(furniture["chair"].image(p) if i in who else free_chair, (cx - 7, back - 9))
         if i in who:
             room.alpha_composite(who[i][0].image(who[i][1]), (cx - 9, back - 16))
+        else:
+            room.alpha_composite(furniture["hire-sign"].image(p), (cx - 5, back - 24))  # 空いた席の「＋」
     room.alpha_composite(furniture["desk-l"].image(p), (desk_x, back))
     for i in range(seats):
         room.alpha_composite(furniture["desk-m"].image(p), (desk_x + 8 + i * 24, back))
     room.alpha_composite(furniture["desk-r"].image(p), (desk_x + 8 + seats * 24, back))
     for i in range(seats):
         seg = desk_x + 8 + i * 24
-        room.alpha_composite(furniture["laptop"].image(p), (seg + 7, back - 5))
-        if i in who:
+        if i in who:  # 空いた席にはノート PC を置かない
+            room.alpha_composite(furniture["laptop"].image(p), (seg + 7, back - 5))
             room.alpha_composite(furniture[who[i][2]].image(p), (seg, back))
     room.alpha_composite(furniture["bubble-done"].image(p), (desk_x + 8 + 24 + 12, back - 30))
     put(CHAR_POSES["raise-0"].image(var2), 150, 118)  # 手を挙げて待つ人
