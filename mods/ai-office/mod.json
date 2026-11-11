@@ -1,0 +1,10 @@
+{
+  "place": "none",
+  "title": "AI Office",
+  "overlay": {
+    "kind": "window",
+    "key": "ai-office",
+    "width": 920,
+    "height": 640
+  }
+}
