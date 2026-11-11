@@ -457,6 +457,20 @@ describe("skill errands", () => {
     expect(c.behavior).toBe("type");
   });
 
+  test("plain research trips to the library run too, and so does the way back", () => {
+    const office = new Office(seeded(16));
+    let w = floorWorld();
+    office.sync(w.rooms, w.info);
+    const c = office.chars.get("t1");
+    w = floorWorld({ act: "read" });
+    office.sync(w.rooms, w.info);
+    expect([c.behavior, c.run]).toEqual(["read", true]);
+    expect(runUntil(office, () => atLibrary(office, w.rooms))).toBe(true);
+    w = floorWorld({ act: "edit" });
+    office.sync(w.rooms, w.info);
+    expect([c.behavior, c.run]).toEqual(["type", true]);
+  });
+
   test("the value seen first is not an event; the same skill used again is", () => {
     const office = new Office(seeded(14));
     let w = floorWorld({ skill: "herdr", skillAt: "100" });

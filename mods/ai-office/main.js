@@ -8,7 +8,8 @@ import {
   spaces, agents, terminals, panes, theme, window, run, openOverlay, pickFolder, home, readTextFile, layout, props, setShared,
 } from "herdr";
 import {
-  SCALE, TICK_ACTIVE, TICK_INACTIVE, HALL_W, PART_W, PART_END, Office, roomsOf, layoutFloor, drawables, floorDrawables,
+  SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, PART_END, Office, roomsOf, layoutFloor, drawables,
+  floorDrawables, running,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
 } from "./scene.js";
 
@@ -264,7 +265,9 @@ export default class AiOffice extends View {
   // 約 30fps で窓全体を描き直す（1 つで CPU 約 20%）ので使わない。窓が後ろにあるときはゆっくり。
   schedule(cx) {
     const hidden = this.hidden();
-    cx.timer.after(hidden ? HIDDEN_MS : window()?.active ? TICK_ACTIVE : TICK_INACTIVE, (cx) => {
+    const active = window()?.active;
+    const ms = hidden ? HIDDEN_MS : !active ? TICK_INACTIVE : running(this.office) ? TICK_RUN : TICK_ACTIVE;
+    cx.timer.after(ms, (cx) => {
       if (this.hidden()) {
         this.schedule(cx); // 隠れている間は何もしない（見えたときの経過時間は dt の上限で切る）
         return;

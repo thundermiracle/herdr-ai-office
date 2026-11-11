@@ -7,8 +7,9 @@
 export const SCALE = 2;
 export const TICK_ACTIVE = 250; // ms。窓がアクティブなとき（4fps。6fps だと main-dots の横で CPU 約 15%）
 export const TICK_INACTIVE = 500; // 窓が後ろにあるとき（2fps）
+export const TICK_RUN = 125; // 誰かが小走りしている間（8fps。速く動くので、4fps だと 1 コマで大きく飛ぶ）
 export const SPEED = 14; // 歩く速さ（art px / 秒）
-export const RUN_SPEED = 32; // skill を取りに行くときの小走り
+export const RUN_SPEED = 60; // 資料室へ行き来するときの小走り（1 枚のフロアでは資料室が遠い）
 export const ERRAND_READ_MS = 5000; // skill を使ったとき、資料室で読む時間
 
 // オフィスは 1 枚のフロア: 左に縦の廊下（一番上が資料室で、本棚はここに 1 つ）、その右に部屋をすき間なく並べる。
@@ -397,7 +398,8 @@ export class Office {
     }
     const goal = behavior === "read" ? this.librarySpot(c) : { x: c.seat.cx, y: LANE_Y };
     c.path = planPath(c.roomRef, c, goal);
-    c.run = Boolean(c.errand) || c.returning === true; // skill を取りに行く・戻るときは小走り
+    // 資料室へ行くとき（skill を取りに行く・調べ物）と、廊下から戻るときは小走り
+    c.run = behavior === "read" || c.returning === true || c.x < 0;
     c.returning = false;
     if (!c.path.length) this.arrive(c);
   }
@@ -486,6 +488,12 @@ export class Office {
  */
 export function clockHands(date) {
   return { h: date.getHours() % 12, m: Math.floor(date.getMinutes() / 5) };
+}
+
+/** 誰かが小走りしているか（コマ送りを速くする）。 */
+export function running(office) {
+  for (const c of office.chars.values()) if (c.run && c.path.length) return true;
+  return false;
 }
 
 /** 今のコマが動きを含むか（含まなければ tick しても絵は変わらない）。 */
