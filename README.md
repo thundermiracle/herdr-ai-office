@@ -23,6 +23,28 @@ scripts/demo.sh stop                             # 見本を消す
 ```
 
 `ai-office` レイアウトは、左がオフィス、右がクリックしたエージェントのターミナル。
+
+### 右上の「Office」ボタンで出し入れする（main-dots-office）
+
+```sh
+herdr-app do layout.switch --name main-dots-office   # いつもの main-dots に「Office」ボタンとオフィスの列を足したもの
+herdr-app do layout.toggle --id office               # ボタンと同じ（開く・閉じる）
+```
+
+タブバーの右上（Files・Changes の右）の「Office」ボタンで、右端のオフィスの列が開いたり閉じたりする。
+開け閉めはレイアウトのクリックとして覚えられるので、再起動しても残る。閉じている間、オフィスは
+コマ送りも描き直しもしない（CPU は閉じたときとほぼ同じ約 1%）。
+
+Files・Changes のボタンは同梱の `tabs` mod に直接書かれていて増やせないので、`tabs` は複製せず
+（Herdr の更新を取り込み直す手間がない）、隣に `ai-office-toggle` のブロックを置いている。
+`layouts/main-dots-office.json` は main-dots からの 2 か所の変更だけで、本番では chezmoi の
+`private_dot_config/herdr-app/layouts/main-dots.json` に同じ変更を入れる:
+
+1. タブバーのブロック（`"id": "tabs"`）を、タブバーと `ai-office-toggle`（幅 88、`window_drag`）を横に並べた
+   `"type": "row"`（`"id": "tabs-row"`、高さ 42、`"resizable": false`）にする
+2. `work-body` の子の最後に、オフィスのブロックを足す:
+   `{"id": "office", "type": "block", "hidden": true, "size": {"px": 560}, "min": 440, "max": 1400,
+   "content": {"mod": "ai-office", "props": {"block": "office"}}}`（`props.block` で自分が隠れているかを調べる）
 見本は質問や完了を報告するので、herdr-app の通知音とトーストが出る（全部を順に回る 1 人は 40 秒ごとに質問する）。
 
 ## 状態と動き
@@ -83,7 +105,9 @@ hooks/register.sh remove   # このフックだけ外す（ほかのフックは
 |---|---|
 | `mods/ai-office/` | mod 本体。`scene.js` は計算だけ（herdr も gpui-kit も import しない）、`main.js` が描く |
 | `mods/ai-office-hire/` | 空いた席をクリックすると出る「雇う」ポップアップ |
+| `mods/ai-office-toggle/` | タブバーの右隣の「Office」ボタン（`layout.toggle`） |
 | `layouts/ai-office.json` | オフィスと、選んだエージェントのターミナルを並べたレイアウト |
+| `layouts/main-dots-office.json` | main-dots に「Office」ボタンとオフィスの列を足したレイアウト |
 | `scripts/build-art.py` | ドット絵（文字の格子で描き、4 倍の PNG に書き出す）。`tmp/art-preview.png` に一覧と部屋の見本 |
 | `hooks/` | Claude Code のフックと、その登録・削除 |
 | `scripts/fake-agent.sh`、`scripts/demo.sh` | AI を使わずに状態を報告する偽エージェントと、それを 6 人並べた見本 |
@@ -107,9 +131,10 @@ herdr-app はコピー先の変更を見て mod を読み直す。シンボリ�
 
 ## 分かっている制限
 
-- アニメ GIF / WebP は mod では動かないので、1 本のタイマーでコマを送っている。オフィスを開いている間、
-  Herdr の CPU は窓がアクティブなとき約 8%（6fps）。後ろにあるときは 2fps に落とす。
-  ネイティブのアニメは 1 つで約 20% なので使っていない
+- アニメ GIF / WebP は mod では動かないので、1 本のタイマーでコマを送っている（窓がアクティブなとき 4fps、
+  後ろにあるとき 2fps）。6fps で測ったときの Herdr の CPU は、ai-office の窓だけなら約 8%、main-dots の横の列では約 15%
+  （窓全体を描き直すので、ほかに出ているものが多いほど重い）。4fps にしたあとはまだ測れていない。
+  閉じている（隠れている）間は約 1%。ネイティブのアニメは 1 つで約 20% なので使っていない
 - 絵は 4 倍の PNG を 2 倍で描いてにじまないようにしているので、herdr-app のズームを 1 以外にすると少しにじむ。
   画面が広くても部屋は大きくならない（大きくするには 6 倍の絵を作って SCALE を 3 にする）
 - クリックの動作（フォーカス・雇う・名札・ドア）は自動テストがなく、手で確かめる

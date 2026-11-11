@@ -5,7 +5,7 @@
 //   椅子は (席の x-7, BACK-9)、ノート PC は (席の机の x+7, BACK-5)、手は (席の机の x, BACK)。
 
 export const SCALE = 2;
-export const TICK_ACTIVE = 160; // ms。窓がアクティブなとき（約 6fps）
+export const TICK_ACTIVE = 250; // ms。窓がアクティブなとき（4fps。6fps だと main-dots の横で CPU 約 15%）
 export const TICK_INACTIVE = 500; // 窓が後ろにあるとき（2fps）
 export const SPEED = 14; // 歩く速さ（art px / 秒）
 

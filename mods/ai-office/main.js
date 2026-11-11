@@ -3,7 +3,7 @@
 // 絵は 4 倍に拡大済みの PNG で、絵の 1 ピクセルを SCALE（2）論理 px で描く（にじまない大きさ）。
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, agents, terminals, theme, window, run, openOverlay, pickFolder, home, readTextFile } from "herdr";
+import { spaces, agents, terminals, theme, window, run, openOverlay, pickFolder, home, readTextFile, layout, props } from "herdr";
 import {
   SCALE, WALL_H, TICK_ACTIVE, TICK_INACTIVE, Office, roomsOf, layoutRooms, drawables, clockHands,
   agentModel, parseCodexConfig,
@@ -14,6 +14,7 @@ const px = (v) => v * SCALE;
 const FLOOR_W = 512; // floor.png / wall.png の幅（art px）
 const WIDE = 260; // これ以上の幅の部屋にはホワイトボードも掛ける
 const META_MS = 10000; // model と effort を読み直す間隔
+const HIDDEN_MS = 1000; // 隠れている間は、この間隔で見えるようになったかだけ見る
 const LEGEND = "見た目: 眼鏡とネクタイ = opus、なし = sonnet、若葉 = haiku、星のピン = fable、ヘッドホン = Codex"
   + "　鉢巻き: なし = low、青 = medium、白 = high、赤 = xhigh、赤と炎 = max";
 
@@ -43,6 +44,17 @@ function gather(meta, codexDefaults) {
   return { rooms: roomsOf(spaces(), ag), info };
 }
 
+// レイアウトの根から id のブロックまでの道（見つからなければ null）
+function pathTo(node, id) {
+  if (!node) return null;
+  if (node.id === id) return [node];
+  for (const child of node?.children ?? []) {
+    const rest = pathTo(child, id);
+    if (rest) return [node, ...rest];
+  }
+  return null;
+}
+
 // ファイルを読む。ないとき・読めないときは null
 async function readOrNull(path) {
   try {
@@ -65,10 +77,21 @@ export default class AiOffice extends View {
     this.schedule(cx);
   }
 
+  // 自分のブロック（props の block）が隠れているか: そのものか親が hidden、または stack の選ばれていない子。
+  // 隠れていても mod は生きていてタイマーも動くので、隠れている間はコマ送りも描き直しもしない（Office ボタンで閉じたとき）。
+  // 窓（mod.open）で開いたときや block がないときは、見えている扱い
+  hidden() {
+    const id = props()?.block;
+    const path = id ? pathTo(layout(), id) : null;
+    if (!path) return false;
+    return path.some((node, i) => node.hidden || (node.type === "stack" && path[i + 1] && node.active !== path[i + 1].id));
+  }
+
   // model と effort: Claude は effort-recorder（statusLine）がセッションごとに書くキャッシュ
   // （~/.cache/claude-model/<id>、~/.cache/claude-effort/<id>）、Codex は ~/.codex/config.toml の既定。
   // コマ送りのたびには読まない。変わったときだけ描き直す
   loadMeta(cx) {
+    if (this.hidden()) return;
     cx.spawn(async (cx) => {
       const base = home();
       const sids = new Set(terminals().map((t) => t.labels?.["resume.id"]).filter((id) => /^[0-9a-f-]{36}$/i.test(id ?? "")));
@@ -94,7 +117,12 @@ export default class AiOffice extends View {
   // コマ送り: 1 本のタイマーで全員の位置とコマを進める。ネイティブの loop / transition は
   // 約 30fps で窓全体を描き直す（1 つで CPU 約 20%）ので使わない。窓が後ろにあるときはゆっくり。
   schedule(cx) {
-    cx.timer.after(window()?.active ? TICK_ACTIVE : TICK_INACTIVE, (cx) => {
+    const hidden = this.hidden();
+    cx.timer.after(hidden ? HIDDEN_MS : window()?.active ? TICK_ACTIVE : TICK_INACTIVE, (cx) => {
+      if (this.hidden()) {
+        this.schedule(cx); // 隠れている間は何もしない（見えたときの経過時間は dt の上限で切る）
+        return;
+      }
       const now = Date.now();
       const dt = Math.min(now - this.last, 1000); // スリープ明けに瞬間移動しないよう
       this.last = now;
@@ -217,7 +245,7 @@ export default class AiOffice extends View {
         .child(div().child(`作業中 ${counts.working} · 待ち ${counts.blocked} · 完了 ${counts.done} · 待機 ${counts.idle}`))
         .child(div().id("legend").ml_auto().px(6).rounded(4).text_color(t.dim).hover((s) => s.text_color(t.foreground))
           .tooltip(LEGEND).child("凡例")))
-      .child(div().id("scroll").flex_1().min_h(0).overflow_y_scroll()
+      .child(div().id("scroll").flex_1().min_h(0).overflow_scroll() // 細い列（Office ボタン）では横にも
         .child(div().relative().w(px(office.w)).h(px(office.h))
           .children(office.rooms.map((r) => (r.newRoom ? this.newRoom(r) : this.room(r, t))))));
   }

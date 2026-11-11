@@ -15,7 +15,10 @@
       },
       "min": 440,
       "content": {
-        "mod": "ai-office"
+        "mod": "ai-office",
+        "props": {
+          "block": "office"
+        }
       }
     },
     {
