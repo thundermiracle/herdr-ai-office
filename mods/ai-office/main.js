@@ -3,8 +3,8 @@
 // 絵は 4 倍に拡大済みの PNG で、絵の 1 ピクセルを SCALE（2）論理 px で描く（にじまない大きさ）。
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, agents, terminals, theme } from "herdr";
-import { SCALE, WALL_H, Office, roomsOf, layoutRooms, drawables } from "./scene.js";
+import { spaces, agents, terminals, theme, window } from "herdr";
+import { SCALE, WALL_H, TICK_ACTIVE, TICK_INACTIVE, Office, roomsOf, layoutRooms, drawables } from "./scene.js";
 
 const IMG = "mods/ai-office/img";
 const px = (v) => v * SCALE;
@@ -30,9 +30,32 @@ function gather() {
 }
 
 export default class AiOffice extends View {
-  init(_props, _cx) {
+  init(_props, cx) {
     this.office = new Office();
     this.width = 900; // on_size_change が来るまでの仮の幅（論理 px）
+    this.last = Date.now();
+    this.sig = "";
+    this.schedule(cx);
+  }
+
+  // コマ送り: 1 本のタイマーで全員の位置とコマを進める。ネイティブの loop / transition は
+  // 約 30fps で窓全体を描き直す（1 つで CPU 約 20%）ので使わない。窓が後ろにあるときはゆっくり。
+  schedule(cx) {
+    cx.timer.after(window()?.active ? TICK_ACTIVE : TICK_INACTIVE, (cx) => {
+      const now = Date.now();
+      const dt = Math.min(now - this.last, 1000); // スリープ明けに瞬間移動しないよう
+      this.last = now;
+      const { rooms, info } = gather();
+      this.office.sync(rooms, info);
+      this.office.tick(dt);
+      // 描く絵（名前と位置）が前のコマと同じなら描き直さない
+      const sig = rooms.map((r) => drawables(r, this.office).map((d) => `${d.img}@${d.x},${d.y}`).join(";")).join("|");
+      if (sig !== this.sig) {
+        this.sig = sig;
+        cx.notify();
+      }
+      this.schedule(cx);
+    });
   }
 
   sprite(d) {
