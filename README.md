@@ -14,6 +14,7 @@ herdr-app のワークスペースを部屋に、AI エージェントをキャ�
 | 場所 | 何か |
 |---|---|
 | `mods/ai-office/` | mod 本体（`~/.config/herdr-app/mods/ai-office/` にコピーして使う） |
+| `mods/ai-office-hire/` | 空いた席をクリックすると出る「雇う」ポップアップ |
 | `layouts/ai-office.json` | オフィスと、選んだエージェントのターミナルを並べたレイアウト |
 | `art/`、`scripts/build-art.py` | ドット絵の元データと、それを PNG / GIF にするスクリプト |
 | `hooks/` | Claude Code のフック（調べ物中を `office.act` ラベルで知らせる） |

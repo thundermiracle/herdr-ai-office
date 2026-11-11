@@ -3,7 +3,7 @@
 // 絵は 4 倍に拡大済みの PNG で、絵の 1 ピクセルを SCALE（2）論理 px で描く（にじまない大きさ）。
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, agents, terminals, theme, window } from "herdr";
+import { spaces, agents, terminals, theme, window, run, openOverlay, pickFolder } from "herdr";
 import { SCALE, WALL_H, TICK_ACTIVE, TICK_INACTIVE, Office, roomsOf, layoutRooms, drawables } from "./scene.js";
 
 const IMG = "mods/ai-office/img";
@@ -62,11 +62,34 @@ export default class AiOffice extends View {
     return image(`${IMG}/${d.img}.png`).absolute().left(px(d.x)).top(px(d.y)).w(px(d.w)).h(px(d.h));
   }
 
+  // クリックできる絵。窓（mod.open）で開いたときに押した所から窓が動きださないよう、押下は止める
+  button(id, d, onClick, tip) {
+    return div().id(id).absolute().left(px(d.x)).top(px(d.y)).w(px(d.w)).h(px(d.h)).cursor_pointer()
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => onClick(cx))
+      .when(Boolean(tip), (el) => el.tooltip(tip))
+      .child(image(`${IMG}/${d.img}.png`).size_full());
+  }
+
+  // scene.js の click: { type: "focus", terminal } / { type: "hire", space, machine }
+  act(click) {
+    if (click.type === "focus") run("agent.focus", { terminal: click.terminal });
+    if (click.type === "hire") {
+      openOverlay({ mod: "ai-office-hire", kind: "popup", width: 240, height: 320, props: { space: click.space, machine: click.machine } });
+    }
+  }
+
+  item(room, d) {
+    return d.click ? this.button(`${room.id}-${d.id}`, d, () => this.act(d.click), d.tip) : this.sprite(d);
+  }
+
   // 壁の名札（スペースの名前）。ホワイトボードは部屋が広いときだけ置くので、名札はそこまで伸ばせる
   plate(room) {
     const text = room.machine ? `${room.machine}: ${room.name}` : room.name;
     const right = room.w >= WIDE ? room.w - 116 : room.w - 76;
     return div().id(`plate-${room.id}`).absolute().left(px(44)).top(px(5)).h(px(12)).max_w(px(right - 44))
+      .cursor_pointer().on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click(() => run("space.select", { id: room.id }))
       .px(8).flex().items_center().rounded(3).border(2).border_color("#5b3a2c").bg(room.active ? "#c58a55" : "#a8774c")
       .text_size(12).font_semibold().text_color("#fff4dc").whitespace_nowrap().text_ellipsis().overflow_hidden()
       .child(text);
@@ -85,12 +108,20 @@ export default class AiOffice extends View {
       .child(this.sprite({ img: "window", x: room.w - 72, y: 6, w: 28, h: 16 }))
       .child(this.sprite({ img: "clock", x: room.w - 32, y: 9, w: 11, h: 11 }))
       .child(this.plate(room))
-      .children(drawables(room, this.office).map((d) => this.sprite(d)));
+      .children(drawables(room, this.office).map((d) => this.item(room, d)));
   }
 
+  // 「新しい部屋」: フォルダを選んで、そこにスペースを作る（pickFolder はこの Mac だけ）
   newRoom(lot) {
     return div().id("new-room").absolute().left(px(lot.ox)).top(px(lot.oy)).w(px(lot.w)).h(px(lot.h))
       .rounded(4).border(2).border_color("#ffffff22").bg("#ffffff0d")
+      .cursor_pointer().hover((s) => s.bg("#ffffff1a"))
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_click((_e, cx) => cx.spawn(async () => {
+        const folder = await pickFolder({ prompt: "この部屋にする" });
+        if (folder) run("space.new", { folder });
+      }))
+      .tooltip("新しい部屋（スペース）を作る")
       .child(this.sprite({ img: "door", x: (lot.w - 16) / 2, y: 40, w: 16, h: 20 }))
       .child(div().absolute().left(0).top(px(66)).w(px(lot.w)).flex().justify_center()
         .text_size(11).text_color("#ffffffaa").child("+ 部屋"));

@@ -1,0 +1,9 @@
+{
+  "place": "none",
+  "title": "AI Office: hire",
+  "overlay": {
+    "kind": "popup",
+    "width": 240,
+    "height": 320
+  }
+}
