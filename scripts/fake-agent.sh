@@ -1,10 +1,13 @@
 #!/bin/sh
 # テスト用の偽エージェント。AI は使わず、herdr-core に状態（OSC 7501）を報告するだけ。
-# 使い方: fake-agent.sh [working|read|skill:<名前>|blocked|ask|done|idle|cycle] [app]
+# 使い方: fake-agent.sh [working|read|skill:<名前>|skills:<名前>|talks:<タブ>[:<秒>]|blocked|ask|done|idle|cycle] [app]
 #   read:  working と報告して、ターミナルに office.act=read のラベルを付ける（オフィスでは本棚へ行く）
 #   skill:<名前>: read に加えて office.skill=<名前>（本棚でその skill の本を読み、名前の札が出る）
 #   skills:<名前>: working（タイピング）のまま、20 秒ごとにその skill を使う（office.skill_at を変える。
 #                  フックが本物の Skill ツールで書くのと同じ出来事で、資料室へ取りに行って読み、戻ってくる）
+#   talks:<タブ>[:<秒>]: working（タイピング）のまま、<秒>（既定 8）たってから 30 秒ごとに、その名前のタブのエージェントへ
+#                  hc send で話しかける。フック（hooks/claude-office-act.sh）が書くのと同じラベル（office.talk・office.talk_at・
+#                  office.talk_text）を先に書くので、オフィスでは相手のところへ行って話し、戻ってくる
 #   ask:   質問（選択肢の画面を出して、答えを受け取る。scripts/fake-question.py）、blocked: 許可待ち
 #   cycle: working → skill:herdr → read → ask → done → idle を 8 秒ずつ繰り返す
 #   app:   報告するエージェントの名前（オフィスの服の色: claude を含むと橙、codex を含むと青緑）
@@ -28,7 +31,7 @@ show() {
     working) labels ""; report working ;;
     read) labels read; report working ;;
     skill:*) labels read "${1#skill:}"; report working ;;
-    skills:*) labels ""; report working ;;
+    skills:* | talks:*) labels ""; report working ;;
     blocked) labels ""; report blocked ":kind=permission" ;;
     ask) labels ""; report blocked ":kind=question" ;;
     done) labels ""; report done ;;
@@ -56,6 +59,30 @@ case "$mode" in
       [ -n "${HC_TERMINAL_ID:-}" ] && hc label "$HC_TERMINAL_ID" "office.act=" "office.skill=${mode#skills:}" \
         "office.skill_at=$n" >/dev/null 2>&1
       sleep 20
+    done
+    ;;
+  talks:*)
+    spec=${mode#talks:}
+    tab=${spec%%:*}
+    first=8
+    [ "$spec" != "$tab" ] && first=${spec#*:}
+    sleep "$first"
+    n=0
+    while :; do
+      n=$((n + 1))
+      case $((n % 4)) in
+        1) text="レビューお願いします: src/x.rs" ;;
+        2) text="テストが通りました" ;;
+        3) text="この仕様で合っていますか？" ;;
+        0) text="直したので見てください" ;;
+      esac
+      # 相手のアドレス（herdr-app のタブの名前から）
+      to=$(herdr-app ls 2>/dev/null | jq -r --arg t "$tab" '[.spaces[].tabs[] | select(.name == $t) | .terminals[0].terminal] | first // empty')
+      if [ -n "$to" ] && [ -n "${HC_TERMINAL_ID:-}" ]; then
+        hc label "$HC_TERMINAL_ID" "office.talk=$to" "office.talk_at=$n-$$" "office.talk_text=$text" >/dev/null 2>&1
+        hc send "$to" "$text" >/dev/null 2>&1 &
+      fi
+      sleep 30
     done
     ;;
 esac
