@@ -537,25 +537,6 @@ vvvvVvvvvvvv
 ...TTTTTT...
 """)
 
-WINDOW = grid("""
-aaaaaaaaaaaaaaaaaaaaaaaaaaaa
-aBAAAAAAAAAAAaaBAAAAAAAAAAAa
-aABAAAAAAAAAAaaABAAAAAAAAAAa
-aAABAAAAAaaaAaaAABAAAAAAAAAa
-aAAABAAAaaaaaaaAAABAAAAAAAAa
-aAAAABAAAAAAAaaAAAABAAAAAAAa
-aAAAAABAAAAAAaaAAAAABAAAAAAa
-aaaaaaaaaaaaaaaaaaaaaaaaaaaa
-aaaaaaaaaaaaaaaaaaaaaaaaaaaa
-aBAAAAAAAAAAAaaBAAAAAAAAAAAa
-aABAAAAAAAAAAaaABAAAAAAAAAAa
-aAABAAAAAAAAAaaAABAAAAAAAAAa
-aAAABAAAAAAAAaaAAABAAAAAAAAa
-aAAAABAAAAAAAaaAAAABAAAAAAAa
-aCCCCCCCCCCCCaaCCCCCCCCCCCCa
-aaaaaaaaaaaaaaaaaaaaaaaaaaaa
-""")
-
 # 時計の文字盤（13x13、中心は (6, 6)。輪郭は自動にすると斜めが途切れるので、格子に描く）。
 # 針は別の絵（clock_hand）を重ねる。12・3・6・9 時に目盛り
 CLOCK_FACE = grid("""
@@ -758,6 +739,204 @@ def wall_texture(w_tiles=32):
     return im
 
 
+# ---- 窓の外（scene.js の windowView）: 窓枠（window.png）の後ろに、空・雨や雪・稲光を重ねる。どれも 28x16 ----
+# 窓は 2x2 枚のガラス（左上・右上・左下・右下。どれも 12x6）。枠は外周と、まんなかの縦横 2 ドットの桟
+WIN_W, WIN_H = 28, 16
+PANES = [(1, 1), (15, 1), (1, 9), (15, 9)]  # ガラスの左上
+
+
+def in_glass(x, y):
+    return any(px <= x < px + 12 and py <= y < py + 6 for px, py in PANES)
+
+
+def window_frame():
+    """窓枠: ガラスは透明（後ろの空が見える）。ガラスには斜めの光の筋を薄く重ねる。"""
+    im = Image.new("RGBA", (WIN_W, WIN_H), (0, 0, 0, 0))
+    for y in range(WIN_H):
+        for x in range(WIN_W):
+            if not in_glass(x, y):
+                im.putpixel((x, y), rgb(FURN["a"]))
+    for px, py in PANES:
+        for i in range(6 if py == 1 else 5):
+            im.putpixel((px + i, py + i), (255, 255, 255, 45))
+    return im
+
+
+# 時間帯ごとの色: 空（上から地平線へ 4 段）、雲（明るい面・影）、ビル（2 色・窓・明かり・明かりの割合）、
+# タワー（骨組み・展望台）、曇りの空（4 段と雲の筋）
+SKY = {
+    "day": {
+        "sky": ["#5aa8e6", "#7cc0f0", "#a6d8f7", "#cdeafb"], "cloud": ("#ffffff", "#dfe8f2"),
+        "bld": ("#9aaec8", "#8aa0bd", "#c9d8ea", "#ffd98c", 0.0), "tower": ("#e2533c", "#f4efe6"),
+        "gray": ["#9ea9b7", "#aab4c0", "#b6bfca", "#c3cad3", "#8f9aa8"],
+    },
+    "dawn": {
+        "sky": ["#6c86c6", "#b39ccc", "#f0aaa0", "#ffd49a"], "cloud": ("#fbd6cf", "#d8a7b4"),
+        "bld": ("#7b7f9f", "#6e7292", "#8d90ad", "#ffd98c", 0.12), "tower": ("#c9503f", "#f0d2bc"),
+        "gray": ["#8c8aa6", "#a09aae", "#b4a9b2", "#c4b5b1", "#7c7a96"],
+    },
+    "dusk": {
+        "sky": ["#4a5aa0", "#9c6aa4", "#ec8a6a", "#ffb35e"], "cloud": ("#f6b394", "#b9708a"),
+        "bld": ("#5e4f75", "#54466a", "#6c5d84", "#ffcc73", 0.3), "tower": ("#a8423d", "#e8b89c"),
+        "gray": ["#6c6282", "#806c86", "#977a86", "#a88986", "#5c5472"],
+    },
+    "twilight": {
+        "sky": ["#1d2a5e", "#2e3f7c", "#4c5a96", "#7a6aa2"], "cloud": ("#56608e", "#434b78"),
+        "bld": ("#2b3050", "#252a47", "#343a5c", "#ffd86b", 0.55), "tower": ("#ff9a45", "#ffe08a"),
+        "gray": ["#2d3249", "#363b54", "#40455e", "#4b4f68", "#262a40"],
+    },
+    "night": {
+        "sky": ["#0b1230", "#111a3e", "#18244c", "#22305a"], "cloud": ("#2c3456", "#222944"),
+        "bld": ("#151a2d", "#111526", "#1d2338", "#ffd86b", 0.45), "tower": ("#ff9a45", "#ffe08a"),
+        "gray": ["#191b24", "#1e212b", "#242833", "#34303a", "#14161e"],
+    },
+}
+COVERS = ("clear", "cloudy", "overcast")
+# 下の 2 枚の街並み: (左端, 右端, 屋上の行)。右下には赤いタワー（上の右の 1 枚まで伸びる）
+BUILDINGS = [(1, 3, 12), (4, 6, 10), (7, 8, 12), (9, 12, 11), (15, 17, 12), (18, 19, 11), (25, 26, 10)]
+TOWER = {"tip": [(22, y) for y in range(3, 7)], "deck": [(21, 9), (22, 9), (23, 9), (21, 11), (22, 11), (23, 11)],
+         "body": [(22, 10), (21, 12), (23, 12), (20, 13), (24, 13), (20, 14), (24, 14)]}
+CLOUD_A = ["..LL...", ".LLLLL.", "LLLLLLL", ".SSSSS."]
+CLOUD_B = [".LL..", "LLLLL", ".SSS."]
+DISC = [".XX.", "XYYX", "XYYX", ".XX."]  # 太陽と月（X が縁）
+
+
+def sky(phase, cover):
+    """空 1 枚: 4 段の空（段の境は市松でぼかす）、太陽か月と星、雲、街並み（夜は窓の明かり）、タワー。"""
+    c = SKY[phase]
+    bands = c["gray"][:4] if cover == "overcast" else c["sky"]
+    im = Image.new("RGBA", (WIN_W, WIN_H), rgb(bands[3]))
+    rows = {0: 0, 1: 0, 2: 0, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 2, 10: 2}
+    for y in range(WIN_H):
+        for x in range(WIN_W):
+            if y in rows:
+                band = rows[y]
+            elif y == 3:
+                band = (x + y) % 2  # 0 と 1 の境
+            elif y == 11:
+                band = 2 + (x + y) % 2  # 2 と 3 の境
+            else:
+                band = 3
+            im.putpixel((x, y), rgb(bands[band]))
+    put = lambda x, y, col: in_glass(x, y) and im.putpixel((x, y), rgb(col) if isinstance(col, str) else col)
+
+    def shape(rows_, x0, y0, colors):
+        for dy, row in enumerate(rows_):
+            for dx, ch in enumerate(row):
+                if ch in colors:
+                    put(x0 + dx, y0 + dy, colors[ch])
+
+    rng = random.Random(f"{phase}-{cover}")
+    if cover == "overcast":  # 雲の筋（低く垂れた雲の底）
+        for y in (2, 5, 10):
+            x = rng.randrange(0, 4)
+            while x < WIN_W:
+                for k in range(rng.randrange(3, 6)):
+                    put(x + k, y, c["gray"][4])
+                x += rng.randrange(7, 11)
+    else:
+        if phase == "day":
+            shape(DISC, 2, 2, {"X": "#ffe58a", "Y": "#fff8d8"})
+        elif phase == "dawn":
+            shape(DISC, 1, 9, {"X": "#ffb060", "Y": "#ffe0a0"})  # 街の向こうから昇る
+        elif phase == "dusk":
+            shape(DISC, 15, 9, {"X": "#ff8a4a", "Y": "#ffc070"})  # タワーの横に沈む
+        elif phase == "night":
+            shape(DISC, 3, 2, {"X": "#e8e0b8", "Y": "#fff6d6"})
+        stars = {"night": 8, "twilight": 3}.get(phase, 0) // (2 if cover == "cloudy" else 1)
+        placed = 0
+        while placed < stars:
+            x, y = rng.randrange(WIN_W), rng.choice([1, 2, 3, 4, 5, 6, 9])
+            if not in_glass(x, y) or (phase == "night" and 2 <= x <= 6 and 1 <= y <= 6):
+                continue
+            put(x, y, "#ffffff" if placed % 3 else ("#b9c6ff" if phase == "night" else "#9aa8d8"))
+            placed += 1
+        if cover == "cloudy":
+            light, shade = c["cloud"]
+            shape(CLOUD_A, 5, 2, {"L": light, "S": shade})
+            shape(CLOUD_B, 15, 3, {"L": light, "S": shade})
+            shape(CLOUD_B, 8, 9, {"L": light, "S": shade})
+    body_a, body_b, unlit, lit, p = c["bld"]
+    lights = random.Random(f"lights-{phase}")
+    for i, (x0, x1, top) in enumerate(BUILDINGS):
+        body = body_a if i % 2 == 0 else body_b
+        for x in range(x0, x1 + 1):
+            for y in range(top, WIN_H):
+                window = y > top and (y - top) % 2 == 0 and (x - x0) % 2 == 1 - (i % 2) and x < x1 + (i % 2)
+                col = body
+                if window:
+                    col = lit if lights.random() < p else unlit
+                put(x, y, col)
+    frame, deck = c["tower"]
+    for x, y in TOWER["tip"] + TOWER["body"]:
+        put(x, y, frame)
+    for x, y in TOWER["deck"]:
+        put(x, y, deck)
+    if phase in ("night", "twilight"):
+        put(22, 3, "#ff5040")  # てっぺんの赤い灯り
+    return im
+
+
+def rain(frame):
+    """雨（4 コマで 1 周。1 コマで 4 ドット落ちる）。長さ 3 の筋で、先が濃い。"""
+    im = Image.new("RGBA", (WIN_W, WIN_H), (0, 0, 0, 0))
+    rng = random.Random(11)
+    for _ in range(22):
+        x, y0 = rng.randrange(WIN_W), rng.randrange(WIN_H)
+        for k, alpha in ((0, 100), (1, 170), (2, 235)):
+            y = (y0 + frame * 4 + k) % WIN_H
+            if in_glass(x, y):
+                im.putpixel((x, y), (235, 242, 255, alpha))
+    return im
+
+
+def snow(frame):
+    """雪（8 コマで 1 周。1 コマで 2 ドット落ち、左右に少し揺れる）。"""
+    im = Image.new("RGBA", (WIN_W, WIN_H), (0, 0, 0, 0))
+    rng = random.Random(13)
+    sway = [0, 0, 1, 1, 0, 0, -1, -1]
+    for i in range(24):
+        x0, y0 = rng.randrange(WIN_W), rng.randrange(WIN_H)
+        x, y = (x0 + sway[(frame + i) % 8]) % WIN_W, (y0 + frame * 2) % WIN_H
+        if in_glass(x, y):
+            im.putpixel((x, y), (255, 255, 255, 240))
+    return im
+
+
+def flash():
+    """稲光: ガラス全体が白く光り、左に稲妻。"""
+    im = Image.new("RGBA", (WIN_W, WIN_H), (0, 0, 0, 0))
+    for y in range(WIN_H):
+        for x in range(WIN_W):
+            if in_glass(x, y):
+                im.putpixel((x, y), (255, 255, 255, 96))
+    for x, y in [(9, 1), (8, 2), (8, 3), (7, 4), (8, 5), (7, 6), (6, 9), (6, 10), (5, 11)]:
+        im.putpixel((x, y), (255, 248, 200, 255))
+    return im
+
+
+def window_view(phase, cover, *overlays):
+    """窓 1 つ（空・重ねるもの・窓枠）。見本用。"""
+    im = sky(phase, cover)
+    for o in overlays:
+        im.alpha_composite(o)
+    im.alpha_composite(window_frame())
+    return im
+
+
+def sky_preview():
+    """窓の見本（絵の 1 ピクセル = 8px）: 行が時間帯、列が 晴れ・晴れ時々曇り・曇り・雨・雪・雷。"""
+    cols = [("clear", ()), ("cloudy", ()), ("overcast", ()), ("overcast", (rain(0),)), ("overcast", (snow(0),)),
+            ("overcast", (rain(1), flash()))]
+    sheet = Image.new("RGBA", (4 + len(cols) * (WIN_W + 4), 4 + len(SKY) * (WIN_H + 4)), rgb("#f6ead2"))
+    for r, phase in enumerate(SKY):
+        for k, (cover, overlays) in enumerate(cols):
+            sheet.alpha_composite(window_view(phase, cover, *overlays), (4 + k * (WIN_W + 4), 4 + r * (WIN_H + 4)))
+    path = PREVIEW.parent / "sky-preview.png"
+    sheet.resize((sheet.width * 8, sheet.height * 8), Image.NEAREST).save(path)
+    print(f"preview -> {path.relative_to(ROOT)}")
+
+
 def up(im):
     return im.resize((im.width * SCALE, im.height * SCALE), Image.NEAREST)
 
@@ -773,7 +952,7 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     n = 0
     import shutil
-    for sub in ("char", "band"):
+    for sub in ("char", "band", "sky"):
         shutil.rmtree(OUT / sub, ignore_errors=True)
     for name, look in LOOKS.items():
         (h, H, j), (c, C) = look["hair"], look["shirt"]
@@ -804,7 +983,6 @@ def main():
         "chair": Sprite(14, 9).blit(CHAIR, 0, 0).outline(),
         "hire-sign": Sprite(11, 11).blit(HIRE_SIGN, 0, 0),
         "plant": Sprite(12, 17).blit(PLANT, 0, 0).outline(),
-        "window": Sprite(28, 16).blit(WINDOW, 0, 0).outline(),
         "clock-face": Sprite(13, 13).blit(CLOCK_FACE, 0, 0),
         "door": Sprite(16, 20).blit(DOOR, 0, 0).outline(),
         "bookshelf": bookshelf(), "bookshelf-empty": bookshelf(books=False), "whiteboard": whiteboard(),
@@ -825,8 +1003,20 @@ def main():
     save(wall_texture(), "wall")
     save(hall_texture(), "hall")
     n += 3
+    # 窓: 枠（ガラスは透明）と、後ろに重ねる空（時間帯 x 空模様）・雨・雪・稲光
+    save(window_frame(), "window")
+    for phase in SKY:
+        for cover in COVERS:
+            save(sky(phase, cover), f"sky/{phase}-{cover}")
+    for i in range(4):
+        save(rain(i), f"sky/rain-{i}")
+    for i in range(8):
+        save(snow(i), f"sky/snow-{i}")
+    save(flash(), "sky/flash")
+    n += 1 + len(SKY) * len(COVERS) + 4 + 8 + 1
     print(f"{n} images -> {OUT.relative_to(ROOT)}")
     preview(p, furniture)
+    sky_preview()
 
 
 def preview(p, furniture):
@@ -856,7 +1046,7 @@ def preview(p, furniture):
     free_chair = furniture["chair"].image(pal({"x": "#5fbf8a", "X": "#3f9a6a", "z": "#9fe6bd"}))
     for name in ("bookshelf", "whiteboard", "window", "door", "plant", "chair", "chair-free", "laptop", "hire-sign",
                  "clock-face", "bubble-alert", "bubble-ask", "bubble-done"):
-        im = free_chair if name == "chair-free" else furniture[name].image(p)
+        im = free_chair if name == "chair-free" else window_view("day", "clear") if name == "window" else furniture[name].image(p)
         sheet.alpha_composite(im, (x, 62))
         x += im.width + 4
 
@@ -865,7 +1055,7 @@ def preview(p, furniture):
     room = Image.new("RGBA", (200, 140), (0, 0, 0, 0))
     room.alpha_composite(floor_texture().crop((0, 0, 200, 104)), (0, 36))
     room.alpha_composite(wall_texture().crop((0, 0, 200, 36)), (0, 0))
-    room.alpha_composite(furniture["window"].image(p), (128, 6))
+    room.alpha_composite(window_view("day", "clear"), (128, 6))
     for layer in (furniture["clock-face"], clock_hand(10, 3), clock_hand(2, 5)):  # 10:10
         room.alpha_composite(layer.image(p), (167, 8))
     room.alpha_composite(furniture["whiteboard"].image(p), (62, 7))

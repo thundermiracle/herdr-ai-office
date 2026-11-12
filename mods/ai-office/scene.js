@@ -559,6 +559,90 @@ export function skyPhase({ elevation, morning }) {
   return "night";
 }
 
+/** 試すときの時間帯の時刻（その日の、だいたいまんなか。0 時からの分）。薄明は夕方の。 */
+export function phaseMinute(ms, phase) {
+  const { rise, set } = sunTimes(ms);
+  const at = { night: 0, dawn: rise + 10, day: 12 * 60, dusk: set - 10, twilight: set + 25 };
+  return Object.prototype.hasOwnProperty.call(at, phase) ? at[phase] : null;
+}
+
+export const WEATHER_MS = 15 * 60 * 1000; // 天気を取り直す間隔（Open-Meteo の今の天気は 15 分ごとに新しくなる）
+export const RAIN_FRAMES = 4; // img/sky/rain-<n>.png
+export const SNOW_FRAMES = 8; // img/sky/snow-<n>.png
+
+/**
+ * WMO の天気コード（Open-Meteo の weather_code）→ 窓の空模様（cover: clear / cloudy / overcast）と、
+ * 重ねるもの（fx: rain / snow / thunder か null）、ツールチップの名前。霧は曇り。知らないコードは晴れ。
+ */
+export function weatherOf(code) {
+  const c = Number(code);
+  const w = (cover, fx, label) => ({ code: c, cover, fx, label });
+  if (c === 0) return w("clear", null, "快晴");
+  if (c === 1) return w("clear", null, "晴れ");
+  if (c === 2) return w("cloudy", null, "晴れ時々曇り");
+  if (c === 3) return w("overcast", null, "曇り");
+  if (c === 45 || c === 48) return w("overcast", null, "霧");
+  if (c >= 51 && c <= 57) return w("overcast", "rain", "霧雨");
+  if (c >= 61 && c <= 67) return w("overcast", "rain", { 61: "小雨", 65: "大雨" }[c] ?? "雨");
+  if (c >= 71 && c <= 77) return w("overcast", "snow", { 71: "小雪", 75: "大雪" }[c] ?? "雪");
+  if (c >= 80 && c <= 82) return w("overcast", "rain", "にわか雨");
+  if (c === 85 || c === 86) return w("overcast", "snow", "にわか雪");
+  if (c >= 95 && c <= 99) return w("overcast", "thunder", "雷雨");
+  return w("clear", null, "晴れ（天気コード不明）");
+}
+
+/** 試すときの天気（herdr-app do ai-office.sky-rain など）と、その代表の天気コード。 */
+export const TRIAL_WEATHER = { clear: 0, cloudy: 2, overcast: 3, fog: 45, rain: 63, snow: 73, thunder: 95 };
+
+/** Open-Meteo の応答（current の weather_code・temperature_2m・time）から今の天気。読めなければ null。 */
+export function parseWeather(json, fetchedAt) {
+  const cur = json?.current;
+  if (typeof cur?.weather_code !== "number") return null;
+  const temp = typeof cur.temperature_2m === "number" ? cur.temperature_2m : null;
+  return { ...weatherOf(cur.weather_code), temp, time: cur.time ?? null, fetchedAt };
+}
+
+/**
+ * 窓の外の絵（img/ の下の名前を奥から順に。最後が窓枠）。ms は空の時刻、weather は weatherOf か null（晴れ）、
+ * t はコマ送りの数。雨と雪は 2 コマに 1 回進む（雨のためだけに毎コマ描き直さない）。雷は 24 コマごとに 2 回光る。
+ * key は絵が変わったかを見るため（同じなら描き直さない）。
+ */
+export function windowView(ms, weather, t) {
+  const phase = skyPhase(sunAt(ms));
+  const fx = weather?.fx ?? null;
+  const step = Math.floor(t / 2);
+  const layers = [`sky/${phase}-${weather?.cover ?? "clear"}`];
+  if (fx === "rain" || fx === "thunder") layers.push(`sky/rain-${step % RAIN_FRAMES}`);
+  if (fx === "snow") layers.push(`sky/snow-${step % SNOW_FRAMES}`);
+  if (fx === "thunder" && (t % 24 === 0 || t % 24 === 2)) layers.push("sky/flash");
+  layers.push("window");
+  return { phase, layers, key: layers.join("+") };
+}
+
+/** 窓のツールチップ: 東京の時刻と天気（と気温）。試し中なら戻し方も。 */
+export function windowTip(ms, weather, trial = false) {
+  const now = weather ? (weather.temp == null ? weather.label : `${weather.label} ${Math.round(weather.temp)}°C`) : "天気はまだ分かりません";
+  const tip = `東京 ${tokyoClock(ms).text} · ${now}`;
+  return trial ? `${tip}（試し中。herdr-app do ai-office.sky-auto で本物に戻す）` : tip;
+}
+
+/**
+ * 窓を試すコマンド（herdr-app do ai-office.sky-<なに>）: 天気（TRIAL_WEATHER の名前）、東京の時刻（1930 のように 4 桁）、
+ * 時間帯（night / twilight / dawn / day / dusk）、auto（どちらも本物に戻す）。
+ * 変える項目だけを返す（{ weather?, time? }。time は 0 時からの分、null は本物）。ほかのコマンドは null。
+ */
+export function parseSkyCommand(command, ms) {
+  const m = /^sky-([a-z0-9]+)$/.exec(command ?? "");
+  if (!m) return null;
+  const word = m[1];
+  if (word === "auto") return { weather: null, time: null };
+  if (Object.prototype.hasOwnProperty.call(TRIAL_WEATHER, word)) return { weather: word };
+  const hm = /^(\d\d)(\d\d)$/.exec(word);
+  if (hm) return Number(hm[1]) < 24 && Number(hm[2]) < 60 ? { time: Number(hm[1]) * 60 + Number(hm[2]) } : null;
+  const min = phaseMinute(ms, word);
+  return min === null ? null : { time: min };
+}
+
 /** 誰かが小走りしているか（コマ送りを速くする）。 */
 export function running(office) {
   for (const c of office.chars.values()) if (c.run && c.path.length) return true;

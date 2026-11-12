@@ -116,6 +116,27 @@ skill を使うと（Claude の Skill ツール、または `/名前` で始ま�
 （棚のその場所が空き、頭の上に skill の名前の札）、小走りで戻らせる。エージェントがすぐ次のツールに移っても途中でやめない
 （質問・許可待ちだけは割り込む）。そのターンが終わるまでは、席に戻っても札が残る。
 
+## 窓の外（東京の時刻と天気）
+
+部屋の窓から見える空は、東京の今の時刻と天気で変わる（場所は東京に固定）。
+
+- 時間帯は、東京の太陽の高さを計算して決める（ネットがなくても変わる。日の出・日の入りは Open-Meteo と 1 分差）:
+  夜 → 薄明（日の出前の青い空）→ 朝焼け → 昼 → 夕焼け → 薄明 → 夜。暗くなるとビルの窓に明かりがつき、タワーが橙に光る
+- 天気は Open-Meteo（キーは要らない。送るのは東京の緯度経度だけ）から 15 分ごと: 晴れ・晴れ時々曇り・曇り（霧も）・
+  雨・雪・雷雨（ときどき稲光）。オフィスが隠れている間は取らず、開いたときに古ければすぐ取り直す。
+  取れないときは前の天気のまま（3 時間より古ければ晴れ）。取った天気は shared（`ai-office.weather`）に置き、ほかのコピーも使う
+- 雨と雪は 2 コマに 1 回だけ進める（雨のためだけに毎コマ描き直さない）
+- 窓にマウスを乗せると、東京の時刻と天気・気温
+
+```sh
+scripts/sky.sh rain night   # 試す: 天気（clear / cloudy / overcast / fog / rain / snow / thunder）と、時刻（HH:MM か時間帯）
+scripts/sky.sh lapse        # 東京の 1 日を 30 秒ほどで早送りして、本物に戻す
+scripts/sky.sh auto         # 本物に戻す
+```
+
+`sky.sh` は `herdr-app do ai-office.sky-<なに>` を送るだけ。オフィスが見えているときだけ届き（閉じていると
+`unknown command`）、試した天気と時刻は mod を読み直すと消える。
+
 ## クリック
 
 | どこ | 何が起きるか |
@@ -126,6 +147,7 @@ skill を使うと（Claude の Skill ツール、または `/名前` で始ま�
 | 質問の「?」 | 質問と選択肢を出す。選ぶと、その答えをターミナルに送る（↑↓ と Enter。送る直前に画面を読み直して確かめる） |
 | 資料室の本棚 | 使える skill の一覧。その中の skill をクリックすると中身 |
 | 空き部屋（「+ 部屋」のドア） | フォルダを選んで、新しいスペース（部屋）を作る（この Mac だけ） |
+| 窓（マウスを乗せる） | 東京の時刻と天気・気温（試し中はその旨） |
 
 ## 本棚（調べ物中）のフック
 
@@ -161,14 +183,15 @@ hooks/register.sh remove   # このフックだけ外す（ほかのフックは
 | `hooks/` | Claude Code のフックと、その登録・削除 |
 | `scripts/fake-agent.sh`、`scripts/fake-question.py`、`scripts/demo.sh` | AI を使わずに状態を報告する偽エージェント、選択肢の画面で答えを受け取る偽の質問役、それを 6 人並べた見本 |
 | `scripts/sync.sh` | mod とレイアウトを ~/.config/herdr-app にコピーして `herdr-app check` |
+| `scripts/sky.sh` | 窓の外を試す（天気と東京の時刻を決める、1 日の早送り、本物に戻す） |
 | `spike/` | 描画方針を決めたときの確認用 mod（アニメ画像・にじみ・アニメの負荷） |
 | `test/` | `bun test`（scene.js）と `test/hook-test.sh`（フック。使い捨てのターミナルで試す） |
 
 ## 開発
 
 ```sh
-uv run --with pillow scripts/build-art.py   # 絵を作り直す（mods/ai-office/img/ と tmp/art-preview.png）
-bun test                                    # scene.js
+uv run --with pillow scripts/build-art.py   # 絵を作り直す（mods/ai-office/img/、tmp/art-preview.png、窓の見本 tmp/sky-preview.png）
+bun test                                    # scene.js（窓の外は test/sky.test.js）
 test/hook-test.sh                           # フック
 test/ask-test.sh                            # 質問に答える流れ（偽の質問役で）
 scripts/sync.sh                             # コピーして check（herdr-app は自動で読み直す）

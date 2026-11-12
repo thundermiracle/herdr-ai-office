@@ -6,11 +6,13 @@ import { v_flex, h_flex } from "gpui-base";
 import * as fs from "fs/promises";
 import {
   spaces, agents, terminals, panes, theme, window, run, openOverlay, pickFolder, home, readTextFile, layout, props, setShared,
+  shared, nextCommand,
 } from "herdr";
 import {
   SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, PART_END, Office, roomsOf, layoutFloor, drawables,
   floorDrawables, running,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
+  TOKYO, WEATHER_MS, TRIAL_WEATHER, tokyoAt, tokyoClock, weatherOf, parseWeather, windowView, windowTip, parseSkyCommand,
 } from "./scene.js";
 
 const IMG = "mods/ai-office/img";
@@ -23,6 +25,12 @@ const WIDE = 260; // これ以上の幅の部屋にはホワイトボードも�
 const META_MS = 10000; // model と effort を読み直す間隔
 const HIDDEN_MS = 1000; // 隠れている間は、この間隔で見えるようになったかだけ見る
 const SKILLS_MS = 60000; // 使える skill を読み直す間隔（めったに変わらない）
+// 窓の外の天気: 東京の今の天気（Open-Meteo。キーは要らず、送るのは東京の緯度経度だけ）
+const WEATHER_URL = `https://api.open-meteo.com/v1/forecast?latitude=${TOKYO.lat}&longitude=${TOKYO.lon}`
+  + "&current=weather_code,temperature_2m&timezone=Asia%2FTokyo";
+const WEATHER_CHECK_MS = 60000; // 天気が古くなったかを見る間隔（取り直すのは WEATHER_MS ごと）
+const WEATHER_RETRY_MS = 5 * 60000; // 取れなかったとき、次に試すまで
+const WEATHER_STALE_MS = 3 * 3600000; // これより古い天気は使わない（晴れ扱い。何時間も閉じていたあと）
 const LEGEND = "見た目: 眼鏡とネクタイ = opus、なし = sonnet、若葉 = haiku、星のピン = fable、ヘッドホン = Codex"
   + "　鉢巻き: なし = low、青 = medium、白 = high、赤 = xhigh、赤と炎 = max";
 
@@ -149,6 +157,12 @@ async function readOrNull(path) {
   }
 }
 
+// 最後に取った東京の天気（どのコピーが取ったものでも。shared は Herdr を閉じても残る）。古すぎれば null
+function liveWeather(now) {
+  const w = shared("ai-office.weather");
+  return w && typeof w.cover === "string" && now - w.fetchedAt < WEATHER_STALE_MS ? w : null;
+}
+
 export default class AiOffice extends View {
   init(_props, cx) {
     this.office = new Office();
@@ -163,7 +177,49 @@ export default class AiOffice extends View {
     this.skillsKey = "";
     this.loadSkills(cx);
     cx.timer.every(SKILLS_MS, (cx) => this.loadSkills(cx));
+    this.weatherTried = 0;
+    this.loadWeather(cx);
+    cx.timer.every(WEATHER_CHECK_MS, (cx) => this.loadWeather(cx));
+    // 窓を試す（herdr-app do ai-office.sky-rain、sky-1930、sky-night、sky-auto）。この窓を開いている間だけ
+    this.trial = { weather: null, time: null };
+    cx.spawn(async (cx) => {
+      for (;;) {
+        const change = parseSkyCommand(await nextCommand(), Date.now());
+        if (!change) continue;
+        Object.assign(this.trial, change);
+        cx.notify();
+      }
+    });
     this.schedule(cx);
+  }
+
+  // 東京の今の天気を、古くなったら取り直す。みんなが見る shared に置くので、ほかのコピーも次に開いたときも使う
+  // （描き直しは shared が変わったときに Herdr がする）。隠れている間は取らない。取れなければ前の値のまま
+  loadWeather(cx) {
+    const now = Date.now();
+    const last = shared("ai-office.weather");
+    if (this.hidden() || (last && now - last.fetchedAt < WEATHER_MS) || now - this.weatherTried < WEATHER_RETRY_MS) return;
+    this.weatherTried = now;
+    cx.spawn(async () => {
+      try {
+        const res = await fetch(WEATHER_URL);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const weather = parseWeather(await res.json(), Date.now());
+        if (!weather) throw new Error("応答に今の天気がない");
+        setShared("ai-office.weather", weather);
+      } catch (e) {
+        console.log(`ai-office: 東京の天気を取れなかった: ${e?.message ?? e}`);
+      }
+    });
+  }
+
+  // 窓の外: 東京の今（試し中は、その時刻と天気）の空
+  view() {
+    const now = Date.now();
+    const ms = this.trial.time === null ? now : tokyoAt(now, this.trial.time);
+    const weather = this.trial.weather ? weatherOf(TRIAL_WEATHER[this.trial.weather]) : liveWeather(now);
+    const trial = this.trial.time !== null || this.trial.weather !== null;
+    return { ...windowView(ms, weather, this.office.t), tip: windowTip(ms, weather, trial) };
   }
 
   // 自分のブロック（props の block）が隠れているか: そのものか親が hidden、または stack の選ばれていない子。
@@ -269,17 +325,23 @@ export default class AiOffice extends View {
     const ms = hidden ? HIDDEN_MS : !active ? TICK_INACTIVE : running(this.office) ? TICK_RUN : TICK_ACTIVE;
     cx.timer.after(ms, (cx) => {
       if (this.hidden()) {
+        this.shown = false;
         this.schedule(cx); // 隠れている間は何もしない（見えたときの経過時間は dt の上限で切る）
         return;
+      }
+      if (!this.shown) {
+        this.shown = true;
+        this.loadWeather(cx); // 見えたら、古くなった天気をすぐ取り直す（隠れている間は取らないので）
       }
       const now = Date.now();
       const dt = Math.min(now - this.last, 1000); // スリープ明けに瞬間移動しないよう
       this.last = now;
       const { placed } = this.floorNow();
       this.office.tick(dt);
-      // 描く絵（名前と位置）が前のコマと同じなら描き直さない
-      const { h, m } = clockHands(new Date()); // 時計の針が動いたときも描き直す
-      const sig = `${h}:${m}|` + this.items(placed)
+      // 描く絵（名前と位置）が前のコマと同じなら描き直さない。時計の針・窓の外（雨のコマも）・ツールチップの
+      // 東京の時刻（1 分ごと）が変わったときも描き直す
+      const { h, m } = clockHands(new Date());
+      const sig = `${h}:${m}|${this.view().key}|${tokyoClock(now).text}|` + this.items(placed)
         .map((d) => `${d.img ?? d.text}+${d.over}+${d.books?.length ?? ""}@${d.x},${d.y}`).join(";");
       if (sig !== this.sig) {
         this.sig = sig;
@@ -395,15 +457,22 @@ export default class AiOffice extends View {
       .child(div().absolute().left(0).bottom(0).w_full().h(px(1)).bg("#5b3a2c"));
   }
 
+  // 窓: 外の空（東京の時刻と天気。scene.js の windowView）を奥から重ね、最後に窓枠（ガラスは透明）。
+  // ホバーで東京の時刻と天気
+  sky(x, y, view, id) {
+    return div().id(id).absolute().left(px(x)).top(px(y)).w(px(28)).h(px(16)).tooltip(view.tip)
+      .children(view.layers.map((img) => image(`${IMG}/${img}.png`).absolute().left(0).top(0).size_full()));
+  }
+
   // 部屋の後ろのもの: 奥の壁、左の仕切り、壁の飾り（ホワイトボード・窓・時計）と名札
-  roomBack(room) {
+  roomBack(room, view) {
     const { ox, oy, w } = room;
     return [
       this.wall(ox, oy, w),
       this.partition(ox, oy),
       ...(room.newRoom ? [] : [
         ...(w >= WIDE ? [this.sprite({ img: "whiteboard", x: ox + w - 112, y: oy + 7, w: 30, h: 18 })] : []),
-        this.sprite({ img: "window", x: ox + w - 72, y: oy + 6, w: 28, h: 16 }),
+        this.sky(ox + w - 72, oy + 6, view, `window-${room.id}`),
         ...this.clock(ox + w - 33, oy + 8),
         this.plate(room),
       ]),
@@ -426,7 +495,7 @@ export default class AiOffice extends View {
   }
 
   // 1 枚のフロア: 部屋の床と廊下の床、資料室の奥の壁、各部屋の後ろのもの、描くもの、選んでいる部屋の枠、外枠
-  building(floor, items, t) {
+  building(floor, items, t, view) {
     const floorTiles = [];
     for (let y = 0; y < floor.h; y += FLOOR_H) {
       for (let x = HALL_W; x < floor.w; x += FLOOR_W) {
@@ -442,7 +511,7 @@ export default class AiOffice extends View {
       .children(floorTiles)
       .child(div().absolute().left(0).top(0).w(px(HALL_W)).h(px(floor.h)).overflow_hidden().children(hallTiles))
       .child(this.wall(0, 0, HALL_W))
-      .children(floor.rooms.flatMap((r) => this.roomBack(r)))
+      .children(floor.rooms.flatMap((r) => this.roomBack(r, view)))
       .children(floor.rooms.filter((r) => r.newRoom).map((r) => this.newRoom(r)))
       .children(items.map((d) => this.item(d)))
       .when(Boolean(active), (el) => el.child(div().absolute().left(px(active.ox)).top(px(active.oy))
@@ -468,6 +537,6 @@ export default class AiOffice extends View {
         .child(div().id("legend").ml_auto().px(6).rounded(4).text_color(t.dim).hover((s) => s.text_color(t.foreground))
           .tooltip(LEGEND).child("凡例")))
       .child(div().id("scroll").flex_1().min_h(0).overflow_scroll() // 細い列（Office ボタン）では横にも
-        .child(div().p(px(MARGIN)).child(this.building(floor, this.items(placed), t))));
+        .child(div().p(px(MARGIN)).child(this.building(floor, this.items(placed), t, this.view()))));
   }
 }
