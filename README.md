@@ -134,8 +134,8 @@ scripts/sky.sh lapse        # 東京の 1 日を 30 秒ほどで早送りして�
 scripts/sky.sh auto         # 本物に戻す
 ```
 
-`sky.sh` は `herdr-app do ai-office.sky-<なに>` を送るだけ。オフィスが見えているときだけ届き（閉じていると
-`unknown command`）、試した天気と時刻は mod を読み直すと消える。
+`sky.sh` は `herdr-app do ai-office.sky-<なに>` を送るだけ。オフィスが見えているときだけ届く（閉じていると、
+開き方を言って止まる）。試した天気と時刻は mod を読み直すと消える。
 
 ## クリック
 

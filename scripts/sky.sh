@@ -7,7 +7,17 @@
 #   sky.sh auto            本物（今の東京の時刻と天気）に戻す
 set -euo pipefail
 
-send() { herdr-app do "ai-office.sky-$1" >/dev/null; }
+# 届かなければ（オフィスが閉じていると herdr-app は unknown command を返す）、開き方を言って止まる
+send() {
+  local out
+  if ! out=$(herdr-app do "ai-office.sky-$1" 2>&1); then
+    case "$out" in
+      *"need the mod loaded"*) echo "オフィスが見えていないので届きません。右上の「Office」ボタン（herdr-app do layout.toggle --id office）で開いてから" >&2 ;;
+      *) echo "$out" >&2 ;;
+    esac
+    exit 1
+  fi
+}
 
 case "${1:-}" in
   "" | -h | --help) sed -n '2,7p' "$0" ;;
