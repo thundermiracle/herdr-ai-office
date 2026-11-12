@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
-  BACK, CORRIDOR_Y, DESK_X, ERRAND_READ_MS, HALL_W, LANE_Y, LEFT_PASS, LIBRARY, MIN_ROOM_W, PART_END, ROOM_H, SEAT_W,
-  Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride, drawables, floorDrawables, layoutFloor, lookOf,
+  BACK, CORRIDOR_Y, DESK_X, ERRAND_READ_MS, HALL_W, LANE_Y, LEFT_PASS, LIBRARY, MIN_ROOM_W, PART_END, PART_W, ROOM_H, SEAT_W,
+  WALL_H, Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride, drawables, floorDrawables, floorPath,
+  layoutFloor, lookOf, roomAt,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
 } from "../mods/ai-office/scene.js";
 
@@ -195,6 +196,71 @@ describe("planPath", () => {
       expect(p.x === q.x || p.y === q.y).toBe(true);
       p = q;
     }
+  });
+});
+
+describe("floorPath", () => {
+  // 2 つの部屋（a に t1、b に t2）を、幅 width のフロアに並べる（1000 なら 1 列、300 なら 2 列）
+  const floor = (width) => {
+    const rooms = roomsOf([space("a"), space("b")], [agent("t1", "a"), agent("t2", "b")]);
+    return layoutFloor(rooms, width).rooms.filter((r) => !r.newRoom);
+  };
+  const lane = (room, i = 0, dx = 0) => ({ x: room.ox + room.seats[i].cx + dx, y: room.oy + LANE_Y });
+  // 縦横の線分 p→q が、四角 [x0, x1] x [y0, y1] の内側を通るか
+  const hits = (p, q, x0, x1, y0, y1) =>
+    Math.max(p.x, q.x) > x0 && Math.min(p.x, q.x) < x1 && Math.max(p.y, q.y) > y0 && Math.min(p.y, q.y) < y1;
+  // 通れない所: 机（体の幅 9 を足す）、左の仕切り、奥の壁。どれか 1 つでも横切ったら、その名前
+  const blocked = (rooms, from, pts) => {
+    let p = from;
+    for (const q of pts) {
+      if (p.x !== q.x && p.y !== q.y) return "diagonal";
+      for (const r of rooms) {
+        if (hits(p, q, r.ox + DESK_X - 9, r.ox + r.deskEnd + 9, r.oy + BACK, r.oy + BACK + 21)) return `desk of ${r.id}`;
+        if (hits(p, q, r.ox, r.ox + PART_W, r.oy, r.oy + PART_END)) return `partition of ${r.id}`;
+        if (hits(p, q, r.ox, r.ox + r.w, r.oy, r.oy + WALL_H)) return `wall of ${r.id}`;
+      }
+      p = q;
+    }
+    return null;
+  };
+  const check = (rooms, from, to) => {
+    const pts = floorPath(rooms, from, to);
+    expect(pts.at(-1)).toEqual(to);
+    expect(blocked(rooms, from, pts)).toBeNull();
+    return pts;
+  };
+
+  test("to the next room in the same row: out the front, along the corridor, in by its door", () => {
+    const [a, b] = floor(1000);
+    expect(b.oy).toBe(a.oy);
+    const pts = check([a, b], lane(a), lane(b, 0, 10));
+    expect(pts.some((p) => p.y === a.oy + CORRIDOR_Y)).toBe(true);
+    expect(pts.every((p) => p.x >= a.ox)).toBe(true); // 廊下へは出ない
+    check([a, b], lane(b, 0, 10), lane(a)); // 帰り（右から左）
+  });
+
+  test("to a room in another row: through the hallway", () => {
+    const [a, b] = floor(300);
+    expect(b.oy).toBe(a.oy + ROOM_H);
+    const pts = check([a, b], lane(a), lane(b, 0, 10));
+    expect(pts.some((p) => p.x < HALL_W)).toBe(true);
+    check([a, b], lane(b, 0, 10), lane(a));
+    // まっすぐ下りる道なら、机や壁を横切る（この確かめ方が効いていること）
+    expect(blocked([a, b], lane(a), [{ x: lane(a).x, y: lane(b).y }, lane(b)])).not.toBeNull();
+  });
+
+  test("from the library in the hallway, and to it from a room in the second row", () => {
+    const rooms = floor(300);
+    check(rooms, LIBRARY[1], lane(rooms[1], 0, 10));
+    check(rooms, lane(rooms[1]), LIBRARY[0]);
+    check(rooms, { x: rooms[1].ox + 60, y: rooms[1].oy + 120 }, LIBRARY[2]); // 手前の床から
+  });
+
+  test("which room a point is in; the hallway is none", () => {
+    const [a, b] = floor(300);
+    expect(roomAt([a, b], lane(a))?.id).toBe("a");
+    expect(roomAt([a, b], lane(b))?.id).toBe("b");
+    expect(roomAt([a, b], LIBRARY[0])).toBeNull();
   });
 });
 

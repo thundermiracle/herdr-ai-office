@@ -321,6 +321,42 @@ export function planPath(room, from, to) {
   return pts;
 }
 
+const HALL_X = HALL_W / 2; // 廊下を上下に歩くときの x（フロア全体の座標）
+
+/** フロア全体の座標の点がある部屋（廊下なら null）。空き部屋は数えない。 */
+export function roomAt(rooms, p) {
+  return rooms.find((r) => !r.newRoom && p.x >= r.ox && p.x < r.ox + r.w && p.y >= r.oy && p.y < r.oy + r.h) ?? null;
+}
+
+/**
+ * フロアの上の道（曲がり角の列、from は含まない）。座標はフロア全体で、from と to は部屋の中か廊下の点。
+ * 同じ部屋の中は planPath。部屋を出るときは手前の通路へ（左の扉。同じ列の右の部屋へ行くなら右の通り道から）。
+ * 同じ列の部屋へは通路を横に、違う列の部屋や廊下へは、通路を廊下まで歩いて廊下を上下に。入るときは相手の部屋の左の扉から。
+ */
+export function floorPath(rooms, from, to) {
+  const a = roomAt(rooms, from);
+  const b = roomAt(rooms, to);
+  const local = (room, p) => ({ x: p.x - room.ox, y: p.y - room.oy });
+  const global = (room, pts) => pts.map((p) => ({ x: p.x + room.ox, y: p.y + room.oy }));
+  if (a && b && a.id === b.id) return global(a, planPath(a, local(a, from), local(a, to)));
+  const pts = [];
+  let at = from;
+  if (a) {
+    const exit = { x: b && b.oy === a.oy && b.ox > a.ox ? a.rightPass : LEFT_PASS, y: CORRIDOR_Y };
+    pts.push(...global(a, planPath(a, local(a, from), exit)));
+    at = { x: a.ox + exit.x, y: a.oy + exit.y };
+  }
+  if (a && b && b.oy === a.oy) {
+    pts.push({ x: b.ox + LEFT_PASS, y: at.y }); // 同じ列: 手前の通路を横に
+  } else {
+    const y = b ? b.oy + CORRIDOR_Y : to.y;
+    const x = at.x < HALL_W ? at.x : HALL_X;
+    pts.push({ x, y: at.y }, { x, y }, b ? { x: b.ox + LEFT_PASS, y } : to); // 廊下まで歩いて、上下に
+  }
+  if (b) pts.push(...global(b, planPath(b, { x: LEFT_PASS, y: CORRIDOR_Y }, local(b, to))));
+  return tidy(from, pts);
+}
+
 /** キャラクターたちの今（位置・行き先・座っているか）。View が 1 つ持ち、tick で進める。 */
 export class Office {
   constructor(rng = Math.random) {
