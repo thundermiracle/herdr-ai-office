@@ -55,6 +55,15 @@ function gather(meta, codexDefaults) {
       act: t?.labels?.["office.act"] || null, // フックが付ける（本棚へ行くか）
       skill: t?.labels?.["office.skill"] || null, // フックが付ける（このターンで使った skill）
       skillAt: t?.labels?.["office.skill_at"] || null, // skill を使うたびにフックが書く時刻（出来事として資料室へ行く）
+      // hc send で話しかけた（フックが送った人に書く: 相手・時刻・文）と、話しかけられた（受け取った人に書く: 送った人・時刻・文）
+      talk: t?.labels?.["office.talk"] || null,
+      talkAt: t?.labels?.["office.talk_at"] || null,
+      talkText: t?.labels?.["office.talk_text"] || null,
+      heard: t?.labels?.["office.heard"] || null,
+      heardAt: t?.labels?.["office.heard_at"] || null,
+      heardText: t?.labels?.["office.heard_text"] || null,
+      tname: t?.name ?? null, // hc の名前（hc run --name）。hc send の相手はアドレスか、この名前
+      tab: a.tab_name,
       name: a.program?.name ?? a.app ?? "agent",
       where: `${a.space_name} / ${a.tab_name}`,
     }];

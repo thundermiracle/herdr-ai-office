@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   BACK, CORRIDOR_Y, DESK_X, ERRAND_READ_MS, HALL_W, LANE_Y, LEFT_PASS, LIBRARY, MIN_ROOM_W, PART_END, PART_W, ROOM_H, SEAT_W,
-  WALL_H, Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride, drawables, floorDrawables, floorPath,
-  layoutFloor, lookOf, roomAt,
+  TALK_DEDUP_MS, TALK_MS, TALK_TURN_MS, WALL_H, Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride,
+  drawables, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
 } from "../mods/ai-office/scene.js";
 
@@ -559,5 +559,151 @@ describe("skill errands", () => {
     const c = office.chars.get("t1");
     expect(c.errand).toBeNull();
     expect(c.behavior).toBe("raise");
+  });
+});
+
+describe("talking to another agent (hc send)", () => {
+  // 部屋 a に t1（作業中）、部屋 b に t2（待機、タブの名前 reviewer）と t3（作業中）。extra で t1 などの情報を足す
+  function talkWorld(width, extra = {}) {
+    const agents = [agent("t1", "a", "working"), agent("t2", "b", "idle"), agent("t3", "b", "working")];
+    const rooms = layoutFloor(roomsOf([space("a"), space("b")], agents), width).rooms.filter((r) => !r.newRoom);
+    const info = new Map(agents.map((x) => [x.address, {
+      status: x.status, app: x.app, act: "edit", tname: null, tab: x.address === "t2" ? "reviewer" : "1", ...extra[x.address],
+    }]));
+    return { rooms, info };
+  }
+  const start = (office, width = 1000) => {
+    office.sync(...Object.values(talkWorld(width)));
+    for (let t = 0; t < 3000; t += 160) office.tick(160);
+  };
+  const runUntil = (office, done, ms = 60000) => {
+    for (let t = 0; t < ms && !done(); t += 160) office.tick(160);
+    return done();
+  };
+  const arrived = (c) => c.errand?.left != null && !c.path.length;
+  const sync = (office, width, extra) => {
+    const w = talkWorld(width, extra);
+    office.sync(w.rooms, w.info);
+    return w;
+  };
+
+  test("the sender runs to the other room, says what it sent, hears back, and runs to its seat", () => {
+    const office = new Office(seeded(21));
+    start(office);
+    const w = sync(office, 1000, { t1: { talk: "t3", talkAt: "1", talkText: "Please review src/x.rs only" } });
+    const c = office.chars.get("t1");
+    expect(c.errand).toMatchObject({ kind: "talk", to: "t3", text: "Please review src/x.rs only" });
+    expect([c.behavior, c.run, c.seated]).toEqual(["visit", true, false]);
+    expect(runUntil(office, () => arrived(c))).toBe(true);
+    // t3 は座って作業中: その椅子の後ろの通路（右）に立ち、t3 の方を向く
+    const b = w.rooms[1];
+    expect(office.global(c)).toEqual({ x: b.ox + b.seats[1].cx + 12, y: b.oy + LANE_Y });
+    expect(c.facing).toBe("l");
+    // 話しかけた人の番: 送った文の札。相手の番: 相手に「…」
+    expect(drawables(w.rooms[0], office).find((d) => d.id === "tag-t1")).toMatchObject({ text: "Please review…" });
+    for (let t = 0; t < TALK_TURN_MS; t += 160) office.tick(160);
+    expect(drawables(b, office).find((d) => d.id === "talk-t3")?.img).toBe("bubble-talk");
+    expect(drawables(w.rooms[0], office).find((d) => d.id === "tag-t1")).toBeUndefined();
+    // 話し終わったら、小走りで自分の席へ戻って座る
+    for (let t = 0; t < TALK_MS; t += 160) office.tick(160);
+    expect(c.errand).toBeNull();
+    expect(c.run).toBe(true);
+    expect(runUntil(office, () => c.seated)).toBe(true);
+    expect(c.x).toBe(w.rooms[0].seats[0].cx);
+  });
+
+  test("rooms in different rows: through the hallway, to the same spot", () => {
+    const office = new Office(seeded(22));
+    start(office, 300);
+    const w = sync(office, 300, { t1: { talk: "t3", talkAt: "1" } });
+    const c = office.chars.get("t1");
+    expect(w.rooms[1].oy).toBe(ROOM_H);
+    let hallway = false;
+    expect(runUntil(office, () => {
+      if (office.global(c).x < HALL_W) hallway = true;
+      return arrived(c);
+    })).toBe(true);
+    expect(hallway).toBe(true);
+    expect(office.global(c)).toEqual({ x: w.rooms[1].ox + w.rooms[1].seats[1].cx + 12, y: ROOM_H + LANE_Y });
+    // 文が分からなければ、話しかけた人も「…」
+    expect(drawables(w.rooms[0], office).find((d) => d.id === "talk-t1")?.img).toBe("bubble-talk");
+  });
+
+  test("the other agent is found by address, hc name or tab name; self and strangers are no-ops", () => {
+    const office = new Office(seeded(23));
+    start(office);
+    sync(office, 1000, { t1: { talk: "reviewer", talkAt: "1" } });
+    expect(office.chars.get("t1").errand?.to).toBe("t2");
+    sync(office, 1000, { t1: { talk: "rev3", talkAt: "2" }, t3: { tname: "rev3" } });
+    expect(office.chars.get("t1").errand?.to).toBe("t3");
+    const other = new Office(seeded(24));
+    start(other);
+    sync(other, 1000, { t1: { talk: "t1", talkAt: "1" } });
+    sync(other, 1000, { t1: { talk: "nobody", talkAt: "2" } });
+    expect(other.chars.get("t1").errand ?? null).toBeNull();
+    expect(other.chars.get("t1").behavior).toBe("type");
+  });
+
+  test("an idle agent that starts working on the message is followed to its seat", () => {
+    const office = new Office(seeded(25));
+    start(office);
+    sync(office, 1000, { t1: { talk: "t2", talkAt: "1" } });
+    const c = office.chars.get("t1");
+    const before = { ...c.errand.spot };
+    // 届いた依頼で t2 が作業を始めると、席へ戻って座る。話しかけた人はそちらへ行き直す
+    const w = sync(office, 1000, { t1: { talk: "t2", talkAt: "1" }, t2: { status: "working" } });
+    const b = w.rooms[1];
+    expect(c.errand.spot).toEqual({ x: b.ox + b.seats[0].cx + 12, y: b.oy + LANE_Y });
+    expect(c.errand.spot).not.toEqual(before);
+    expect(runUntil(office, () => arrived(c))).toBe(true);
+    expect(office.global(c)).toEqual(c.errand.spot);
+  });
+
+  test("a wandering agent being visited does not walk off", () => {
+    const office = new Office(seeded(26));
+    start(office);
+    sync(office, 1000, { t1: { talk: "t2", talkAt: "1" } });
+    const c = office.chars.get("t1");
+    const t2 = office.chars.get("t2");
+    runUntil(office, () => !t2.path.length); // 歩いている途中なら、その行き先までは歩く
+    const at = { x: t2.x, y: t2.y };
+    expect(runUntil(office, () => arrived(c))).toBe(true);
+    expect({ x: t2.x, y: t2.y }).toEqual(at);
+  });
+
+  test("both hooks report the same message: one visit; a later message is a new one", () => {
+    const office = new Office(seeded(27));
+    start(office);
+    sync(office, 1000, { t1: { talk: "t3", talkAt: "1", talkText: "hi" } });
+    const c = office.chars.get("t1");
+    const errand = c.errand;
+    // 少しあとで、受け取った t3 のフックも同じ話しかけを書く
+    for (let t = 0; t < 2000; t += 160) office.tick(160);
+    sync(office, 1000, { t1: { talk: "t3", talkAt: "1", talkText: "hi" }, t3: { heard: "t1", heardAt: "9", heardText: "hi" } });
+    expect(c.errand).toBe(errand);
+    // 受け取った側だけ（送った人にフックがない: Codex など）でも行く。ただし、行ったばかりの 2 人は数えない
+    runUntil(office, () => c.seated, 60000);
+    for (let t = 0; t < TALK_DEDUP_MS; t += 160) office.tick(160);
+    sync(office, 1000, { t1: { talk: "t3", talkAt: "1" }, t3: { heard: "t1", heardAt: "10", heardText: "again" } });
+    expect(c.errand).toMatchObject({ kind: "talk", to: "t3", text: "again" });
+  });
+
+  test("a question cuts the visit short, and a blocked agent does not set out", () => {
+    const office = new Office(seeded(28));
+    start(office);
+    sync(office, 1000, { t1: { talk: "t3", talkAt: "1" } });
+    const w = sync(office, 1000, { t1: { talk: "t3", talkAt: "1", status: "blocked", kind: "question" } });
+    const c = office.chars.get("t1");
+    expect(c.errand).toBeNull();
+    expect(c.behavior).toBe("raise");
+    expect(runUntil(office, () => !c.path.length)).toBe(true);
+    expect(office.global(c)).toEqual({ x: w.rooms[0].ox + w.rooms[0].seats[0].cx, y: LANE_Y });
+    sync(office, 1000, { t1: { talk: "t3", talkAt: "2", status: "blocked", kind: "question" } });
+    expect(c.errand).toBeNull();
+  });
+
+  test("the label is cut short", () => {
+    expect(talkLabel("  short\n text ")).toBe("short text");
+    expect(talkLabel("レビューをお願いします。src/x.rs だけ")).toBe("レビューをお願いします。s…");
   });
 });

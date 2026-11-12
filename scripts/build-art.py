@@ -623,6 +623,7 @@ MARKS = {
     "alert": (["..jj..", "..jj..", "..jj..", "..jj..", "......", "..jj.."], "j"),
     "ask": ([".jjjj.", "jj..jj", "...jj.", "..jj..", "......", "..jj.."], "j"),
     "done": (["......", ".....J", "....JJ", "J..JJ.", "JJJJ..", ".JJ..."], "J"),
+    "talk": (["......", "......", ".o.o.o", "......", "......", "......"], "o"),  # 話す（…）
 }
 
 
@@ -987,6 +988,7 @@ def main():
         "door": Sprite(16, 20).blit(DOOR, 0, 0).outline(),
         "bookshelf": bookshelf(), "bookshelf-empty": bookshelf(books=False), "whiteboard": whiteboard(),
         "bubble-alert": bubble("alert"), "bubble-ask": bubble("ask"), "bubble-done": bubble("done"),
+        "bubble-talk": bubble("talk"),
     }
     for name, sp in furniture.items():
         save(sp.image(p), name)
@@ -1045,7 +1047,7 @@ def preview(p, furniture):
     x = 4
     free_chair = furniture["chair"].image(pal({"x": "#5fbf8a", "X": "#3f9a6a", "z": "#9fe6bd"}))
     for name in ("bookshelf", "whiteboard", "window", "door", "plant", "chair", "chair-free", "laptop", "hire-sign",
-                 "clock-face", "bubble-alert", "bubble-ask", "bubble-done"):
+                 "clock-face", "bubble-alert", "bubble-ask", "bubble-done", "bubble-talk"):
         im = free_chair if name == "chair-free" else window_view("day", "clear") if name == "window" else furniture[name].image(p)
         sheet.alpha_composite(im, (x, 62))
         x += im.width + 4

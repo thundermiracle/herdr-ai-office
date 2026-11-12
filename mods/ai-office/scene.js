@@ -11,6 +11,10 @@ export const TICK_RUN = 125; // 誰かが小走りしている間（8fps。速�
 export const SPEED = 14; // 歩く速さ（art px / 秒）
 export const RUN_SPEED = 60; // 資料室へ行き来するときの小走り（1 枚のフロアでは資料室が遠い）
 export const ERRAND_READ_MS = 5000; // skill を使ったとき、資料室で読む時間
+export const TALK_MS = 4800; // 話しかけに行って話す時間（話しかけた人と相手が、TALK_TURN_MS ずつ交互に話す）
+export const TALK_TURN_MS = 1200;
+export const TALK_DEDUP_MS = 20000; // 受け取った側の出来事は、同じ 2 人でこの間に話しに行っていたら数えない（送った側と重なるので）
+export const TALK_COLOR = "#e8b84a"; // 話しかけるときの札（送った文）の色
 
 // オフィスは 1 枚のフロア: 左に縦の廊下（一番上が資料室で、本棚はここに 1 つ）、その右に部屋をすき間なく並べる。
 // 部屋の左端は仕切りの壁で、奥から PART_END までをふさぎ、手前は通路として開けておく（廊下や隣の部屋とつながる）。
@@ -362,7 +366,9 @@ export class Office {
   constructor(rng = Math.random) {
     this.rng = rng;
     this.chars = new Map(); // address -> キャラ
+    this.rooms = []; // 今の部屋の並び（sync のたびに）。ほかの部屋へ行く道に使う
     this.t = 0; // tick の数（コマ送りに使う）
+    this.clock = 0; // tick で進んだ時間（ms）
   }
 
   /**
@@ -370,7 +376,9 @@ export class Office {
    * 新しいエージェントは自分の席の後ろから始める。いなくなったエージェントは消す。
    */
   sync(rooms, info) {
+    this.rooms = rooms;
     const seen = new Set();
+    const talks = []; // 話しかけた出来事（送った人 → 相手）。全員をそろえてから、相手を探して行かせる
     for (const room of rooms) {
       for (const seat of room.seats) {
         if (!seat.agent) continue;
@@ -384,8 +392,9 @@ export class Office {
         }
         const moved = c.seat && c.seat.cx !== seat.cx;
         const origin = `${room.ox},${room.oy}`;
-        // 窓の幅が変わって部屋が並び直すと、部屋の外（廊下など）の座標はずれる。部屋の手前に戻して歩き直す
-        const relocated = c.origin !== undefined && c.origin !== origin && (c.x < 0 || c.path.some((p) => p.x < 0));
+        // 窓の幅が変わって部屋が並び直すと、部屋の外（廊下・ほかの部屋）の座標はずれる。部屋の手前に戻して歩き直す
+        const outside = (p) => p.x < 0 || p.x >= room.w || p.y < 0 || p.y >= room.h;
+        const relocated = c.origin !== undefined && c.origin !== origin && (outside(c) || c.path.some(outside));
         if (relocated) {
           c.x = LEFT_PASS;
           c.y = CORRIDOR_Y;
@@ -397,27 +406,125 @@ export class Office {
         c.roomRef = room;
         c.info = a;
         c.look = { look: lookOf(a.app, a.model), band: bandOf(a.effort), flame: a.effort === "max" };
-        // skill を使った出来事: office.skill_at（フックが使うたびに時刻を書く）が変わった。初めて見た値は出来事にしない
-        let errandNow = false;
-        if (c.skillAt === undefined) c.skillAt = a.skillAt ?? null;
-        else if (a.skillAt && a.skillAt !== c.skillAt) {
-          c.skillAt = a.skillAt;
-          if (a.skill) {
-            c.errand = { skill: a.skill, left: null }; // left: 資料室に着いてから読む残り時間
-            errandNow = true;
+        // 出来事のラベル（フックが書く office.skill_at・office.talk_at・office.heard_at）: 値が変わったら出来事。
+        // 初めて見た値は出来事にしない
+        const happened = (key, value) => {
+          if (c[key] === undefined) {
+            c[key] = value ?? null;
+            return false;
           }
+          if (!value || value === c[key]) return false;
+          c[key] = value;
+          return true;
+        };
+        // skill を使った: 資料室へ取りに行って読む（left: 着いてから読む残り時間）
+        let errandNow = false;
+        if (happened("skillAt", a.skillAt) && a.skill) {
+          c.errand = { kind: "skill", skill: a.skill, left: null };
+          errandNow = true;
         }
+        // hc send で話しかけた（送った人のフック）か、話しかけられた（受け取った人のフック）
+        if (happened("talkAt", a.talkAt)) talks.push({ from: c.address, to: a.talk, text: a.talkText, sender: true });
+        if (happened("heardAt", a.heardAt)) talks.push({ from: a.heard, to: c.address, text: a.heardText, sender: false });
         let b = behaviorOf(a.status, a.act);
         if (c.errand && b === "raise") c.errand = null; // 質問・許可待ちは用事より先（すぐ手を挙げる）
-        if (c.errand) b = "read"; // 用事の途中は、エージェントが次のツールに移っても資料室で読む
+        if (c.errand) b = c.errand.kind === "talk" ? "visit" : "read"; // 用事の途中は、エージェントが次に移っても続ける
         if (errandNow || b !== c.behavior || relocated || (moved && b !== "wander" && b !== "read")) this.retarget(c, b);
       }
     }
     for (const k of [...this.chars.keys()]) if (!seen.has(k)) this.chars.delete(k);
+    for (const e of talks) this.visit(this.chars.get(this.resolve(e.from)), this.resolve(e.to), e.text, e.sender);
+    // 話しかけに行く途中・話している間に、相手がいなくなったら戻る。相手の居場所が変わったら（作業を受けて席に座るなど）追い直す
+    for (const c of this.chars.values()) {
+      if (c.errand?.kind !== "talk") continue;
+      const partner = this.chars.get(c.errand.to);
+      if (!partner) {
+        c.errand = null;
+        c.returning = true;
+        this.retarget(c, behaviorOf(c.info.status, c.info.act));
+        continue;
+      }
+      const spot = this.visitSpot(partner);
+      if (!c.errand.spot || Math.abs(spot.x - c.errand.spot.x) + Math.abs(spot.y - c.errand.spot.y) > 6) {
+        c.errand.left = null;
+        this.retarget(c, "visit");
+      }
+    }
+  }
+
+  /** hc send の相手の名前から、オフィスにいるエージェントの address: アドレス → hc の名前 → タブの名前の順。いなければ null。 */
+  resolve(target) {
+    if (!target) return null;
+    if (this.chars.has(target)) return target;
+    const all = [...this.chars.values()];
+    return (all.find((c) => c.info?.tname === target) ?? all.find((c) => c.info?.tab === target))?.address ?? null;
+  }
+
+  /**
+   * c が to（address）へ話しかけに行く。text は送った文（札に出す）。自分あて・相手がいない・手を挙げている間は行かない。
+   * 受け取った側の出来事（sender が false）は、同じ相手へ行っている途中や、行ったばかりなら数えない（送った側と重なる）。
+   */
+  visit(c, to, text, sender) {
+    if (!c || !to || to === c.address || !this.chars.has(to) || c.info?.status === "blocked") return;
+    const recent = c.errand?.kind === "talk" && c.errand.to === to
+      || (c.lastTalk?.to === to && this.clock - c.lastTalk.at < TALK_DEDUP_MS);
+    if (!sender && recent) return;
+    c.errand = { kind: "talk", to, text: text || null, left: null, spot: null }; // left: 着いてから話す残り時間
+    c.lastTalk = { to, at: this.clock };
+    this.retarget(c, "visit");
+  }
+
+  // 部屋の座標（キャラの部屋の左上から）とフロア全体の座標
+  origin(c) {
+    const { ox = HALL_W, oy = 0 } = c.roomRef;
+    return { ox, oy };
+  }
+
+  global(c, p = c) {
+    const { ox, oy } = this.origin(c);
+    return { x: ox + p.x, y: oy + p.y };
+  }
+
+  local(c, p) {
+    const { ox, oy } = this.origin(c);
+    return { x: p.x - ox, y: p.y - oy };
+  }
+
+  // ほかの部屋にいるか（話しかけに行ったあとなど）。廊下は自分の部屋の道（planPath）で戻れるので含めない
+  away(c) {
+    const r = roomAt(this.rooms, this.global(c));
+    return !!r && r.id !== c.room;
+  }
+
+  // ほかの部屋を通る道（キャラの部屋の座標で）
+  route(c, goal) {
+    return floorPath(this.rooms, this.global(c), this.global(c, goal)).map((p) => this.local(c, p));
+  }
+
+  /**
+   * 話しかける相手のそばの、立つ所（フロア全体の座標）。相手が席にいる・席へ向かう（作業中・完了・手を挙げる）なら、
+   * その椅子の後ろの通路の右。立っているなら、次に止まる所の左（入らなければ右）。
+   */
+  visitSpot(p) {
+    const { ox, oy } = this.origin(p);
+    if (p.seated || ["type", "done", "raise"].includes(p.behavior)) {
+      return { x: ox + p.seat.cx + (p.behavior === "raise" ? 16 : 12), y: oy + LANE_Y };
+    }
+    const end = p.path.at(-1) ?? p;
+    const x = Math.round(ox + end.x);
+    const y = Math.round(oy + end.y);
+    const here = roomAt(this.rooms, { x, y });
+    const lo = here ? here.ox + LEFT_PASS : 6;
+    const hi = here ? here.ox + here.w - 10 : HALL_W - 6;
+    return { x: x - 14 >= lo ? x - 14 : Math.min(x + 14, hi), y };
   }
 
   retarget(c, behavior) {
     const sits = (b) => b === "type" || b === "done";
+    if (behavior === "visit" && !this.chars.has(c.errand?.to)) {
+      c.errand = null; // 相手がもういない
+      behavior = behaviorOf(c.info.status, c.info.act);
+    }
     c.behavior = behavior;
     if (behavior !== "read") c.spot = undefined;
     if (c.seated && sits(behavior) && c.sitX === c.seat.cx) return; // 座ったまま
@@ -427,15 +534,22 @@ export class Office {
       c.y = LANE_Y;
     }
     c.wait = 0;
-    if (behavior === "wander") {
+    const away = this.away(c);
+    if (behavior === "wander" && !away) {
       c.path = [];
       c.wait = 400 + this.rng() * 1500; // 少し間をおいて歩きだす
       return;
     }
-    const goal = behavior === "read" ? this.librarySpot(c) : { x: c.seat.cx, y: LANE_Y };
-    c.path = planPath(c.roomRef, c, goal);
-    // 資料室へ行くとき（skill を取りに行く・調べ物）と、廊下から戻るときは小走り
-    c.run = behavior === "read" || c.returning === true || c.x < 0;
+    let goal;
+    if (behavior === "visit") {
+      c.errand.spot = this.visitSpot(this.chars.get(c.errand.to));
+      goal = this.local(c, c.errand.spot);
+    } else if (behavior === "read") goal = this.librarySpot(c);
+    else if (behavior === "wander") goal = this.wanderTarget(c.roomRef); // ほかの部屋からは、まず自分の部屋へ
+    else goal = { x: c.seat.cx, y: LANE_Y };
+    c.path = behavior === "visit" || away ? this.route(c, goal) : planPath(c.roomRef, c, goal);
+    // 資料室へ行くとき（skill を取りに行く・調べ物）、話しかけに行くとき、廊下やほかの部屋から戻るときは小走り
+    c.run = behavior === "read" || behavior === "visit" || c.returning === true || c.x < 0 || away;
     c.returning = false;
     if (!c.path.length) this.arrive(c);
   }
@@ -457,7 +571,12 @@ export class Office {
       c.sitX = c.seat.cx;
     }
     if (c.behavior === "wander") c.wait = 3000 + this.rng() * 6000;
-    if (c.errand && c.behavior === "read") c.errand.left = ERRAND_READ_MS; // 資料室に着いた: ここから読む
+    if (c.errand?.kind === "skill" && c.behavior === "read") c.errand.left = ERRAND_READ_MS; // 資料室に着いた: ここから読む
+    if (c.errand?.kind === "talk" && c.behavior === "visit") {
+      c.errand.left = TALK_MS; // 相手のそばに着いた: ここから話す。相手の方を向く
+      const partner = this.chars.get(c.errand.to);
+      if (partner) c.facing = this.global(partner).x < this.global(c).x ? "l" : "r";
+    }
   }
 
   wanderTarget(room) {
@@ -473,9 +592,12 @@ export class Office {
   /** dt ミリ秒ぶん進める。何か変わったら true（描き直しが要る）。 */
   tick(dt) {
     this.t++;
+    this.clock += dt;
     let changed = false;
+    // 話しかけられている人（相手が向かっている・話している）は、うろうろを始めない
+    const visited = new Set([...this.chars.values()].filter((c) => c.errand?.kind === "talk").map((c) => c.errand.to));
     for (const c of this.chars.values()) {
-      // skill の用事: 読み終わったら、今の状態の動きに戻る（席へは小走り）
+      // 用事（skill を読む・話す）: 終わったら、今の状態の動きに戻る（席へは小走り）
       if (c.errand && c.errand.left !== null && !c.path.length) {
         c.errand.left -= dt;
         if (c.errand.left <= 0) {
@@ -506,7 +628,7 @@ export class Office {
         }
         if (!c.path.length) this.arrive(c);
         changed = true;
-      } else if (c.behavior === "wander") {
+      } else if (c.behavior === "wander" && !visited.has(c.address)) {
         c.wait -= dt;
         if (c.wait <= 0) {
           c.path = planPath(c.roomRef, c, this.wanderTarget(c.roomRef));
@@ -679,6 +801,12 @@ export function parseSkyCommand(command, ms) {
   return min === null ? null : { time: min };
 }
 
+/** 話しかけるときの札の文（空白をまとめ、長ければ切る）。 */
+export function talkLabel(text) {
+  const chars = [...String(text ?? "").replace(/\s+/g, " ").trim()];
+  return chars.length > 14 ? `${chars.slice(0, 13).join("")}…` : chars.join("");
+}
+
 /** 誰かが小走りしているか（コマ送りを速くする）。 */
 export function running(office) {
   for (const c of office.chars.values()) if (c.run && c.path.length) return true;
@@ -688,7 +816,7 @@ export function running(office) {
 /** 今のコマが動きを含むか（含まなければ tick しても絵は変わらない）。 */
 export function animating(office) {
   for (const c of office.chars.values()) {
-    if (c.path.length || c.behavior === "type" || c.behavior === "raise" || c.behavior === "read") return true;
+    if (c.path.length || ["type", "raise", "read", "visit"].includes(c.behavior)) return true;
     if (c.behavior === "wander") return true; // まばたきと、次に歩きだすまでの待ち
   }
   return false;
@@ -704,6 +832,12 @@ export function drawables(room, office, skills = []) {
   const out = [];
   const add = (d) => out.push(d);
   const colorOf = (id) => SKILL_SOURCES[skills.find((x) => sameSkill(id, x.id))?.source]?.color ?? "#9aa4b4";
+  // 話している 2 人: 話しかけた人が相手のそばに着いてから、TALK_TURN_MS ずつ交互に話す（0: 話しかけた人、1: 相手）
+  const talking = (c) => c.errand?.kind === "talk" && c.errand.left !== null && !c.path.length;
+  const turnOf = (c) => Math.floor((TALK_MS - c.errand.left) / TALK_TURN_MS) % 2;
+  const answering = new Set(); // 今が自分の番の、話しかけられている人
+  for (const c of office.chars.values()) if (talking(c) && turnOf(c) === 1) answering.add(c.errand.to);
+  const talkBubble = (c, x, y) => add({ id: `talk-${c.address}`, img: "bubble-talk", x, y, w: 13, h: 14, z: 1000 });
   add({ id: "plant", img: "plant", x: room.w - 18, y: 78, w: 12, h: 17, z: 95 });
   add({ id: "desk-l", img: "desk-l", x: DESK_X, y: BACK, w: 8, h: 21, z: BACK + 15 });
   for (const seat of room.seats) {
@@ -740,7 +874,8 @@ export function drawables(room, office, skills = []) {
         add({ id: `flame-${c.address}`, img: `fx-flame-${ph % 2}`, x: c.seat.cx - 14, y: BACK - 15, w: 28, h: 10, z: BACK - 1.2 });
       }
       person(pose, c.seat.cx - 9, BACK - 18, 18, BACK - 1);
-      if (c.behavior === "type" && c.info.skill) {
+      if (answering.has(c.address) && c.behavior !== "done") talkBubble(c, c.seat.cx - 6, BACK - 31); // 話しかけられて答える
+      else if (c.behavior === "type" && c.info.skill) {
         add({ id: `tag-${c.address}`, text: skillShort(c.info.skill), color: colorOf(c.info.skill), x: c.seat.cx, y: BACK - 28, z: 1001 });
       }
       const hands = c.behavior === "done" ? "hands-rest" : ph % 2 ? "hands-a" : "hands-b";
@@ -756,8 +891,15 @@ export function drawables(room, office, skills = []) {
     if (c.path.length) pose = `walk-${c.facing}-${ph % 2}`;
     else if (c.behavior === "read") pose = ph % 12 < 9 ? "read-0" : "read-1";
     else if (c.behavior === "raise") pose = `raise-${Math.floor(ph / 3) % 2}`;
+    else if (c.behavior === "visit") pose = `walk-${c.facing}-0`; // 相手の方を向いて話す
     else pose = ph % 23 === 0 ? "blink" : "stand";
     person(pose, x - 9, y - 23, 24, y);
+    // 話しかけた人の番: 送った文の札（文が分からなければ「…」の吹き出し）。相手の番: 相手に「…」の吹き出し
+    if (talking(c) && turnOf(c) === 0) {
+      if (c.errand.text) add({ id: `tag-${c.address}`, text: talkLabel(c.errand.text), color: TALK_COLOR, x, y: y - 33, z: 1001 });
+      else talkBubble(c, x - 6, y - 36);
+    }
+    if (answering.has(c.address) && c.behavior !== "raise" && !c.path.length) talkBubble(c, x - 6, y - 36);
     const reading = c.errand?.skill ?? c.info.skill;
     if (c.behavior === "read" && !c.path.length && reading) {
       add({ id: `tag-${c.address}`, text: skillShort(reading), color: colorOf(reading), x, y: y - 33, z: 1001 });
