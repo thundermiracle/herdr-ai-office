@@ -490,6 +490,75 @@ export function clockHands(date) {
   return { h: date.getHours() % 12, m: Math.floor(date.getMinutes() / 5) };
 }
 
+// ---- 窓の外（東京の時刻と天気） ----
+
+/** 窓の外の基準の東京。日本は夏時間がないので、東京の時刻はいつも UTC+9。 */
+export const TOKYO = { lat: 35.6895, lon: 139.6917, offsetMin: 540 };
+const DAY_MS = 86400000;
+
+/** 東京の 0 時からの分（0..1439）と "HH:MM"。 */
+export function tokyoClock(ms) {
+  const min = Math.floor(((ms / 60000 + TOKYO.offsetMin) % 1440 + 1440) % 1440);
+  const two = (n) => String(n).padStart(2, "0");
+  return { min, text: `${two(Math.floor(min / 60))}:${two(min % 60)}` };
+}
+
+/** 東京のその日（ms の日）の 0 時から min 分の時刻（ms）。 */
+export function tokyoAt(ms, min) {
+  const offset = TOKYO.offsetMin * 60000;
+  return Math.floor((ms + offset) / DAY_MS) * DAY_MS - offset + min * 60000;
+}
+
+/**
+ * 太陽の高さ（度。地平線が 0、下はマイナス）と、南中より前（午前）か。
+ * 簡易な天文の式で、日の出・日の入りの時刻にして 1〜2 分の誤差（窓の空には十分）。
+ */
+export function sunAt(ms, { lat, lon } = TOKYO) {
+  const rad = Math.PI / 180;
+  const d = ms / DAY_MS - 10957.5; // 2000-01-01 12:00 UTC からの日数
+  const g = (357.529 + 0.98560028 * d) * rad; // 平均近点角
+  const q = 280.459 + 0.98564736 * d; // 平均黄経
+  const ecl = (q + 1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * rad; // 黄経
+  const tilt = (23.439 - 0.00000036 * d) * rad; // 地軸の傾き
+  const ra = Math.atan2(Math.cos(tilt) * Math.sin(ecl), Math.cos(ecl)); // 赤経
+  const dec = Math.asin(Math.sin(tilt) * Math.sin(ecl)); // 赤緯
+  const gmst = 18.697374558 + 24.06570982441908 * d; // グリニッジ恒星時（時）
+  const turn = 2 * Math.PI;
+  let ha = (((gmst * 15 + lon) * rad - ra) % turn + turn) % turn; // 時角
+  if (ha > Math.PI) ha -= turn;
+  const el = Math.asin(Math.sin(lat * rad) * Math.sin(dec) + Math.cos(lat * rad) * Math.cos(dec) * Math.cos(ha));
+  return { elevation: el / rad, morning: ha < 0 };
+}
+
+/**
+ * 東京のその日の日の出と日の入り（0 時からの分）。太陽の上の縁が地平線を通るとき（高さ −0.833°、
+ * 大気で浮き上がる分を含む）。1 分ずつ見る。
+ */
+export function sunTimes(ms) {
+  const start = tokyoAt(ms, 0);
+  let rise = null;
+  let set = null;
+  let prev = sunAt(start).elevation;
+  for (let m = 1; m < 1440; m++) {
+    const el = sunAt(start + m * 60000).elevation;
+    if (rise === null && prev < -0.833 && el >= -0.833) rise = m;
+    if (set === null && prev >= -0.833 && el < -0.833) set = m;
+    prev = el;
+  }
+  return { rise, set };
+}
+
+/**
+ * 窓の空の時間帯（太陽の高さで）: 夜 → 薄明（日の出前・日の入り後の青い空）→ 朝焼け / 夕焼け → 昼。
+ * 朝焼けと夕焼けは、日の出の 20 分ほど前から 30 分ほど後まで（日の入りはその逆）。
+ */
+export function skyPhase({ elevation, morning }) {
+  if (elevation >= 5) return "day";
+  if (elevation >= -4) return morning ? "dawn" : "dusk";
+  if (elevation >= -10) return "twilight";
+  return "night";
+}
+
 /** 誰かが小走りしているか（コマ送りを速くする）。 */
 export function running(office) {
   for (const c of office.chars.values()) if (c.run && c.path.length) return true;
