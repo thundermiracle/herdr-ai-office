@@ -71,5 +71,39 @@ else
   fails=$((fails + 1))
 fi
 
+# 話しかけ: Bash の hc send は office.talk・office.talk_text と、変わる office.talk_at。届いた <hc from> は office.heard...
+# talk_check <説明> <JSON> <ラベルの頭（talk か heard）> <期待する相手> <期待する文>（相手が空なら、出来事にならないこと）
+label() { hc get "$term" --json | jq -r --arg k "$1" '.labels[$k] // ""'; }
+talk_check() {
+  local name=$1 json=$2 key=$3 want_to=$4 want_text=$5 before after start end ok=yes
+  before=$(label "office.${key}_at")
+  start=$(now)
+  printf '%s' "$json" | HC_TERMINAL_ID="$term" TMPDIR="$tmp" sh -c "$hook" >"$tmp/out" 2>&1
+  end=$(now)
+  sleep 0.4
+  after=$(label "office.${key}_at")
+  if [ -n "$want_to" ]; then
+    [ "$(label "office.$key")" = "$want_to" ] && [ "$(label "office.${key}_text")" = "$want_text" ] && [ "$after" != "$before" ] || ok=no
+  else
+    [ "$after" = "$before" ] || ok=no
+  fi
+  [ ! -s "$tmp/out" ] && [ $((end - start)) -lt 300 ] || ok=no
+  [ "$ok" = yes ] || fails=$((fails + 1))
+  printf '%-4s %-40s %s=%-8s text=%-26s %4sms\n' "$ok" "$name" "$key" "'$(label "office.$key")'" "'$(label "office.${key}_text")'" $((end - start))
+}
+bash_cmd() { pre Bash '' "$(jq -cn --arg c "$1" '{command: $c}')"; }
+
+talk_check "hc send t7 -> talk" "$(bash_cmd 'hc send t7 "Please review src/x.rs only"')" talk t7 "Please review src/x.rs only"
+talk_check "same send again is a new event" "$(bash_cmd 'hc send t7 "Please review src/x.rs only"')" talk t7 "Please review src/x.rs only"
+talk_check "options and a heredoc" "$(bash_cmd "cd /x && hc send --wait --timeout 60 review \"\$(cat <<'EOF'
+Two bugs in x.rs
+details in findings.md
+EOF
+)\"")" talk review "Two bugs in x.rs"
+talk_check "hc send \$VAR is not known" "$(bash_cmd 'hc send "$PARENT" "done"')" talk "" ""
+talk_check "plain Bash is not a talk" "$(bash_cmd 'git status')" talk "" ""
+talk_check "<hc from> prompt -> heard" "$(prompt '<hc from="t6m office-test-a" reach="hc send t6m when done">please review x.rs</hc>')" heard t6m "please review x.rs"
+check "the <hc from> prompt clears act" "" "" "$(prompt '<hc from="t6m office-test-a">again</hc>')"
+
 echo "fails: $fails"
 [ "$fails" -eq 0 ]
