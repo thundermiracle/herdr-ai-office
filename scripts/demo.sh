@@ -1,10 +1,11 @@
 #!/bin/bash
-# オフィスの見本: 偽エージェントのスペース「office-test」（7 人）と「office-test-2」（2 人）を作る / 消す（AI は使わない）。
+# オフィスの見本: 偽エージェントのスペース「office-test」（7 人）と「office-test-2」（3 人）を作る / 消す（AI は使わない）。
 # 使い方: scripts/demo.sh start | stop
 #   office-test: タイピング（opus・max で炎）・完了（✓、fable）・作業中に 20 秒ごとに herdr の skill を使い、資料室へ取りに行く（haiku）・
 #   質問（?、Codex）・うろうろ（タブ idle、sonnet）・全部を順に（cycle、ほかの AI）・
 #   30 秒ごとに office-test-2 の reviewer へ hc send で話しかけに行く（talks、Codex）の 7 人。
-#   office-test-2: 30 秒ごとに office-test の idle へ話しかけに行く（lead、opus）と、タイピング（タブ reviewer、sonnet）の 2 人。
+#   office-test-2: 30 秒ごとに office-test の idle へ話しかけに行く（lead、opus）・タイピング（タブ reviewer、sonnet）・
+#   30 秒ごとに同じ部屋の reviewer へ話しかけに行く（タブ designer、haiku）の 3 人。
 #   質問や完了を報告するので、herdr-app の通知音とトーストが出る（cycle は 40 秒ごとに質問する）。
 set -euo pipefail
 
@@ -39,11 +40,14 @@ idle fake-claude --model claude-sonnet-5-5 --effort low
 cycle fake
 talks:reviewer:20 fake-codex -c model_reasoning_effort=high
 TABS
-    # 2 つ目の部屋: idle へ話しかけに行く lead と、話しかけられる reviewer
+    # 2 つ目の部屋: idle（ほかの部屋）へ話しかけに行く lead、話しかけられる reviewer、reviewer（同じ部屋）へ話しかけに行く designer。
+    # reviewer へは designer（4 秒後から）と office-test の Codex（20 秒後から）が 30 秒ごとに行くので、重ならない
     sp2=$(herdr-app do space.new --name "$name2" --folder "$repo" \
       --argv "$(argv talks:idle:8 fake-claude --model claude-opus-5-5 --effort high)" | jq -r .space)
     herdr-app do tab.new --space "$sp2" --name reviewer \
       --argv "$(argv working fake-claude --model claude-sonnet-5-5 --effort medium)" >/dev/null
+    herdr-app do tab.new --space "$sp2" --name designer \
+      --argv "$(argv talks:reviewer:4 fake-claude --model claude-haiku-5-5 --effort low)" >/dev/null
     # 作ったタブは「見た」扱いになって done がすぐ idle に戻るので、元のスペースに戻しておく
     [ -n "$orig" ] && [ "$orig" != null ] && herdr-app do space.select --id "$orig" >/dev/null
     echo "「${name}」（${sp}）と「${name2}」（${sp2}）を作りました"

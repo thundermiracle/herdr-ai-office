@@ -612,6 +612,42 @@ describe("talking to another agent (hc send)", () => {
     expect(c.x).toBe(w.rooms[0].seats[0].cx);
   });
 
+  test("within one room: along the lane behind the desk, never leaving the room", () => {
+    const office = new Office(seeded(29));
+    start(office);
+    // b の t3（右の席）が、同じ部屋の t2（左の席、作業中で座っている）へ話しかける。帰りは自分の席へ
+    const w = sync(office, 1000, { t2: { status: "working" }, t3: { talk: "reviewer", talkAt: "1", talkText: "ここ見て" } });
+    const b = w.rooms[1];
+    const c = office.chars.get("t3");
+    expect(c.errand).toMatchObject({ kind: "talk", to: "t2" });
+    const inRoom = () => roomAt(w.rooms, office.global(c))?.id === "b";
+    let stayed = true;
+    expect(runUntil(office, () => {
+      if (!inRoom()) stayed = false;
+      return arrived(c);
+    })).toBe(true);
+    expect(office.global(c)).toEqual({ x: b.ox + b.seats[0].cx + 12, y: b.oy + LANE_Y });
+    expect(c.facing).toBe("l");
+    // t2 がまだ席へ戻る途中なら、座るまで待ってから話しだす（待っている間は札も吹き出しも出さず、話す時間も減らない）
+    const t2 = office.chars.get("t2");
+    expect(t2.path.length).toBeGreaterThan(0); // この乱数の種では、t3 が着いたとき t2 はまだ歩いている
+    expect(drawables(b, office).find((d) => d.id === "tag-t3")).toBeUndefined();
+    const left = c.errand.left;
+    office.tick(160);
+    expect(c.errand.left).toBe(left);
+    expect(runUntil(office, () => t2.seated)).toBe(true);
+    expect(drawables(b, office).find((d) => d.id === "tag-t3")).toMatchObject({ text: "ここ見て" });
+    for (let t = 0; t < TALK_TURN_MS; t += 160) office.tick(160);
+    expect(drawables(b, office).find((d) => d.id === "talk-t2")?.img).toBe("bubble-talk");
+    for (let t = 0; t < TALK_MS; t += 160) office.tick(160);
+    expect(runUntil(office, () => {
+      if (!inRoom()) stayed = false;
+      return c.seated;
+    })).toBe(true);
+    expect(stayed).toBe(true);
+    expect(c.x).toBe(b.seats[1].cx);
+  });
+
   test("rooms in different rows: through the hallway, to the same spot", () => {
     const office = new Office(seeded(22));
     start(office, 300);

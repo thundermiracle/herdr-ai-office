@@ -38,7 +38,7 @@ scripts/sync.sh                                  # mods/ と layouts/ を ~/.con
 herdr-app do layout.switch --name ai-office      # オフィスのレイアウトにする（ctrl-shift-l でも切り替わる）
 herdr-app do layout.switch --name main-dots      # 元に戻す
 herdr-app do mod.open --name ai-office           # 今のレイアウトの上に、浮いた窓で開く（もう一度で閉じる）
-scripts/demo.sh start                            # 見本: 偽エージェントのスペース「office-test」（7 人）と「office-test-2」（2 人）（AI は使わない。model と effort もばらばら）
+scripts/demo.sh start                            # 見本: 偽エージェントのスペース「office-test」（7 人）と「office-test-2」（3 人）（AI は使わない。model と effort もばらばら）
 scripts/demo.sh stop                             # 見本を消す
 ```
 
@@ -165,8 +165,11 @@ herdr のタブの間の会話（エージェントが `hc send <相手> "文"` 
   （Claude どうしは両方に出るので、同じ 2 人の 20 秒以内の出来事は 1 回にまとめる）
 - `hc run --bg` で起動された手伝い（ペインがない）はまだオフィスにいないので、親と手伝いの間の会話は出ない
 
-見本（`scripts/demo.sh start`）では、office-test の Codex（talks）が office-test-2 の reviewer へ、office-test-2 の lead が
-office-test の idle（うろうろ）へ、30 秒ごとに話しかけに行く。
+同じ部屋（スペース）の中なら、机の奥の通路を通って相手の椅子の後ろへ行く。相手が歩いている途中（作業を受けて席へ戻るなど）なら、
+止まるのを待ってから話しだす。
+
+見本（`scripts/demo.sh start`）では、30 秒ごとに、office-test の Codex（talks）が office-test-2 の reviewer へ、
+office-test-2 の lead が office-test の idle（うろうろ）へ、office-test-2 の designer が同じ部屋の reviewer へ話しかけに行く。
 
 ## 本棚（調べ物中）のフック
 

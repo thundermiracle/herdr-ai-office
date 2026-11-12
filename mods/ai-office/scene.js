@@ -474,6 +474,11 @@ export class Office {
     this.retarget(c, "visit");
   }
 
+  // 話しかけた相手が歩いている途中か
+  partnerMoving(c) {
+    return c.errand?.kind === "talk" && (this.chars.get(c.errand.to)?.path.length ?? 0) > 0;
+  }
+
   // 部屋の座標（キャラの部屋の左上から）とフロア全体の座標
   origin(c) {
     const { ox = HALL_W, oy = 0 } = c.roomRef;
@@ -598,7 +603,8 @@ export class Office {
     const visited = new Set([...this.chars.values()].filter((c) => c.errand?.kind === "talk").map((c) => c.errand.to));
     for (const c of this.chars.values()) {
       // 用事（skill を読む・話す）: 終わったら、今の状態の動きに戻る（席へは小走り）
-      if (c.errand && c.errand.left !== null && !c.path.length) {
+      // 話すのは、相手も止まってから（作業を受けて席へ戻る途中なら、座るのを待つ）
+      if (c.errand && c.errand.left !== null && !c.path.length && !this.partnerMoving(c)) {
         c.errand.left -= dt;
         if (c.errand.left <= 0) {
           c.errand = null;
@@ -833,7 +839,7 @@ export function drawables(room, office, skills = []) {
   const add = (d) => out.push(d);
   const colorOf = (id) => SKILL_SOURCES[skills.find((x) => sameSkill(id, x.id))?.source]?.color ?? "#9aa4b4";
   // 話している 2 人: 話しかけた人が相手のそばに着いてから、TALK_TURN_MS ずつ交互に話す（0: 話しかけた人、1: 相手）
-  const talking = (c) => c.errand?.kind === "talk" && c.errand.left !== null && !c.path.length;
+  const talking = (c) => c.errand?.kind === "talk" && c.errand.left !== null && !c.path.length && !office.partnerMoving(c);
   const turnOf = (c) => Math.floor((TALK_MS - c.errand.left) / TALK_TURN_MS) % 2;
   const answering = new Set(); // 今が自分の番の、話しかけられている人
   for (const c of office.chars.values()) if (talking(c) && turnOf(c) === 1) answering.add(c.errand.to);

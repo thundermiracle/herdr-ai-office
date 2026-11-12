@@ -5,7 +5,8 @@
 #   skill:<名前>: read に加えて office.skill=<名前>（本棚でその skill の本を読み、名前の札が出る）
 #   skills:<名前>: working（タイピング）のまま、20 秒ごとにその skill を使う（office.skill_at を変える。
 #                  フックが本物の Skill ツールで書くのと同じ出来事で、資料室へ取りに行って読み、戻ってくる）
-#   talks:<タブ>[:<秒>]: working（タイピング）のまま、<秒>（既定 8）たってから 30 秒ごとに、その名前のタブのエージェントへ
+#   talks:<タブ>[:<秒>]: working（タイピング）のまま、<秒>（既定 8）たってから 30 秒ごとに、見本のスペース（office-test で
+#                  始まる名前）の中のその名前のタブのエージェントへ（ほかのスペースの本物のエージェントには送らない）
 #                  hc send で話しかける。フック（hooks/claude-office-act.sh）が書くのと同じラベル（office.talk・office.talk_at・
 #                  office.talk_text）を先に書くので、オフィスでは相手のところへ行って話し、戻ってくる
 #   ask:   質問（選択肢の画面を出して、答えを受け取る。scripts/fake-question.py）、blocked: 許可待ち
@@ -76,8 +77,9 @@ case "$mode" in
         3) text="この仕様で合っていますか？" ;;
         0) text="直したので見てください" ;;
       esac
-      # 相手のアドレス（herdr-app のタブの名前から）
-      to=$(herdr-app ls 2>/dev/null | jq -r --arg t "$tab" '[.spaces[].tabs[] | select(.name == $t) | .terminals[0].terminal] | first // empty')
+      # 相手のアドレス（見本のスペースの中の、タブの名前から）
+      to=$(herdr-app ls 2>/dev/null | jq -r --arg t "$tab" \
+        '[.spaces[] | select(.name | startswith("office-test")) | .tabs[] | select(.name == $t) | .terminals[0].terminal] | first // empty')
       if [ -n "$to" ] && [ -n "${HC_TERMINAL_ID:-}" ]; then
         hc label "$HC_TERMINAL_ID" "office.talk=$to" "office.talk_at=$n-$$" "office.talk_text=$text" >/dev/null 2>&1
         hc send "$to" "$text" >/dev/null 2>&1 &
