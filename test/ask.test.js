@@ -60,6 +60,44 @@ Ready to submit your answers?
   2. Cancel
 `;
 
+// 本物の Claude Code 2.1.302 の画面（haiku に 3 問を聞かせて撮った、質問の部分）: 2 問目と、答えの確認
+const REAL_STEP2 = `
+────────────────────────────────────────
+←  ☒ 季節  ☐ OS  ☐ 作業時間  ✔ Submit  →
+
+普段よく使うOSはどれですか？
+
+❯ 1. macOS
+     Apple のデスクトップ OS
+  2. Windows
+     Microsoft の OS
+  3. Linux
+     オープンソースの OS
+  4. Type something.
+────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel
+`;
+const REAL_REVIEW = `
+────────────────────────────────────────
+←  ☒ 季節  ☒ OS  ☒ 作業時間  ✔ Submit  →
+
+Review your answers
+
+ ● 好きな季節はどれですか？
+   → 春
+ ● 普段よく使うOSはどれですか？
+   → macOS
+ ● 作業のピークは朝と夜のどちらですか？
+   → 朝型
+
+Ready to submit your answers?
+
+❯ 1. Submit answers
+  2. Cancel
+`;
+
 // 許可の確認
 const PERMISSION = `
  Bash command
@@ -123,6 +161,18 @@ describe("parseQuestion", () => {
       "● 次の作業はどれにしますか？", "→ 調べる", "● どの言語で書きますか？", "→ TypeScript", "● テストはどこまで書きますか？", "→ 結合テストまで",
     ]);
     expect(q.steps.every((s) => s.done)).toBe(true);
+  });
+
+  test("the real Claude Code screens read the same way", () => {
+    const q = parseQuestion(REAL_STEP2);
+    expect(q.question).toBe("普段よく使うOSはどれですか？");
+    expect(q.steps.map((s) => `${s.done ? "☒" : "☐"}${s.label}`)).toEqual(["☒季節", "☐OS", "☐作業時間"]);
+    expect(q.options.map((o) => o.label)).toEqual(["macOS", "Windows", "Linux", "Type something.", "Chat about this"]);
+    expect(q.options[0].description).toBe("Apple のデスクトップ OS");
+    const r = parseQuestion(REAL_REVIEW);
+    expect(r.question).toBe("Ready to submit your answers?");
+    expect(r.options.map((o) => o.label)).toEqual(["Submit answers", "Cancel"]);
+    expect(r.review.filter((l) => l.startsWith("→"))).toEqual(["→ 春", "→ macOS", "→ 朝型"]);
   });
 });
 
