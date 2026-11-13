@@ -2,7 +2,7 @@
 # オフィスの見本: 偽エージェントのスペース「office-test」（7 人）と「office-test-2」（3 人）を作る / 消す（AI は使わない）。
 # 使い方: scripts/demo.sh start | stop
 #   office-test: タイピング（opus・max で炎）・完了（✓、fable）・作業中に 20 秒ごとに herdr の skill を使い、資料室へ取りに行く（haiku）・
-#   質問（?、Codex）・うろうろ（タブ idle、sonnet）・全部を順に（cycle、ほかの AI）・
+#   質問（?、Codex。3 問を続けて聞き、最後に答えの確認）・うろうろ（タブ idle、sonnet）・全部を順に（cycle、ほかの AI）・
 #   30 秒ごとに office-test-2 の reviewer へ hc send で話しかけに行く（talks、Codex）の 7 人。
 #   office-test-2: 30 秒ごとに office-test の idle へ話しかけに行く（lead、opus）・タイピング（タブ reviewer、sonnet）・
 #   30 秒ごとに同じ部屋の reviewer へ話しかけに行く（タブ designer、haiku）の 3 人。
@@ -30,12 +30,12 @@ case "${1:-}" in
     sp=$(herdr-app do space.new --name "$name" --folder "$repo" \
       --argv "$(argv working fake-claude --model claude-opus-5-5 --effort max)" | jq -r .space)
     while read -r mode app rest; do
-      # shellcheck disable=SC2086 # rest は model と effort の引数（空白で分ける）
+      # shellcheck disable=SC2086 # rest は model・effort・質問の数などの引数（空白で分ける）
       herdr-app do tab.new --space "$sp" --name "$mode" --argv "$(argv "$mode" "$app" $rest)" >/dev/null
     done <<'TABS'
 done fake-claude --model claude-fable-5-2 --effort high
 skills:herdr fake-claude --model claude-haiku-5-5 --effort medium
-ask fake-codex -c model_reasoning_effort=xhigh
+ask fake-codex -c model_reasoning_effort=xhigh --questions 3
 idle fake-claude --model claude-sonnet-5-5 --effort low
 cycle fake
 talks:reviewer:20 fake-codex -c model_reasoning_effort=high

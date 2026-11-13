@@ -66,6 +66,7 @@ Files・Changes のボタンは同梱の `tabs` mod に直接書かれていて�
    `{"id": "office", "type": "block", "hidden": true, "size": {"px": 560}, "min": 440, "max": 1400,
    "content": {"mod": "ai-office", "props": {"block": "office"}}}`（`props.block` で自分が隠れているかを調べる）
 見本は質問や完了を報告するので、herdr-app の通知音とトーストが出る（全部を順に回る 1 人は 40 秒ごとに質問する）。
+質問役（タブ ask）は、Claude Code の複数の質問のように 3 問を続けて聞き、最後に答えの確認を出す。
 
 ## 状態と動き
 
@@ -145,7 +146,7 @@ scripts/sky.sh auto         # 本物に戻す
 | キャラクター | そのエージェントを表示（`agent.focus`。`ai-office` レイアウトなら右に出る） |
 | 空いた椅子・その席のノート PC | 「雇う」ポップアップ。選んだエージェントを、その部屋のスペースの新しいタブで起動 |
 | 壁の名札 | そのスペースを選んで、herdr のスペースのメニュー（名前を変える・閉じる・ワークツリー）。右クリックはメニューだけ |
-| 質問の「?」 | 質問と選択肢を出す。選ぶと、その答えをターミナルに送る（↑↓ と Enter。送る直前に画面を読み直して確かめる） |
+| 質問の「?」 | 質問と選択肢を出す。選ぶと、その答えをターミナルに送る（↑↓ と Enter。送る直前に画面を読み直して確かめる）。質問が続くとき（Claude Code の複数の質問）は、答えるたびに次の質問を同じポップアップに出し（何問目かも）、最後の答えの確認（Submit answers）まで答えられる。もう答え待ちでなくなったら閉じる |
 | 資料室の本棚 | 使える skill の一覧。その中の skill をクリックすると中身 |
 | 空き部屋（「+ 部屋」のドア） | フォルダを選んで、新しいスペース（部屋）を作る（この Mac だけ） |
 | 窓（マウスを乗せる） | 東京の時刻と天気・気温（試し中はその旨） |
@@ -218,7 +219,7 @@ hooks/register.sh remove   # このフックだけ外す（ほかのフックは
 uv run --with pillow scripts/build-art.py   # 絵を作り直す（mods/ai-office/img/、tmp/art-preview.png、窓の見本 tmp/sky-preview.png）
 bun test                                    # scene.js（窓の外は test/sky.test.js）
 test/hook-test.sh                           # フック
-test/ask-test.sh                            # 質問に答える流れ（偽の質問役で）
+test/ask-test.sh                            # 質問に答える流れ（偽の質問役で。1 問と、続けて 3 問）
 scripts/sync.sh                             # コピーして check（herdr-app は自動で読み直す）
 herdr-app shot tmp/shot.png                 # 今の画面を撮って確かめる
 ```
