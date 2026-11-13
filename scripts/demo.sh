@@ -7,6 +7,9 @@
 #   office-test-2: 30 秒ごとに office-test の idle へ話しかけに行く（lead、opus）・タイピング（タブ reviewer、sonnet）・
 #   30 秒ごとに同じ部屋の reviewer へ話しかけに行く（タブ designer、haiku）の 3 人。
 #   質問や完了を報告するので、herdr-app の通知音とトーストが出る（cycle は 40 秒ごとに質問する）。
+# herdr-app は作ったスペースとタブをすぐ見せるので、start の間（1〜2 秒）は画面が見本へ動き、その間に打ったキーは見本の
+# ターミナルに入る。終わったら（途中で失敗しても）元のスペース・タブ・ペインに戻し、戻ったかを確かめる。
+# 人がほかのエージェントに書いている最中に動かさない（AI が確かめに使うときは、先に聞く。README の「開発」）。
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -18,13 +21,32 @@ spaces_named() {
   herdr-app ls | jq -r --arg n "$name" --arg n2 "$name2" '.spaces[] | select(.name == $n or .name == $n2) | .id'
 }
 
+# start の前に見ていたスペース・タブ・ペイン（view）に戻す。戻ったかを確かめ、違っていればもう一度
+restore() {
+  local space tab pane
+  space=$(printf '%s' "$view" | jq -r '.space // empty')
+  tab=$(printf '%s' "$view" | jq -r '.tab // empty')
+  pane=$(printf '%s' "$view" | jq -r '.pane // empty')
+  [ -n "$space" ] || return 0
+  for _ in 1 2; do
+    herdr-app do space.select --id "$space" >/dev/null || true
+    [ -z "$tab" ] || herdr-app do tab.select --id "$tab" >/dev/null || true
+    [ -z "$pane" ] || herdr-app do pane.focus --pane "$pane" >/dev/null || true
+    sleep 0.3
+    [ "$(herdr-app status | jq -r '"\(.space) \(.tab)"')" = "$space $tab" ] && return 0
+  done
+  echo "demo.sh: 元のスペース（${space}）に戻せませんでした" >&2
+}
+
 case "${1:-}" in
   start)
     if [ -n "$(spaces_named)" ]; then
       echo "demo.sh: もう「${name}」か「${name2}」があります（scripts/demo.sh stop で消せます）" >&2
       exit 1
     fi
-    orig=$(herdr-app status | jq -r .space)
+    # 今見ているところ。作り終えたら（途中で失敗しても）ここへ戻す（見本のタブを見たままだと、「見た」扱いで done がすぐ idle に戻る）
+    view=$(herdr-app status | jq -c '{space, tab, pane: .focused_pane}')
+    trap restore EXIT
     # fake-agent.sh は 3 つ目からの引数を使わないが、オフィスは起動引数から model と effort を読むので、見た目が変わる
     argv() { printf '%s\n' "$fa" "$@" | jq -R . | jq -sc .; } # 引数を 1 行ずつ JSON の配列に（- で始まる引数も）
     sp=$(herdr-app do space.new --name "$name" --folder "$repo" \
@@ -48,8 +70,6 @@ TABS
       --argv "$(argv working fake-claude --model claude-sonnet-5-5 --effort medium)" >/dev/null
     herdr-app do tab.new --space "$sp2" --name designer \
       --argv "$(argv talks:reviewer:4 fake-claude --model claude-haiku-5-5 --effort low)" >/dev/null
-    # 作ったタブは「見た」扱いになって done がすぐ idle に戻るので、元のスペースに戻しておく
-    [ -n "$orig" ] && [ "$orig" != null ] && herdr-app do space.select --id "$orig" >/dev/null
     echo "「${name}」（${sp}）と「${name2}」（${sp2}）を作りました"
     ;;
   stop)
