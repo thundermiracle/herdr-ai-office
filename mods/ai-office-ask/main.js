@@ -17,7 +17,7 @@ const FOLLOW_TRIES = 24; // これだけ読み直しても次の画面が決ま�
 const kindOf = (t) => t?.report?.kind ?? t?.status?.kind ?? null;
 
 // まだ質問で答え待ちか（blocked で kind が question）
-function asking(terminal) {
+function stillAsking(terminal) {
   const blocked = agents().find((a) => a.address === terminal)?.status === "blocked";
   return blocked && kindOf(terminals().find((t) => t.address === terminal)) === "question";
 }
@@ -123,7 +123,7 @@ export default class Ask extends View {
     for (let i = 0; i < FOLLOW_TRIES; i++) {
       await cx.sleep(FOLLOW_MS);
       text = await screenOf(this.who.terminal);
-      read = nextRead(read, prev, parseQuestion(text), asking(this.who.terminal));
+      read = nextRead(read, prev, parseQuestion(text), stillAsking(this.who.terminal));
       if (read.sure) break;
     }
     if (read.step === "done") return this.close();
