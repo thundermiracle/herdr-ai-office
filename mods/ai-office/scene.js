@@ -333,6 +333,19 @@ export function roomAt(rooms, p) {
 }
 
 /**
+ * 部屋をドラッグして落とす先: フロア全体の座標の点 p にある、from（ドラッグしている部屋の id）とは別の部屋。
+ * 同じマシンの部屋だけ（herdr のスペースの一覧と同じ）。廊下・空き部屋・自分の部屋なら null。
+ * side は差し込む印を出す側: 後ろの部屋へ動かすならその部屋の右（後ろに入る）、前の部屋へなら左（前に入る）。
+ */
+export function dropTarget(rooms, from, p) {
+  const list = rooms.filter((r) => !r.newRoom);
+  const source = list.find((r) => r.id === from);
+  const over = roomAt(list, p);
+  if (!source || !over || over === source || (over.machine ?? null) !== (source.machine ?? null)) return null;
+  return { id: over.id, side: list.indexOf(source) < list.indexOf(over) ? "right" : "left" };
+}
+
+/**
  * フロアの上の道（曲がり角の列、from は含まない）。座標はフロア全体で、from と to は部屋の中か廊下の点。
  * 同じ部屋の中は planPath。部屋を出るときは手前の通路へ（左の扉。同じ列の右の部屋へ行くなら右の通り道から）。
  * 同じ列の部屋へは通路を横に、違う列の部屋や廊下へは、通路を廊下まで歩いて廊下を上下に。入るときは相手の部屋の左の扉から。

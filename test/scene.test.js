@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   BACK, CORRIDOR_Y, DESK_X, ERRAND_READ_MS, HALL_W, LANE_Y, LEFT_PASS, LIBRARY, MIN_ROOM_W, PART_END, PART_W, ROOM_H, SEAT_W,
   TALK_DEDUP_MS, TALK_MS, TALK_TURN_MS, WALL_H, Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride,
-  drawables, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
+  drawables, dropTarget, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
 } from "../mods/ai-office/scene.js";
 
@@ -127,6 +127,54 @@ describe("rooms", () => {
     expect(b.ox + b.w).toBe(floor.w);
     expect(lot.ox + lot.w).toBe(floor.w);
     expect(floor.h).toBe(2 * ROOM_H);
+  });
+});
+
+describe("dropTarget", () => {
+  // 3 つの部屋 a・b・c。幅 300 なら 1 列に 1 部屋（a、b、c と縦に並ぶ）
+  const floor = (spaces, width = 1000) => layoutFloor(roomsOf(spaces, []), width).rooms;
+  const middle = (r) => ({ x: r.ox + r.w / 2, y: r.oy + r.h / 2 });
+
+  test("a later room takes it after itself (mark on its right), an earlier one before itself (on its left)", () => {
+    const rooms = floor([space("a"), space("b"), space("c")]);
+    const [a, b, c] = rooms;
+    expect(dropTarget(rooms, "a", middle(b))).toEqual({ id: "b", side: "right" });
+    expect(dropTarget(rooms, "a", middle(c))).toEqual({ id: "c", side: "right" });
+    expect(dropTarget(rooms, "c", middle(a))).toEqual({ id: "a", side: "left" });
+    // 奥の壁（名札のあたり）でも、手前の床でも
+    expect(dropTarget(rooms, "c", { x: b.ox + 20, y: b.oy + 5 })?.id).toBe("b");
+    expect(dropTarget(rooms, "c", { x: b.ox + 20, y: b.oy + b.h - 1 })?.id).toBe("b");
+  });
+
+  test("across rows too", () => {
+    const rooms = floor([space("a"), space("b"), space("c")], 300);
+    expect(rooms[2].oy).toBe(2 * ROOM_H);
+    expect(dropTarget(rooms, "a", middle(rooms[2]))).toEqual({ id: "c", side: "right" });
+  });
+
+  test("nothing on its own room, the hallway, the empty room, or a room on another machine", () => {
+    const rooms = floor([space("a"), space("b"), space("m", { machine: "mini" })]);
+    const [a, , m, lot] = rooms;
+    expect(lot.newRoom).toBe(true);
+    expect(dropTarget(rooms, "a", middle(a))).toBeNull();
+    expect(dropTarget(rooms, "a", LIBRARY[0])).toBeNull();
+    expect(dropTarget(rooms, "a", middle(lot))).toBeNull();
+    expect(dropTarget(rooms, "a", middle(m))).toBeNull();
+    expect(dropTarget(rooms, "gone", middle(a))).toBeNull();
+  });
+
+  test("after the move, someone at their desk stays seated in the room where it went", () => {
+    const office = new Office(seeded(21));
+    const agents = [agent("t1", "a", "working"), agent("t2", "b", "working")];
+    const info = new Map(agents.map((a) => [a.address, { status: a.status, app: a.app }]));
+    const placed = (order) => layoutFloor(roomsOf(order, agents), 1000).rooms.filter((r) => !r.newRoom);
+    office.sync(placed([space("a"), space("b")]), info);
+    settle(office);
+    const moved = placed([space("b"), space("a")]); // b を先頭へ
+    office.sync(moved, info);
+    const c = office.chars.get("t2");
+    expect(c.seated).toBe(true);
+    expect(office.global(c)).toEqual({ x: moved[0].ox + moved[0].seats[0].cx, y: moved[0].oy + LANE_Y });
   });
 });
 

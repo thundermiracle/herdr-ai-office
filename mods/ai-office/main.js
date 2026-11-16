@@ -10,7 +10,7 @@ import {
 } from "herdr";
 import {
   SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, PART_END, Office, roomsOf, layoutFloor, drawables,
-  floorDrawables, running,
+  floorDrawables, running, roomAt, dropTarget,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
   TOKYO, WEATHER_MS, TRIAL_WEATHER, tokyoAt, tokyoClock, weatherOf, parseWeather, windowView, windowTip, parseSkyCommand,
 } from "./scene.js";
@@ -175,6 +175,7 @@ function liveWeather(now) {
 export default class AiOffice extends View {
   init(_props, cx) {
     this.office = new Office();
+    this.drag = null; // 部屋をドラッグしている間: { from: スペースの id, over: dropTarget の答えか null }
     this.width = 900; // on_size_change が来るまでの仮の幅（論理 px）
     this.last = Date.now();
     this.sig = "";
@@ -373,11 +374,18 @@ export default class AiOffice extends View {
     return image(`${IMG}/${d.over}.png`).absolute().left(0).top(0).size_full();
   }
 
-  // クリックできる絵。窓（mod.open）で開いたときに押した所から窓が動きださないよう、押下は止める
+  // ボタンの押下: 窓（mod.open）で開いたときに押した所から窓が動きださないよう止める。
+  // フロアには届かないので、取り残された部屋のドラッグ（窓の外で離したなど）もここで捨てる
+  hold(cx) {
+    this.drag = null;
+    cx.stop_propagation();
+  }
+
+  // クリックできる絵
   button(id, d, onClick, tip) {
     return div().id(id).absolute().left(px(d.x)).top(px(d.y)).w(px(d.w)).h(px(d.h)).cursor_pointer()
       .when(Boolean(d.glow), (el) => el.rounded(6).hover((s) => s.bg("#ffffff59"))) // 絵はほぼ透明なので後ろを明るくする
-      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_mouse_down("left", (_e, cx) => this.hold(cx))
       .on_click((_e, cx) => onClick(cx))
       .when(Boolean(tip), (el) => el.tooltip(tip))
       .child(image(`${IMG}/${d.img}.png`).size_full())
@@ -432,19 +440,23 @@ export default class AiOffice extends View {
 
   // 壁の名札（スペースの名前）。左の仕切りの右から、窓（広い部屋ではホワイトボード）の手前まで伸ばせる。
   // 左クリックでそのスペースを選び、herdr のスペースのメニュー（名前を変える・閉じる、git ならワークツリー）を出す。
-  // 右クリックはメニューだけ。閉じるときは herdr が確かめる（部屋のエージェントも終わる）
+  // 右クリックはメニューだけ。閉じるときは herdr が確かめる（部屋のエージェントも終わる）。
+  // 床と同じく、ほかの部屋へドラッグすると部屋の順番が変わる（名札の上で離せばクリック）
   plate(room) {
     const text = room.machine ? `${room.machine}: ${room.name}` : room.name;
     const right = room.w >= WIDE ? room.w - 116 : room.w - 76;
     const menu = () => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "space", target: { id: room.id } } });
     return div().id(`plate-${room.id}`).absolute().left(px(room.ox + 10)).top(px(room.oy + 5)).h(px(12)).max_w(px(right - 14))
-      .cursor_pointer().on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .cursor_pointer().on_mouse_down("left", (_e, cx) => {
+        this.drag = { from: room.id, over: null };
+        cx.stop_propagation();
+      })
       .on_click(() => {
         run("space.select", { id: room.id });
         menu();
       })
       .on_mouse_down("right", () => menu())
-      .tooltip("クリック: このスペースを選んで、メニュー（名前を変える・閉じる）")
+      .tooltip("クリック: このスペースを選んで、メニュー（名前を変える・閉じる）。ドラッグ: 部屋の順番を変える")
       .px(8).flex().items_center().rounded(3).border(2).border_color("#5b3a2c").bg(room.active ? "#c58a55" : "#a8774c")
       .text_size(12).font_semibold().text_color("#fff4dc").whitespace_nowrap().text_ellipsis().overflow_hidden()
       .child(text);
@@ -492,7 +504,7 @@ export default class AiOffice extends View {
   newRoom(lot) {
     return div().id("new-room").absolute().left(px(lot.ox + PART_W)).top(px(lot.oy + 36)).w(px(lot.w - PART_W)).h(px(lot.h - 36))
       .bg("#00000038").cursor_pointer().hover((s) => s.bg("#00000020"))
-      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
+      .on_mouse_down("left", (_e, cx) => this.hold(cx))
       .on_click((_e, cx) => cx.spawn(async () => {
         const folder = await pickFolder({ prompt: "この部屋にする" });
         if (folder) run("space.new", { folder });
@@ -503,7 +515,64 @@ export default class AiOffice extends View {
         .text_size(11).text_color("#fff4dcdd").child("+ 部屋"));
   }
 
-  // 1 枚のフロア: 部屋の床と廊下の床、資料室の奥の壁、各部屋の後ろのもの、描くもの、選んでいる部屋の枠、外枠
+  // ---- 部屋をドラッグして順番を変える（herdr のスペースの順番。左のスペースの一覧と同じ space.move） ----
+  // 座標はフロアの左上からの論理 px（e.local_position）。部屋の中のボタンを押したときはフロアに届かない
+
+  // フロアの点（論理 px）→ 絵の座標
+  floorPoint(p) {
+    return { x: p.x / SCALE, y: p.y / SCALE };
+  }
+
+  // 押した所が部屋なら、その部屋を持つ。窓（mod.open）で開いたときに窓ごと動かないよう、部屋の上の押下は止める
+  // （窓を動かすのは、上の帯と廊下）
+  grab(e, floor, cx) {
+    const room = e.local_position ? roomAt(floor.rooms, this.floorPoint(e.local_position)) : null;
+    this.drag = room ? { from: room.id, over: null } : null;
+    if (room) cx.stop_propagation();
+  }
+
+  // 持ったまま動かす: 落とす先が変わったときだけ描き直す
+  dragOver(e, floor, cx) {
+    if (!this.drag) return;
+    const over = dropTarget(floor.rooms, this.drag.from, this.floorPoint(e.local_position));
+    if (over?.id !== this.drag.over?.id) {
+      this.drag.over = over;
+      cx.notify();
+    }
+  }
+
+  // 離した: ほかの部屋の上なら、その部屋の位置へ動かす（位置は今の spaces() で数える）
+  drop(cx) {
+    const { from, over } = this.drag ?? {};
+    this.drag = null;
+    if (!over) return;
+    const index = spaces().findIndex((s) => s.id === over.id);
+    if (index !== -1) run("space.move", { id: from, index: index + 1 });
+    cx.notify();
+  }
+
+  // フロアの外へ出た: 落とす先を消す（そこで離しても動かさない。戻れば続きから）
+  leave(cx) {
+    if (!this.drag?.over) return;
+    this.drag.over = null;
+    cx.notify();
+  }
+
+  // ドラッグ中の印: 持っている部屋を暗くし、落とす先の部屋の入る側に縦の線
+  dragMarks(floor, t) {
+    const over = this.drag?.over;
+    const source = over && floor.rooms.find((r) => r.id === this.drag.from);
+    const target = over && floor.rooms.find((r) => r.id === over.id);
+    if (!source || !target) return [];
+    return [
+      div().absolute().left(px(source.ox)).top(px(source.oy)).w(px(source.w)).h(px(source.h)).bg("#00000047"),
+      div().absolute().left(px(over.side === "right" ? target.ox + target.w - 2 : target.ox)).top(px(target.oy))
+        .w(px(2)).h(px(target.h)).bg(t.accent),
+    ];
+  }
+
+  // 1 枚のフロア: 部屋の床と廊下の床、資料室の奥の壁、各部屋の後ろのもの、描くもの、選んでいる部屋の枠、
+  // ドラッグ中の印、外枠
   building(floor, items, t, view) {
     const floorTiles = [];
     for (let y = 0; y < floor.h; y += FLOOR_H) {
@@ -516,7 +585,12 @@ export default class AiOffice extends View {
       hallTiles.push(image(`${IMG}/hall.png`).absolute().left(0).top(px(y)).w(px(HALL_TEX.w)).h(px(HALL_TEX.h)));
     }
     const active = floor.rooms.find((r) => r.active);
-    return div().relative().w(px(floor.w)).h(px(floor.h)).overflow_hidden().rounded(4)
+    return div().id("floor").relative().w(px(floor.w)).h(px(floor.h)).overflow_hidden().rounded(4)
+      .when(Boolean(this.drag?.over), (el) => el.cursor_grabbing())
+      .on_mouse_down("left", (e, cx) => this.grab(e, floor, cx))
+      .on_mouse_move((e, cx) => this.dragOver(e, floor, cx))
+      .on_mouse_up("left", (_e, cx) => this.drop(cx))
+      .on_hover((hovered, cx) => { if (!hovered) this.leave(cx); })
       .children(floorTiles)
       .child(div().absolute().left(0).top(0).w(px(HALL_W)).h(px(floor.h)).overflow_hidden().children(hallTiles))
       .child(this.wall(0, 0, HALL_W))
@@ -525,6 +599,7 @@ export default class AiOffice extends View {
       .children(items.map((d) => this.item(d)))
       .when(Boolean(active), (el) => el.child(div().absolute().left(px(active.ox)).top(px(active.oy))
         .w(px(active.w)).h(px(active.h)).border(2).border_color(t.accent)))
+      .children(this.dragMarks(floor, t))
       .child(div().absolute().left(0).top(0).size_full().rounded(4).border(2).border_color("#1d1f26"));
   }
 
@@ -534,6 +609,10 @@ export default class AiOffice extends View {
     const counts = { working: 0, blocked: 0, done: 0, idle: 0 };
     for (const a of info.values()) counts[a.status] = (counts[a.status] ?? 0) + 1;
     return v_flex().id("root").size_full().bg(t.canvas).text_color(t.foreground)
+      .on_mouse_up("left", (_e, cx) => { // フロアの外（上の帯など）で離した: 部屋のドラッグをやめる
+        this.leave(cx);
+        this.drag = null;
+      })
       .on_size_change((size, cx) => {
         if (Math.abs(size.width - this.width) >= 1) {
           this.width = size.width;
