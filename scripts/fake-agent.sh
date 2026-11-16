@@ -1,6 +1,6 @@
 #!/bin/sh
 # テスト用の偽エージェント。AI は使わず、herdr-core に状態（OSC 7501）を報告するだけ。
-# 使い方: fake-agent.sh [working|read|skill:<名前>|skills:<名前>|talks:<タブ>[:<秒>]|blocked|ask|done|idle|cycle] [app]
+# 使い方: fake-agent.sh [working|read|skill:<名前>|skills:<名前>|talks:<タブ>[:<秒>]|plan:<ファイル>|blocked|ask|done|idle|cycle] [app]
 #   read:  working と報告して、ターミナルに office.act=read のラベルを付ける（オフィスでは本棚へ行く）
 #   skill:<名前>: read に加えて office.skill=<名前>（本棚でその skill の本を読み、名前の札が出る）
 #   skills:<名前>: working（タイピング）のまま、20 秒ごとにその skill を使う（office.skill_at を変える。
@@ -9,6 +9,8 @@
 #                  始まる名前）の中のその名前のタブのエージェントへ（ほかのスペースの本物のエージェントには送らない）
 #                  hc send で話しかける。フック（hooks/claude-office-act.sh）が書くのと同じラベル（office.talk・office.talk_at・
 #                  office.talk_text）を先に書くので、オフィスでは相手のところへ行って話し、戻ってくる
+#   plan:<ファイル>: working（タイピング）のまま、office.plan=<ファイル>（フックがプランモードのプランで書くのと同じラベル。
+#                  オフィスでは部屋の壁にプランのホワイトボードが掛かり、クリックでそのファイルをマークダウンで出す）
 #   ask:   質問（選択肢の画面を出して、答えを受け取る。scripts/fake-question.py）、blocked: 許可待ち
 #   cycle: working → skill:herdr → read → ask → done → idle を 8 秒ずつ繰り返す
 #   app:   報告するエージェントの名前（オフィスの服の色: claude を含むと橙、codex を含むと青緑）
@@ -32,7 +34,7 @@ show() {
     working) labels ""; report working ;;
     read) labels read; report working ;;
     skill:*) labels read "${1#skill:}"; report working ;;
-    skills:* | talks:*) labels ""; report working ;;
+    skills:* | talks:* | plan:*) labels ""; report working ;;
     blocked) labels ""; report blocked ":kind=permission" ;;
     ask) labels ""; report blocked ":kind=question" ;;
     done) labels ""; report done ;;
@@ -53,6 +55,9 @@ if [ "$mode" = cycle ]; then
 fi
 show "$mode"
 case "$mode" in
+  plan:*)
+    [ -n "${HC_TERMINAL_ID:-}" ] && hc label "$HC_TERMINAL_ID" "office.plan=${mode#plan:}" >/dev/null 2>&1
+    ;;
   skills:*)
     n=0
     while :; do

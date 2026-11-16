@@ -1,0 +1,9 @@
+{
+  "place": "none",
+  "title": "AI Office: プラン",
+  "overlay": {
+    "kind": "dialog",
+    "width": 0.65,
+    "height": 0.8
+  }
+}

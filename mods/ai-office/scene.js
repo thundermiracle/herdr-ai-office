@@ -36,6 +36,7 @@ export const HALL_W = 44; // 左の廊下の幅
 // 資料室（廊下の一番上）で本を読む場所（フロア全体の座標）。本棚の前から、読む人が増えると順に並ぶ
 export const LIBRARY = [{ x: 22, y: 66 }, { x: 12, y: 78 }, { x: 32, y: 78 }, { x: 22, y: 90 }];
 export const NEW_ROOM_W = 72; // 空き部屋（クリックで新しい部屋）
+export const PLAN_ROOM_W = 200; // プランのホワイトボードを掛ける部屋の幅の下限（名札・ホワイトボード・窓・時計が並ぶ）
 
 export function hash(text) {
   let h = 0x811c9dc5;
@@ -211,10 +212,14 @@ export function behaviorOf(status, act) {
   return "wander";
 }
 
-/** 1 つのスペースの部屋。席はエージェントの数 + 1（最後の 1 つは空席で、クリックで雇う）。 */
-export function roomOf(space, agentsHere) {
+/**
+ * 1 つのスペースの部屋。席はエージェントの数 + 1（最後の 1 つは空席で、クリックで雇う）。
+ * plans: address → プランのファイル（フックが書く office.plan）。プランのある人がいれば、部屋の壁にホワイトボードを掛ける
+ */
+export function roomOf(space, agentsHere, plans = new Map()) {
   const count = agentsHere.length + 1;
   const deskEnd = DESK_X + DESK_END * 2 + count * SEAT_W;
+  const roomPlans = agentsHere.filter((a) => plans.get(a.address)).map((a) => ({ address: a.address, path: plans.get(a.address) }));
   return {
     id: space.id,
     name: space.name,
@@ -222,9 +227,10 @@ export function roomOf(space, agentsHere) {
     machine: space.machine ?? null,
     folder: space.folder ?? "",
     status: space.status ?? null,
-    w: Math.max(MIN_ROOM_W, deskEnd + 30),
+    w: Math.max(MIN_ROOM_W, deskEnd + 30, roomPlans.length ? PLAN_ROOM_W : 0),
     h: ROOM_H,
     deskEnd,
+    plans: roomPlans,
     rightPass: deskEnd + 10,
     seats: Array.from({ length: count }, (_, i) => {
       const segX = DESK_X + DESK_END + i * SEAT_W;
@@ -233,9 +239,9 @@ export function roomOf(space, agentsHere) {
   };
 }
 
-/** スペースごとに部屋を作る。agents は herdr の agents()（スペース・タブ・ペインの順）。 */
-export function roomsOf(spaces, agents) {
-  return spaces.map((s) => roomOf(s, agents.filter((a) => a.space === s.id)));
+/** スペースごとに部屋を作る。agents は herdr の agents()（スペース・タブ・ペインの順）。plans は roomOf と同じ。 */
+export function roomsOf(spaces, agents, plans = new Map()) {
+  return spaces.map((s) => roomOf(s, agents.filter((a) => a.space === s.id), plans));
 }
 
 /**

@@ -681,6 +681,31 @@ def whiteboard():
     return s.outline()
 
 
+def whiteboard_plan():
+    """プランのホワイトボード（whiteboard と同じ大きさ）: 橙の見出しと、チェックボックスの行（上は済み）、赤いマグネット"""
+    s = Sprite(30, 18)
+    for y in range(18):
+        for x in range(30):
+            s.put(x, y, "q" if x in (0, 29) or y in (0, 15) else "a")
+    for x in range(4, 19):  # 見出し
+        s.put(x, 2, "t")
+        s.put(x, 3, "t")
+    for x in (25, 26):  # マグネット
+        s.put(x, 2, "j")
+        s.put(x, 3, "j")
+    for y, done, length in ((7, True, 16), (11, False, 12)):
+        for dx in range(3):
+            for dy in range(3):
+                s.put(4 + dx, y - 1 + dy, "n" if dx != 1 or dy != 1 else "J" if done else "a")
+        for x in range(9, 9 + length):
+            s.put(x, y, "U")
+    for x in range(3, 27):  # ペン置き
+        s.put(x, 16, "n")
+    s.put(20, 15, "U")
+    s.put(21, 15, "U")
+    return s.outline()
+
+
 def floor_texture(w_tiles=32, h_tiles=10):
     """床（木の板）。板は高さ 8、長さ 32 で、段ごとに継ぎ目をずらす。"""
     W, H = w_tiles * 16, h_tiles * 16
@@ -987,6 +1012,7 @@ def main():
         "clock-face": Sprite(13, 13).blit(CLOCK_FACE, 0, 0),
         "door": Sprite(16, 20).blit(DOOR, 0, 0).outline(),
         "bookshelf": bookshelf(), "bookshelf-empty": bookshelf(books=False), "whiteboard": whiteboard(),
+        "whiteboard-plan": whiteboard_plan(),
         "bubble-alert": bubble("alert"), "bubble-ask": bubble("ask"), "bubble-done": bubble("done"),
         "bubble-talk": bubble("talk"),
     }
@@ -1046,7 +1072,7 @@ def preview(p, furniture):
         x += 20
     x = 4
     free_chair = furniture["chair"].image(pal({"x": "#5fbf8a", "X": "#3f9a6a", "z": "#9fe6bd"}))
-    for name in ("bookshelf", "whiteboard", "window", "door", "plant", "chair", "chair-free", "laptop", "hire-sign",
+    for name in ("bookshelf", "whiteboard", "whiteboard-plan", "window", "door", "plant", "chair", "chair-free", "laptop", "hire-sign",
                  "clock-face", "bubble-alert", "bubble-ask", "bubble-done", "bubble-talk"):
         im = free_chair if name == "chair-free" else window_view("day", "clear") if name == "window" else furniture[name].image(p)
         sheet.alpha_composite(im, (x, 62))

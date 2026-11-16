@@ -4,7 +4,8 @@
 #   office-test: タイピング（opus・max で炎）・完了（✓、fable）・作業中に 20 秒ごとに herdr の skill を使い、資料室へ取りに行く（haiku）・
 #   質問（?、Codex。3 問を続けて聞き、最後に答えの確認）・うろうろ（タブ idle、sonnet）・全部を順に（cycle、ほかの AI）・
 #   30 秒ごとに office-test-2 の reviewer へ hc send で話しかけに行く（talks、Codex）の 7 人。
-#   office-test-2: 30 秒ごとに office-test の idle へ話しかけに行く（lead、opus）・タイピング（タブ reviewer、sonnet）・
+#   office-test-2: 30 秒ごとに office-test の idle へ話しかけに行く（lead、opus）・プランを書いてタイピング（タブ reviewer、sonnet。
+#   壁にプランのホワイトボード、中身は scripts/sample-plan.md）・
 #   30 秒ごとに同じ部屋の reviewer へ話しかけに行く（タブ designer、haiku）の 3 人。
 #   質問や完了を報告するので、herdr-app の通知音とトーストが出る（cycle は 40 秒ごとに質問する）。
 # herdr-app は作ったスペースとタブをすぐ見せるので、start の間（1〜2 秒）は画面が見本へ動き、その間に打ったキーは見本の
@@ -67,7 +68,7 @@ TABS
     sp2=$(herdr-app do space.new --name "$name2" --folder "$repo" \
       --argv "$(argv talks:idle:8 fake-claude --model claude-opus-5-5 --effort high)" | jq -r .space)
     herdr-app do tab.new --space "$sp2" --name reviewer \
-      --argv "$(argv working fake-claude --model claude-sonnet-5-5 --effort medium)" >/dev/null
+      --argv "$(argv "plan:$repo/scripts/sample-plan.md" fake-claude --model claude-sonnet-5-5 --effort medium)" >/dev/null
     herdr-app do tab.new --space "$sp2" --name designer \
       --argv "$(argv talks:reviewer:4 fake-claude --model claude-haiku-5-5 --effort low)" >/dev/null
     echo "「${name}」（${sp}）と「${name2}」（${sp2}）を作りました"

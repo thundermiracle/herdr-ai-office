@@ -105,5 +105,33 @@ talk_check "plain Bash is not a talk" "$(bash_cmd 'git status')" talk "" ""
 talk_check "<hc from> prompt -> heard" "$(prompt '<hc from="t6m office-test-a" reach="hc send t6m when done">please review x.rs</hc>')" heard t6m "please review x.rs"
 check "the <hc from> prompt clears act" "" "" "$(prompt '<hc from="t6m office-test-a">again</hc>')"
 
+# プラン: プランモードで書く .md と ~/.claude/plans/ の .md、ExitPlanMode の planFilePath は office.plan。
+# ほかのツールや Stop では残り、SessionEnd で消える
+# plan_check <説明> <JSON> <期待する office.plan>
+plan_check() {
+  local name=$1 json=$2 want=$3 start end ok=yes
+  start=$(now)
+  printf '%s' "$json" | HC_TERMINAL_ID="$term" TMPDIR="$tmp" sh -c "$hook" >"$tmp/out" 2>&1
+  end=$(now)
+  sleep 0.4
+  [ "$(label office.plan)" = "$want" ] && [ ! -s "$tmp/out" ] && [ $((end - start)) -lt 300 ] || ok=no
+  [ "$ok" = yes ] || fails=$((fails + 1))
+  printf '%-4s %-40s plan=%-34s %4sms\n' "$ok" "$name" "'$(label office.plan)'" $((end - start))
+}
+# write <ツール> <file_path> [JSON に足すフィールド]（後ろに足した permission_mode が勝つ）
+write() { pre "$1" "${3:-}" "$(jq -cn --arg f "$2" '{file_path: $f, content: "x"}')"; }
+in_plan=',"permission_mode":"plan"'
+
+plan_check "Write .md outside plan mode: no plan" "$(write Write /repo/notes.md)" ""
+plan_check "Write a non-.md in plan mode: no plan" "$(write Write /repo/x.txt "$in_plan")" ""
+plan_check "Write .md in plan mode -> plan" "$(write Write /repo/docs/plans/p1.md "$in_plan")" /repo/docs/plans/p1.md
+plan_check "Read keeps the plan" "$(pre Read)" /repo/docs/plans/p1.md
+plan_check "Stop keeps the plan" "$(event Stop)" /repo/docs/plans/p1.md
+plan_check "Edit under ~/.claude/plans -> plan" "$(write Edit /u/.claude/plans/quiet-fox.md)" /u/.claude/plans/quiet-fox.md
+plan_check "ExitPlanMode planFilePath -> plan" "$(pre ExitPlanMode '' '{"plan":"# P","planFilePath":"/u/.claude/plans/b.md"}')" \
+  /u/.claude/plans/b.md
+plan_check "sub-agent plan write is ignored" "$(write Write /repo/sub.md "$in_plan,\"agent_id\":\"a1\"")" /u/.claude/plans/b.md
+plan_check "SessionEnd clears the plan" "$(event SessionEnd)" ""
+
 echo "fails: $fails"
 [ "$fails" -eq 0 ]

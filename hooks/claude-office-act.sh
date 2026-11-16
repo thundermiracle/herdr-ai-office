@@ -8,13 +8,17 @@
 #                    AI Office は、話しかけた人を相手のところへ行かせて話させる
 #   office.heard / office.heard_at / office.heard_text: hc send で話しかけられた（送った人のアドレス・出来事の値・文の始め）。
 #                    送った人にフックがない（Codex など）ときも、AI Office は送った人を行かせる
+#   office.plan: プランのファイル（Claude Code のプランモードで書く ~/.claude/plans/<名前>.md。設定 plansDirectory なら
+#                そこ）。AI Office は、その部屋の壁にプランのホワイトボードを掛け、クリックで中身を出す。セッションの終わりまで残す
 # イベントごとに:
 #   PreToolUse: Skill → read と、その skill。Read / Grep / Glob / LS / WebSearch / WebFetch / NotebookRead → read、
 #               Edit / Write / MultiEdit / NotebookEdit → edit、Bash → run（コマンドに hc send があれば話しかけ）、
-#               ほかのツール → act を消す（skill はそのまま）
+#               ほかのツール → act を消す（skill はそのまま）。
+#               プランモードで書く .md（プランモードで書けるのはプランのファイルだけ）と、~/.claude/plans/ の .md を書く
+#               Edit / Write / MultiEdit、ExitPlanMode の planFilePath → プラン
 #   UserPromptSubmit: hc から届いた `<hc from="t3 名前">文</hc>` は話しかけられた出来事。/名前 で始まる依頼は、
 #               その skill を読む（read と skill）。ほかの依頼は act と skill を消す
-#   Stop / SessionEnd: act と skill を消す
+#   Stop: act と skill を消す。SessionEnd（終了・/clear）: act と skill とプランを消す
 # herdr-app のターミナルの中（HC_TERMINAL_ID がある）だけで動く。サブエージェント（agent_id がある）は無視する。
 # PreToolUse はフックが終わるまでツールを待たせるので、hc は裏で走らせ、入出力をすべて閉じる
 # （閉じないと、hc が終わるまでフックが終わらない）。何も出力しない（出力は Claude Code への返事になる）。
@@ -56,6 +60,8 @@ esac
 event= # skill を使った出来事なら、その値（office.skill_at）
 talk=  # 話しかけた（相手<TAB>文）
 heard= # 話しかけられた（送った人<TAB>文）
+plan=  # プランのファイル（office.plan）
+ended= # セッションが終わった（プランも消す）
 case "$(field .hook_event_name)" in
   PreToolUse)
     case "$(field .tool_name)" in
@@ -65,7 +71,23 @@ case "$(field .hook_event_name)" in
         event="$(date +%s)-$$"
         ;;
       Read | Grep | Glob | LS | WebSearch | WebFetch | NotebookRead) act=read ;;
-      Edit | Write | MultiEdit | NotebookEdit) act=edit ;;
+      Edit | Write | MultiEdit | NotebookEdit)
+        act=edit
+        file=$(field .tool_input.file_path)
+        case "$file" in
+          *.md)
+            if [ "$(field .permission_mode)" = plan ]; then
+              plan=$file
+            else
+              case "$file" in */.claude/plans/*) plan=$file ;; esac
+            fi
+            ;;
+        esac
+        ;;
+      ExitPlanMode)
+        act=
+        plan=$(field .tool_input.planFilePath)
+        ;;
       Bash)
         act=run
         cmd=$(field .tool_input.command)
@@ -89,15 +111,20 @@ case "$(field .hook_event_name)" in
       *"<hc from="*) heard=$(printf '%s' "$prompt" | jq -Rrs "$HEARD_JQ" 2>/dev/null) ;;
     esac
     ;;
-  Stop | SessionEnd)
+  Stop)
     act=
     skill=
+    ;;
+  SessionEnd)
+    act=
+    skill=
+    ended=1
     ;;
   *) exit 0 ;;
 esac
 
 next="$act|$skill"
-if [ -z "$event$talk$heard" ] && [ -f "$memo" ] && [ "$prev" = "$next" ]; then
+if [ -z "$event$talk$heard$plan$ended" ] && [ -f "$memo" ] && [ "$prev" = "$next" ]; then
   exit 0 # 同じ値で、出来事でもない
 fi
 printf '%s' "$next" >"$memo"
@@ -109,5 +136,7 @@ fi
 if [ -n "$heard" ]; then
   set -- "$@" "office.heard=${heard%%"$tab"*}" "office.heard_at=$(date +%s)-$$" "office.heard_text=${heard#*"$tab"}"
 fi
+[ -n "$plan" ] && set -- "$@" "office.plan=$plan"
+[ -n "$ended" ] && set -- "$@" "office.plan="
 hc label "$HC_TERMINAL_ID" "$@" </dev/null >/dev/null 2>&1 &
 exit 0

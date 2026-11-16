@@ -62,6 +62,7 @@ function gather(meta, codexDefaults) {
       heard: t?.labels?.["office.heard"] || null,
       heardAt: t?.labels?.["office.heard_at"] || null,
       heardText: t?.labels?.["office.heard_text"] || null,
+      plan: t?.labels?.["office.plan"] || null, // フックが付ける（プランモードで書いたプランのファイル。セッションの終わりまで）
       tname: t?.name ?? null, // hc の名前（hc run --name）。hc send の相手はアドレスか、この名前
       tab: a.tab_name,
       name: a.program?.name ?? a.app ?? "agent",
@@ -69,7 +70,8 @@ function gather(meta, codexDefaults) {
     }];
   }));
   const ps = panes();
-  return { rooms: roomsOf(spaces().map((s) => ({ ...s, folder: placeOf(s, ps) })), ag), info };
+  const plans = new Map([...info].filter(([, a]) => a.plan).map(([address, a]) => [address, a.plan]));
+  return { rooms: roomsOf(spaces().map((s) => ({ ...s, folder: placeOf(s, ps) })), ag, plans), info };
 }
 
 // レイアウトの根から id のブロックまでの道（見つからなければ null）
@@ -351,7 +353,8 @@ export default class AiOffice extends View {
       // 描く絵（名前と位置）が前のコマと同じなら描き直さない。時計の針・窓の外（雨のコマも）・ツールチップの
       // 東京の時刻（1 分ごと）が変わったときも描き直す
       const { h, m } = clockHands(new Date());
-      const sig = `${h}:${m}|${this.view().key}|${tokyoClock(now).text}|` + this.items(placed)
+      const plans = placed.map((r) => r.plans.map((p) => p.path).join(",")).join("/"); // 壁のホワイトボード（items にない）
+      const sig = `${h}:${m}|${this.view().key}|${tokyoClock(now).text}|${plans}|` + this.items(placed)
         .map((d) => `${d.img ?? d.text}+${d.over}+${d.books?.length ?? ""}@${d.x},${d.y}`).join(";");
       if (sig !== this.sig) {
         this.sig = sig;
@@ -393,7 +396,8 @@ export default class AiOffice extends View {
       .when(Boolean(d.books), (el) => el.children(d.books.map((b) => this.book(b))));
   }
 
-  // scene.js の click: { type: "focus", terminal } / { type: "hire", space, machine } / { type: "skills" }
+  // scene.js の click: { type: "focus", terminal } / { type: "hire", space, machine } / { type: "skills" }。
+  // 壁のプランのホワイトボード: { type: "plan", room, plans: [{ path, who }] }
   act(click) {
     if (click.type === "focus") run("agent.focus", { terminal: click.terminal });
     if (click.type === "skills") {
@@ -406,6 +410,10 @@ export default class AiOffice extends View {
     }
     if (click.type === "ask") {
       openOverlay({ mod: "ai-office-ask", kind: "popup", width: 440, height: 520, props: { terminal: click.terminal, name: click.name } });
+    }
+    if (click.type === "plan") {
+      // プランは長い行（コードや表）が多いので、skill の中身より広く、窓の幅に合わせる
+      openOverlay({ mod: "ai-office-plan", kind: "dialog", width: 0.65, height: 0.8, props: { room: click.room, plans: click.plans } });
     }
     if (click.type === "hire") {
       openOverlay({ mod: "ai-office-hire", kind: "popup", width: 240, height: 320, props: { space: click.space, machine: click.machine } });
@@ -444,7 +452,7 @@ export default class AiOffice extends View {
   // 床と同じく、ほかの部屋へドラッグすると部屋の順番が変わる（名札の上で離せばクリック）
   plate(room) {
     const text = room.machine ? `${room.machine}: ${room.name}` : room.name;
-    const right = room.w >= WIDE ? room.w - 116 : room.w - 76;
+    const right = room.w >= WIDE || room.plans.length ? room.w - 116 : room.w - 76;
     const menu = () => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "space", target: { id: room.id } } });
     return div().id(`plate-${room.id}`).absolute().left(px(room.ox + 10)).top(px(room.oy + 5)).h(px(12)).max_w(px(right - 14))
       .cursor_pointer().on_mouse_down("left", (_e, cx) => {
@@ -485,6 +493,17 @@ export default class AiOffice extends View {
       .children(view.layers.map((img) => image(`${IMG}/${img}.png`).absolute().left(0).top(0).size_full()));
   }
 
+  // プランのホワイトボード（部屋の誰かがプランを書いた）。広い部屋の飾りのホワイトボードと同じ所に掛け、クリックでプランの中身
+  planBoard(room) {
+    const plans = room.plans.map((p) => {
+      const a = this.office.chars.get(p.address)?.info ?? {};
+      return { path: p.path, who: [a.name, a.tab].filter(Boolean).join(" · ") || p.address };
+    });
+    const d = { img: "whiteboard-plan", x: room.ox + room.w - 112, y: room.oy + 7, w: 30, h: 18, glow: true };
+    const tip = `プラン: ${plans.map((p) => p.who).join("、")}（クリックで見る）`;
+    return this.button(`plan-${room.id}`, d, () => this.act({ type: "plan", room: room.name, plans }), tip);
+  }
+
   // 部屋の後ろのもの: 奥の壁、左の仕切り、壁の飾り（ホワイトボード・窓・時計）と名札
   roomBack(room, view) {
     const { ox, oy, w } = room;
@@ -492,7 +511,8 @@ export default class AiOffice extends View {
       this.wall(ox, oy, w),
       this.partition(ox, oy),
       ...(room.newRoom ? [] : [
-        ...(w >= WIDE ? [this.sprite({ img: "whiteboard", x: ox + w - 112, y: oy + 7, w: 30, h: 18 })] : []),
+        ...(room.plans.length ? [this.planBoard(room)]
+          : w >= WIDE ? [this.sprite({ img: "whiteboard", x: ox + w - 112, y: oy + 7, w: 30, h: 18 })] : []),
         this.sky(ox + w - 72, oy + 6, view, `window-${room.id}`),
         ...this.clock(ox + w - 33, oy + 8),
         this.plate(room),

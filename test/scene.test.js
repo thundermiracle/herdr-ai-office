@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-  BACK, CORRIDOR_Y, DESK_X, ERRAND_READ_MS, HALL_W, LANE_Y, LEFT_PASS, LIBRARY, MIN_ROOM_W, PART_END, PART_W, ROOM_H, SEAT_W,
+  BACK, CORRIDOR_Y, DESK_X, ERRAND_READ_MS, HALL_W, LANE_Y, LEFT_PASS, LIBRARY, MIN_ROOM_W, PART_END, PART_W, PLAN_ROOM_W, ROOM_H, SEAT_W,
   TALK_DEDUP_MS, TALK_MS, TALK_TURN_MS, WALL_H, Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride,
   drawables, dropTarget, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
@@ -105,6 +105,20 @@ describe("rooms", () => {
     expect(four.deskEnd - one.deskEnd).toBe(3 * SEAT_W);
     expect(one.w).toBe(MIN_ROOM_W);
     expect(roomOf(space("c"), Array.from({ length: 8 }, (_, i) => agent(`t${i}`, "c"))).w).toBeGreaterThan(MIN_ROOM_W);
+  });
+
+  test("a room with someone's plan gets the plan whiteboard, and is wide enough for it", () => {
+    const agents = [agent("t1", "a"), agent("t2", "a"), agent("t3", "b")];
+    const plans = new Map([["t2", "/u/.claude/plans/quiet-fox.md"]]);
+    const [a, b] = roomsOf([space("a"), space("b")], agents, plans);
+    expect(a.plans).toEqual([{ address: "t2", path: "/u/.claude/plans/quiet-fox.md" }]);
+    expect(a.w).toBe(PLAN_ROOM_W);
+    expect(b.plans).toEqual([]);
+    expect(b.w).toBe(MIN_ROOM_W);
+    // 机が長くてもともと広い部屋は、そのまま
+    const many = Array.from({ length: 8 }, (_, i) => agent(`t${i}`, "c"));
+    const wide = roomOf(space("c"), many);
+    expect(roomOf(space("c"), many, new Map([["t0", "/p.md"]])).w).toBe(wide.w);
   });
 
   test("agents go to their own space's room", () => {
