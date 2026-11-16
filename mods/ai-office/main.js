@@ -9,8 +9,8 @@ import {
   shared, nextCommand,
 } from "herdr";
 import {
-  SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, PART_END, Office, roomsOf, layoutFloor, drawables,
-  floorDrawables, running, roomAt, dropTarget,
+  SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, layoutFloor, drawables,
+  floorDrawables, running, roomAt, dropTarget, THEMES, useTheme, geometry,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
   TOKYO, WEATHER_MS, TRIAL_WEATHER, tokyoAt, tokyoClock, weatherOf, parseWeather, windowView, windowTip, parseSkyCommand,
 } from "./scene.js";
@@ -20,6 +20,8 @@ const px = (v) => v * SCALE;
 const FLOOR_W = 512; // floor.png / wall.png の幅（art px）
 const FLOOR_H = 160; // floor.png の高さ
 const HALL_TEX = { w: 48, h: 560 }; // hall.png（廊下の床）の大きさ
+const CORRIDOR_TEX = { w: 512, h: 16 }; // corridor.png（modern の横の廊下の床）の大きさ
+const THEME_NAMES = { modern: "モダン", classic: "クラシック" };
 const MARGIN = 6; // フロアのまわりの余白
 const WIDE = 260; // これ以上の幅の部屋にはホワイトボードも掛ける
 const META_MS = 10000; // model と effort を読み直す間隔
@@ -176,6 +178,7 @@ function liveWeather(now) {
 
 export default class AiOffice extends View {
   init(_props, cx) {
+    this.theme = useTheme(shared("ai-office.theme"));
     this.office = new Office();
     this.drag = null; // 部屋をドラッグしている間: { from: スペースの id, over: dropTarget の答えか null }
     this.width = 900; // on_size_change が来るまでの仮の幅（論理 px）
@@ -282,8 +285,15 @@ export default class AiOffice extends View {
     }));
   }
 
-  // 今のフロア: 部屋の並び（フロア全体の位置 ox, oy 付き）。キャラもこの並びに合わせる
+  // 今のフロア: 部屋の並び（フロア全体の位置 ox, oy 付き）。キャラもこの並びに合わせる。
+  // テーマ（shared の ai-office.theme。どのコピーで替えても）が変わったら、寸法を差し替えて、キャラを席から置き直す
   floorNow() {
+    const want = THEMES[shared("ai-office.theme")] ? shared("ai-office.theme") : "modern";
+    if (want !== this.theme) {
+      this.theme = useTheme(want);
+      this.office = new Office();
+      this.sig = "";
+    }
     const { rooms, info } = gather(this.meta, this.codexDefaults);
     const floor = layoutFloor(rooms, this.width / SCALE - 2 * MARGIN);
     const placed = floor.rooms.filter((r) => !r.newRoom);
@@ -423,7 +433,15 @@ export default class AiOffice extends View {
 
   item(d) {
     if (d.text !== undefined) return this.tag(d);
+    if (d.tile) return this.tiled(d);
     return d.click ? this.button(d.id, d, () => this.act(d.click), d.tip) : this.sprite(d);
+  }
+
+  // 幅 tile の絵を、w の幅まで横に並べる（はみ出した分は切る。modern のガラスの壁）
+  tiled(d) {
+    const tiles = [];
+    for (let dx = 0; dx < d.w; dx += d.tile) tiles.push(image(`${IMG}/${d.img}.png`).absolute().left(px(dx)).top(0).w(px(d.tile)).h(px(d.h)));
+    return this.box(d).overflow_hidden().children(tiles);
   }
 
   // 本棚の本 1 冊（左の 1 列は本の色、右の 1 列は影。上から 2 ドット目に帯）
@@ -471,20 +489,48 @@ export default class AiOffice extends View {
       .child(text);
   }
 
-  // 奥の壁（wall.png を横に並べ、幅で切る）
+  // 奥の壁（wall.png を横に並べ、幅で切る）。modern は低い壁（wall-30.png、高さ 30）
   wall(x, y, w) {
+    const { WALL_H } = geometry();
+    const img = WALL_H === 36 ? "wall" : `wall-${WALL_H}`;
     const tiles = [];
-    for (let dx = 0; dx < w; dx += FLOOR_W) tiles.push(image(`${IMG}/wall.png`).absolute().left(px(dx)).top(0).w(px(FLOOR_W)).h(px(36)));
-    return div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(36)).overflow_hidden().children(tiles);
+    for (let dx = 0; dx < w; dx += FLOOR_W) tiles.push(image(`${IMG}/${img}.png`).absolute().left(px(dx)).top(0).w(px(FLOOR_W)).h(px(WALL_H)));
+    return div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(WALL_H)).overflow_hidden().children(tiles);
   }
 
-  // 部屋の左の仕切り（奥から PART_END まで。上から見た壁の天端と、手前の端の面）
+  // 部屋の左の仕切り（奥から PART_END まで。上から見た壁の天端と、手前の端の面）。modern では隣の部屋との間の壁
   partition(x, y) {
-    return div().absolute().left(px(x)).top(px(y)).w(px(PART_W)).h(px(PART_END)).bg("#e3cfa6")
+    return div().absolute().left(px(x)).top(px(y)).w(px(PART_W)).h(px(geometry().PART_END)).bg("#e3cfa6")
       .child(div().absolute().left(0).top(0).w(px(1)).h_full().bg("#8a6040"))
       .child(div().absolute().right(0).top(0).w(px(1)).h_full().bg("#8a6040"))
       .child(div().absolute().left(0).bottom(0).w_full().h(px(6)).bg("#b07a4c"))
       .child(div().absolute().left(0).bottom(0).w_full().h(px(1)).bg("#5b3a2c"));
+  }
+
+  // modern の列のいちばん左の部屋の、左の縦の廊下に面したガラスの壁（上から見た天端: 濃い枠に挟まれた水色と、光の点）。
+  // 奥の壁の端は柱
+  sideGlass(x, y) {
+    const { WALL_H, PART_END } = geometry();
+    const h = PART_END - WALL_H;
+    const glints = [];
+    for (let gy = 4; gy < h - 3; gy += 12) glints.push(div().absolute().left(px(1)).top(px(gy)).w(px(1)).h(px(3)).bg("#ffffff"));
+    return [
+      div().absolute().left(px(x)).top(px(y)).w(px(PART_W)).h(px(WALL_H)).bg("#8a6040"),
+      div().absolute().left(px(x)).top(px(y + WALL_H)).w(px(PART_W)).h(px(h)).bg("#bee6fae6")
+        .child(div().absolute().left(0).top(0).w(px(1)).h_full().bg("#46536f"))
+        .child(div().absolute().right(0).top(0).w(px(1)).h_full().bg("#46536f"))
+        .children(glints),
+    ];
+  }
+
+  // modern の手前のガラスの壁と扉（空き部屋の。人のいる部屋は scene.js の drawables が人と前後させて描く）
+  frontGlass(lot) {
+    const { GLASS } = geometry();
+    const door = LEFT_PASS - 10;
+    return [
+      this.tiled({ img: "glass", tile: 24, x: lot.ox + door + 18, y: lot.oy + GLASS.y, w: lot.w - door - 18, h: GLASS.h }),
+      this.sprite({ img: "glass-door", x: lot.ox + door, y: lot.oy + GLASS.y - 2, w: 34, h: GLASS.h + 2 }),
+    ];
   }
 
   // 窓: 外の空（東京の時刻と天気。scene.js の windowView）を奥から重ね、最後に窓枠（ガラスは透明）。
@@ -500,40 +546,49 @@ export default class AiOffice extends View {
       const a = this.office.chars.get(p.address)?.info ?? {};
       return { path: p.path, who: [a.name, a.tab].filter(Boolean).join(" · ") || p.address };
     });
-    const d = { img: "whiteboard-plan", x: room.ox + room.w - 112, y: room.oy + 7, w: 30, h: 18, glow: true };
+    const d = { img: "whiteboard-plan", x: room.ox + room.w - 112, y: room.oy + 7 + geometry().DECOR_DY, w: 30, h: 18, glow: true };
     const tip = `プラン: ${plans.map((p) => p.who).join("、")}（クリックで見る）`;
     return this.button(`plan-${room.id}`, d, () => this.act({ type: "plan", room: room.name, plans }), tip);
   }
 
-  // 部屋の後ろのもの: 奥の壁、左の仕切り、壁の飾り（ホワイトボード・窓・時計）と名札
+  // 部屋の後ろのもの: 奥の壁、左の仕切り（modern: 隣とは壁、縦の廊下に面していればガラス）、壁の飾り（ホワイトボード・
+  // 窓・時計）と名札
   roomBack(room, view) {
     const { ox, oy, w } = room;
+    const { GLASS, DECOR_DY: dy } = geometry();
     return [
       this.wall(ox, oy, w),
-      this.partition(ox, oy),
+      ...(GLASS && ox === HALL_W ? this.sideGlass(ox, oy) : [this.partition(ox, oy)]),
       ...(room.newRoom ? [] : [
         ...(room.plans.length ? [this.planBoard(room)]
-          : w >= WIDE ? [this.sprite({ img: "whiteboard", x: ox + w - 112, y: oy + 7, w: 30, h: 18 })] : []),
-        this.sky(ox + w - 72, oy + 6, view, `window-${room.id}`),
-        ...this.clock(ox + w - 33, oy + 8),
+          : w >= WIDE ? [this.sprite({ img: "whiteboard", x: ox + w - 112, y: oy + 7 + dy, w: 30, h: 18 })] : []),
+        this.sky(ox + w - 72, oy + 6 + dy, view, `window-${room.id}`),
+        ...this.clock(ox + w - 33, oy + 8 + dy),
         this.plate(room),
       ]),
     ];
   }
 
-  // 空き部屋: クリックでフォルダを選んで、そこにスペース（部屋）を作る（pickFolder はこの Mac だけ）
+  // 空き部屋: クリックでフォルダを選んで、そこにスペース（部屋）を作る（pickFolder はこの Mac だけ）。
+  // 暗くするのは部屋の中（奥の壁の下から、classic は列の下まで、modern はガラスの壁まで）
   newRoom(lot) {
-    return div().id("new-room").absolute().left(px(lot.ox + PART_W)).top(px(lot.oy + 36)).w(px(lot.w - PART_W)).h(px(lot.h - 36))
-      .bg("#00000038").cursor_pointer().hover((s) => s.bg("#00000020"))
-      .on_mouse_down("left", (_e, cx) => this.hold(cx))
-      .on_click((_e, cx) => cx.spawn(async () => {
-        const folder = await pickFolder({ prompt: "この部屋にする" });
-        if (folder) run("space.new", { folder });
-      }))
-      .tooltip("空き部屋: クリックで新しい部屋（スペース）を作る")
-      .child(this.sprite({ img: "door", x: (lot.w - PART_W - 16) / 2, y: 22, w: 16, h: 20 }))
-      .child(div().absolute().left(0).top(px(48)).w_full().flex().justify_center()
-        .text_size(11).text_color("#fff4dcdd").child("+ 部屋"));
+    const { WALL_H, GLASS } = geometry();
+    const h = (GLASS ? GLASS.y : lot.h) - WALL_H;
+    const doorY = GLASS ? 8 : 22;
+    return [
+      div().id("new-room").absolute().left(px(lot.ox + PART_W)).top(px(lot.oy + WALL_H)).w(px(lot.w - PART_W)).h(px(h))
+        .bg("#00000038").cursor_pointer().hover((s) => s.bg("#00000020"))
+        .on_mouse_down("left", (_e, cx) => this.hold(cx))
+        .on_click((_e, cx) => cx.spawn(async () => {
+          const folder = await pickFolder({ prompt: "この部屋にする" });
+          if (folder) run("space.new", { folder });
+        }))
+        .tooltip("空き部屋: クリックで新しい部屋（スペース）を作る")
+        .child(this.sprite({ img: "door", x: (lot.w - PART_W - 16) / 2, y: doorY, w: 16, h: 20 }))
+        .child(div().absolute().left(0).top(px(doorY + 26)).w_full().flex().justify_center()
+          .text_size(11).text_color("#fff4dcdd").child("+ 部屋")),
+      ...(GLASS ? this.frontGlass(lot) : []),
+    ];
   }
 
   // ---- 部屋をドラッグして順番を変える（herdr のスペースの順番。左のスペースの一覧と同じ space.move） ----
@@ -585,20 +640,30 @@ export default class AiOffice extends View {
     const source = over && floor.rooms.find((r) => r.id === this.drag.from);
     const target = over && floor.rooms.find((r) => r.id === over.id);
     if (!source || !target) return [];
+    const { BOX_H } = geometry(); // 部屋の枠（modern は横の廊下を含めない）
     return [
-      div().absolute().left(px(source.ox)).top(px(source.oy)).w(px(source.w)).h(px(source.h)).bg("#00000047"),
+      div().absolute().left(px(source.ox)).top(px(source.oy)).w(px(source.w)).h(px(BOX_H)).bg("#00000047"),
       div().absolute().left(px(over.side === "right" ? target.ox + target.w - 2 : target.ox)).top(px(target.oy))
-        .w(px(2)).h(px(target.h)).bg(t.accent),
+        .w(px(2)).h(px(BOX_H)).bg(t.accent),
     ];
   }
 
-  // 1 枚のフロア: 部屋の床と廊下の床、資料室の奥の壁、各部屋の後ろのもの、描くもの、選んでいる部屋の枠、
-  // ドラッグ中の印、外枠
+  // 1 枚のフロア: 部屋の床と廊下の床（modern は列ごとの横の廊下も）、資料室の奥の壁、各部屋の後ろのもの、描くもの、
+  // 選んでいる部屋の枠、ドラッグ中の印、外枠
   building(floor, items, t, view) {
+    const { GLASS, ROOM_H, BOX_H } = geometry();
     const floorTiles = [];
     for (let y = 0; y < floor.h; y += FLOOR_H) {
       for (let x = HALL_W; x < floor.w; x += FLOOR_W) {
         floorTiles.push(image(`${IMG}/floor.png`).absolute().left(px(x)).top(px(y)).w(px(FLOOR_W)).h(px(FLOOR_H)));
+      }
+    }
+    if (GLASS) {
+      for (let oy = 0; oy < floor.h; oy += ROOM_H) {
+        for (let x = HALL_W; x < floor.w; x += CORRIDOR_TEX.w) {
+          floorTiles.push(image(`${IMG}/corridor.png`).absolute().left(px(x)).top(px(oy + BOX_H))
+            .w(px(CORRIDOR_TEX.w)).h(px(CORRIDOR_TEX.h)));
+        }
       }
     }
     const hallTiles = [];
@@ -616,10 +681,10 @@ export default class AiOffice extends View {
       .child(div().absolute().left(0).top(0).w(px(HALL_W)).h(px(floor.h)).overflow_hidden().children(hallTiles))
       .child(this.wall(0, 0, HALL_W))
       .children(floor.rooms.flatMap((r) => this.roomBack(r, view)))
-      .children(floor.rooms.filter((r) => r.newRoom).map((r) => this.newRoom(r)))
+      .children(floor.rooms.filter((r) => r.newRoom).flatMap((r) => this.newRoom(r)))
       .children(items.map((d) => this.item(d)))
       .when(Boolean(active), (el) => el.child(div().absolute().left(px(active.ox)).top(px(active.oy))
-        .w(px(active.w)).h(px(active.h)).border(2).border_color(t.accent)))
+        .w(px(active.w)).h(px(BOX_H)).border(2).border_color(t.accent)))
       .children(this.dragMarks(floor, t))
       .child(div().absolute().left(0).top(0).size_full().rounded(4).border(2).border_color("#1d1f26"));
   }
@@ -643,7 +708,12 @@ export default class AiOffice extends View {
       .child(h_flex().h(32).flex_none().px(14).gap(14).items_center().text_size(12).text_color(t.muted)
         .child(div().font_semibold().text_color(t.foreground).child("AI Office"))
         .child(div().child(`作業中 ${counts.working} · 待ち ${counts.blocked} · 完了 ${counts.done} · 待機 ${counts.idle}`))
-        .child(div().id("legend").ml_auto().px(6).rounded(4).text_color(t.dim).hover((s) => s.text_color(t.foreground))
+        .child(div().id("theme").ml_auto().px(6).rounded(4).cursor_pointer().text_color(t.dim)
+          .hover((s) => s.text_color(t.foreground))
+          .tooltip("部屋の形: クリックでモダン（独立した部屋・ガラスの壁と廊下）とクラシック（つながった部屋）を替える")
+          .on_click(() => setShared("ai-office.theme", this.theme === "modern" ? "classic" : "modern"))
+          .child(`テーマ: ${THEME_NAMES[this.theme]}`))
+        .child(div().id("legend").px(6).rounded(4).text_color(t.dim).hover((s) => s.text_color(t.foreground))
           .tooltip(LEGEND).child("凡例")))
       .child(div().id("scroll").flex_1().min_h(0).overflow_scroll() // 細い列（Office ボタン）では横にも
         .child(div().p(px(MARGIN)).child(this.building(floor, this.items(placed), t, this.view()))));

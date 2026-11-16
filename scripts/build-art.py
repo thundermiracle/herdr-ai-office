@@ -747,21 +747,70 @@ def hall_texture(w=48, h=560):
     return im
 
 
-def wall_texture(w_tiles=32):
-    """壁紙（縦じま）と、上の飾り縁、下の幅木。高さ 36。"""
-    W, H = w_tiles * 16, 36
+def wall_texture(w_tiles=32, h=36):
+    """壁紙（縦じま）と、上の飾り縁、下の幅木（下の 5 行）。高さ 36（classic）か 30（modern）。"""
+    W, H = w_tiles * 16, h
     im = Image.new("RGBA", (W, H), rgb("#f6ead2"))
     for x in range(W):
         for y in range(H):
             if y < 3:
                 c = "#d8c09a" if y < 2 else "#c4a87e"
-            elif y >= 31:
-                c = {31: "#8a6040", 32: "#c08a5a", 33: "#b07a4c", 34: "#b07a4c", 35: "#8a6040"}[y]
+            elif y >= H - 5:
+                c = ["#8a6040", "#c08a5a", "#b07a4c", "#b07a4c", "#8a6040"][y - (H - 5)]
             elif x % 8 in (0, 1):
                 c = "#efe0c2"
             else:
                 continue
             im.putpixel((x, y), rgb(c))
+    return im
+
+
+# ---- modern の部屋の手前（scene.js の THEMES.modern の GLASS: 高さ 14） ----
+GLASS_H = 14
+
+
+def glass_tile():
+    """ガラスの壁の 1 枚（幅 24、横に並べる）: 上の枠、透けたガラス（斜めの光の筋）、左端の縦の桟、下の枠。"""
+    im = Image.new("RGBA", (24, GLASS_H), (0, 0, 0, 0))
+    for x in range(24):
+        im.putpixel((x, 0), rgb("#eef3f8"))
+        im.putpixel((x, 1), rgb("#8592a6"))
+        for y in range(2, GLASS_H - 2):
+            im.putpixel((x, y), (175, 222, 246, 80))
+        im.putpixel((x, GLASS_H - 2), rgb("#6e7a8c"))
+        im.putpixel((x, GLASS_H - 1), rgb("#46536f"))
+    for k in range(GLASS_H - 4):  # 斜めの光（太い筋と細い筋）
+        for t, a in ((0, 130), (1, 130), (4, 80)):
+            if 8 + k + t < 24:
+                im.putpixel((8 + k + t, GLASS_H - 3 - k), (255, 255, 255, a))
+    for y in range(2, GLASS_H - 2):  # 縦の桟
+        im.putpixel((0, y), rgb("#8592a6"))
+        im.putpixel((1, y), (238, 243, 248, 200))
+    return im
+
+
+def glass_door():
+    """扉（幅 34、高さ 16。ガラスの壁より 2 上に出る）: 両側の柱（あいだの 16 が開いている）と、開けて右に寄せたガラスの戸。"""
+    im = Image.new("RGBA", (34, GLASS_H + 2), (0, 0, 0, 0))
+    for px in (0, 18):
+        for y in range(GLASS_H + 2):
+            im.putpixel((px, y), rgb("#7686a8"))
+            im.putpixel((px + 1, y), rgb("#46536f"))
+    for x in range(20, 33):
+        for y in range(4, GLASS_H):
+            im.putpixel((x, y), (120, 185, 225, 110))
+    for y in range(4, GLASS_H):
+        im.putpixel((33, y), rgb("#8592a6"))
+    for y in range(8, 11):  # 取っ手
+        im.putpixel((30, y), rgb("#46536f"))
+    return im
+
+
+def corridor_texture(w=512, h=16):
+    """modern の横の廊下の床: 縦の廊下と同じ石のタイル。いちばん上の行はガラスの壁の影で少し暗い。"""
+    im = hall_texture(w=w, h=h)
+    for x in range(w):
+        im.putpixel((x, 0), rgb("#b9b4a9"))
     return im
 
 
@@ -1030,7 +1079,11 @@ def main():
     save(floor_texture(), "floor")
     save(wall_texture(), "wall")
     save(hall_texture(), "hall")
-    n += 3
+    save(wall_texture(h=30), "wall-30")  # modern の低い壁
+    save(corridor_texture(), "corridor")
+    save(glass_tile(), "glass")
+    save(glass_door(), "glass-door")
+    n += 7
     # 窓: 枠（ガラスは透明）と、後ろに重ねる空（時間帯 x 空模様）・雨・雪・稲光
     save(window_frame(), "window")
     for phase in SKY:

@@ -17,24 +17,64 @@ export const TALK_DEDUP_MS = 20000; // 受け取った側の出来事は、同�
 export const TALK_COLOR = "#e8b84a"; // 話しかけるときの札（送った文）の色
 
 // オフィスは 1 枚のフロア: 左に縦の廊下（一番上が資料室で、本棚はここに 1 つ）、その右に部屋をすき間なく並べる。
-// 部屋の左端は仕切りの壁で、奥から PART_END までをふさぎ、手前は通路として開けておく（廊下や隣の部屋とつながる）。
+// 部屋の形はテーマで選ぶ（THEMES。useTheme が下の寸法を差し替える）:
+// - modern（初め）: 独立した部屋。部屋どうしの間は奥から手前まで壁でふさぎ、手前（廊下側）はガラスの壁で、左に扉が 1 つ。
+//   列ごとに部屋の手前を横の廊下が通り、左の縦の廊下につながる。部屋を出入りするのは扉（通り道 LEFT_PASS）だけ
+// - classic: 部屋の左端は仕切りの壁で、奥から PART_END までをふさぎ、手前は通路として開けておく（廊下や隣の部屋とつながる）
 // 部屋の中の座標は部屋の左上から、フロア全体の座標はフロアの左上（廊下の左上）から。
-export const ROOM_H = 140;
-export const WALL_H = 36;
-export const LANE_Y = 54; // 机の奥の通路（足の y）。席を立つとここに出る
-export const BACK = 74; // 机の奥の縁
 export const DESK_X = 26; // 机の左端（左の仕切りの内側）
 export const DESK_END = 8; // 机の端の板の幅
 export const SEAT_W = 24;
-export const FRONT_Y = [104, 132]; // 手前の床（足の y）
-export const CORRIDOR_Y = 118; // 手前の通路を通って廊下へ行くときの高さ（足の y）
-export const PART_W = 4; // 部屋の左の仕切りの厚さ
-export const PART_END = 96; // 仕切りは奥からここまで（手前は開いている）
+export const PART_W = 4; // 部屋の左の仕切り（壁）の厚さ
 export const MIN_ROOM_W = 160;
-export const LEFT_PASS = 14; // 机の左の通り道（x）。右は部屋ごと（room.rightPass）
+export const LEFT_PASS = 14; // 机の左の通り道（x）。右は部屋ごと（room.rightPass）。modern の扉はこの x が真ん中
 export const HALL_W = 44; // 左の廊下の幅
+export const THEMES = {
+  modern: {
+    ROOM_H: 116, // 部屋（奥の壁からガラスの壁の下まで 100）と、その手前の横の廊下（16）
+    WALL_H: 30,
+    LANE_Y: 48, // 机の奥の通路（足の y）。席を立つとここに出る
+    BACK: 62, // 机の奥の縁（机の下端は 83。手前のガラスの壁との間に床が見える）
+    FRONT_Y: null, // 手前の床はない（うろうろは部屋の中だけ: 机の奥の通路と、机の右の床。wanderTarget）
+    CORRIDOR_Y: 112, // 部屋の外へ行くときに通る高さ（横の廊下。足の y）
+    PART_END: 100, // 部屋どうしの間の壁は、奥からガラスの壁の下まで
+    GLASS: { y: 86, h: 14 }, // 手前のガラスの壁（透けて見える）
+    BOX_H: 100, // 部屋の枠（選んでいる部屋の枠・ドラッグの印）。廊下は含めない
+    RIGHT_EXIT: false, // 部屋を出入りするのは左の扉だけ
+    DECOR_DY: -2, // 壁の飾り（ホワイトボード・窓・時計）を上へずらす量（壁が 36 より低いので）
+    SHELF_Y: 8, // 資料室の本棚の上端
+  },
+  classic: {
+    ROOM_H: 140, WALL_H: 36, LANE_Y: 54, BACK: 74, FRONT_Y: [104, 132], CORRIDOR_Y: 118, PART_END: 96,
+    GLASS: null, BOX_H: 140, RIGHT_EXIT: true, DECOR_DY: 0, SHELF_Y: 14,
+  },
+};
+// テーマで変わる寸法。このファイルの中と bun test は、そのまま読む（ほかのモジュールからは geometry() で読む）
+export let THEME;
+export let ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY;
 // 資料室（廊下の一番上）で本を読む場所（フロア全体の座標）。本棚の前から、読む人が増えると順に並ぶ
-export const LIBRARY = [{ x: 22, y: 66 }, { x: 12, y: 78 }, { x: 32, y: 78 }, { x: 22, y: 90 }];
+export let LIBRARY;
+// 本棚（bookshelf-empty.png、資料室＝フロアの (6, SHELF.y) に置く）の中で本を立てる場所。scripts/build-art.py の bookshelf と
+// 同じ寸法: 3 段で、本の下端の次の行が y = 14・27・40、横は x = 3〜28。本は幅 2 で、1 段に 13 冊
+export let SHELF;
+
+/** 部屋の形を選ぶ（THEMES の名前。知らない名前は modern）。寸法が変わるので、部屋を並べ直し、Office も作り直すこと。 */
+export function useTheme(name) {
+  THEME = THEMES[name] ? name : "modern";
+  const g = THEMES[THEME];
+  ({ ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY } = g);
+  LIBRARY = [{ x: 22, y: g.SHELF_Y + 52 }, { x: 12, y: g.SHELF_Y + 64 }, { x: 32, y: g.SHELF_Y + 64 }, { x: 22, y: g.SHELF_Y + 76 }];
+  SHELF = { x: 6, y: g.SHELF_Y, bases: [14, 27, 40], left: 3, right: 29, bookW: 2 };
+  return THEME;
+}
+
+/** 今のテーマの寸法（main.js 用。ほかのモジュールからは、差し替えた値をこれで確実に読む）。 */
+export function geometry() {
+  return { THEME, ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY, SHELF };
+}
+
+useTheme("modern");
+
 export const NEW_ROOM_W = 72; // 空き部屋（クリックで新しい部屋）
 export const PLAN_ROOM_W = 200; // プランのホワイトボードを掛ける部屋の幅の下限（名札・ホワイトボード・窓・時計が並ぶ）
 
@@ -177,10 +217,6 @@ export function sameSkill(a, b) {
   return (!a.includes(":") || !b.includes(":")) && skillShort(a) === skillShort(b);
 }
 
-// 本棚（bookshelf-empty.png、資料室＝フロアの (6, 14) に置く）の中で本を立てる場所。scripts/build-art.py の bookshelf と同じ寸法:
-// 3 段で、本の下端の次の行が y = 14・27・40、横は x = 3〜28。本は幅 2 で、1 段に 13 冊
-export const SHELF = { x: 6, y: 14, bases: [14, 27, 40], left: 3, right: 29, bookW: 2 };
-
 /** 本棚に立てる本（1 冊 = 1 つの skill）。座標は本棚の左上から。入りきらない数は more。 */
 export function shelfBooks(skills) {
   const per = Math.floor((SHELF.right - SHELF.left) / SHELF.bookW);
@@ -289,7 +325,7 @@ function tidy(from, pts) {
 
 /**
  * from から to への道（曲がり角の列、from は含まない）。縦横にだけ動く。座標は room の中。
- * 机より奥（y < BACK）と手前を行き来するときは、机の左右の通り道を通る。
+ * 机より奥（y < BACK）と手前を行き来するときは、机の左右の通り道を通る（modern は左だけ。手前は横の廊下で、扉は左にある）。
  * 部屋の左の外（x < 0。廊下や、左の部屋の手前の通路）とは、手前の通路（CORRIDOR_Y）を通って行き来する。
  */
 export function planPath(room, from, to) {
@@ -300,7 +336,8 @@ export function planPath(room, from, to) {
     if (outside(to)) return tidy(from, [...planPath(room, from, door), { x: to.x, y: CORRIDOR_Y }, to]);
     return tidy(from, [{ x: from.x, y: CORRIDOR_Y }, door, ...planPath(room, door, to)]);
   }
-  const back = (p) => p.y < BACK;
+  // 机より奥。modern の机の右の床（ガラスの壁まで）も、机の奥の通路から縦に行けるので奥と同じに扱う
+  const back = (p) => p.y < BACK || (GLASS !== null && p.y < GLASS.y && p.x >= room.rightPass);
   const pts = [];
   const go = (x, y) => {
     const last = pts.at(-1) ?? from;
@@ -315,7 +352,7 @@ export function planPath(room, from, to) {
     go(to.x, to.y);
   } else {
     const cost = (x) => Math.abs(from.x - x) + Math.abs(x - to.x);
-    const pass = cost(LEFT_PASS) <= cost(room.rightPass) ? LEFT_PASS : room.rightPass;
+    const pass = !RIGHT_EXIT || cost(LEFT_PASS) <= cost(room.rightPass) ? LEFT_PASS : room.rightPass;
     if (back(from)) {
       go(from.x, LANE_Y);
       go(pass, LANE_Y);
@@ -353,7 +390,7 @@ export function dropTarget(rooms, from, p) {
 
 /**
  * フロアの上の道（曲がり角の列、from は含まない）。座標はフロア全体で、from と to は部屋の中か廊下の点。
- * 同じ部屋の中は planPath。部屋を出るときは手前の通路へ（左の扉。同じ列の右の部屋へ行くなら右の通り道から）。
+ * 同じ部屋の中は planPath。部屋を出るときは手前の通路へ（左の扉。classic で同じ列の右の部屋へ行くなら右の通り道から）。
  * 同じ列の部屋へは通路を横に、違う列の部屋や廊下へは、通路を廊下まで歩いて廊下を上下に。入るときは相手の部屋の左の扉から。
  */
 export function floorPath(rooms, from, to) {
@@ -365,7 +402,7 @@ export function floorPath(rooms, from, to) {
   const pts = [];
   let at = from;
   if (a) {
-    const exit = { x: b && b.oy === a.oy && b.ox > a.ox ? a.rightPass : LEFT_PASS, y: CORRIDOR_Y };
+    const exit = { x: RIGHT_EXIT && b && b.oy === a.oy && b.ox > a.ox ? a.rightPass : LEFT_PASS, y: CORRIDOR_Y };
     pts.push(...global(a, planPath(a, local(a, from), exit)));
     at = { x: a.ox + exit.x, y: a.oy + exit.y };
   }
@@ -538,8 +575,9 @@ export class Office {
     const x = Math.round(ox + end.x);
     const y = Math.round(oy + end.y);
     const here = roomAt(this.rooms, { x, y });
-    const lo = here ? here.ox + LEFT_PASS : 6;
-    const hi = here ? here.ox + here.w - 10 : HALL_W - 6;
+    const side = GLASS && here && y - here.oy >= BACK && y - here.oy < GLASS.y; // modern の机の右の床（机の前には立たない）
+    const lo = here ? here.ox + (side ? here.rightPass : LEFT_PASS) : 6;
+    const hi = here ? here.ox + here.w - (side ? 28 : 10) : HALL_W - 6;
     return { x: x - 14 >= lo ? x - 14 : Math.min(x + 14, hi), y };
   }
 
@@ -603,8 +641,18 @@ export class Office {
     }
   }
 
+  // うろうろする行き先。modern は部屋の中だけ（横の廊下へ出ると、どの部屋の人か分かりにくい）: 机の奥の通路か、
+  // 机の右の床（植木の手前まで。机が部屋いっぱいなら通路だけ）。classic は手前の床か、机の奥の通路
   wanderTarget(room) {
-    if (this.rng() < 0.65) {
+    if (GLASS) {
+      const right = room.w - 28;
+      if (right > room.rightPass && this.rng() < 0.5) {
+        return {
+          x: room.rightPass + Math.round(this.rng() * (right - room.rightPass)),
+          y: BACK + 2 + Math.round(this.rng() * (GLASS.y - 4 - BACK)),
+        };
+      }
+    } else if (this.rng() < 0.65) {
       return {
         x: 16 + Math.round(this.rng() * (room.w - 32)),
         y: FRONT_Y[0] + Math.round(this.rng() * (FRONT_Y[1] - FRONT_Y[0])),
@@ -849,8 +897,9 @@ export function animating(office) {
 
 /**
  * 1 つの部屋に描くもの（部屋の中の座標。廊下へ出ている人は x < 0）。奥から手前の順（z の小さい順）に並べて返す。
- * 1 つ 1 つ: { id, img, over?, books?, x, y, w, h, z, click?, tip?, glow?, char? } か、札 { id, text, color, x（中心）, y, z }。
+ * 1 つ 1 つ: { id, img, over?, books?, tile?, x, y, w, h, z, click?, tip?, glow?, char? } か、札 { id, text, color, x（中心）, y, z }。
  * img と over（上に重ねる絵）は img/ の下の名前（.png なし）。books は本棚の上に描く本（shelfBooks、本棚の左上から）。
+ * tile があれば、img（幅 tile）を w の幅まで横に並べる（ガラスの壁）。
  * skills は資料室の本棚の skill（札の色に使う）。
  */
 export function drawables(room, office, skills = []) {
@@ -863,7 +912,15 @@ export function drawables(room, office, skills = []) {
   const answering = new Set(); // 今が自分の番の、話しかけられている人
   for (const c of office.chars.values()) if (talking(c) && turnOf(c) === 1) answering.add(c.errand.to);
   const talkBubble = (c, x, y) => add({ id: `talk-${c.address}`, img: "bubble-talk", x, y, w: 13, h: 14, z: 1000 });
-  add({ id: "plant", img: "plant", x: room.w - 18, y: 78, w: 12, h: 17, z: 95 });
+  add({ id: "plant", img: "plant", x: room.w - 18, y: BACK + 4, w: 12, h: 17, z: 95 });
+  // modern の手前のガラスの壁と扉: 机・植木・部屋の中の人より手前、横の廊下を歩く人より奥。ガラスは glass.png を
+  // 横に並べる（tile）。扉は通り道 LEFT_PASS を真ん中に 16 開いていて、両側に柱、開けた戸は右のガラスの手前に寄せてある
+  if (GLASS) {
+    const door = LEFT_PASS - 10; // 扉の左の柱
+    const z = GLASS.y + GLASS.h;
+    add({ id: "glass", img: "glass", tile: 24, x: door + 18, y: GLASS.y, w: room.w - door - 18, h: GLASS.h, z });
+    add({ id: "glass-door", img: "glass-door", x: door, y: GLASS.y - 2, w: 34, h: GLASS.h + 2, z: z + 0.1 });
+  }
   add({ id: "desk-l", img: "desk-l", x: DESK_X, y: BACK, w: 8, h: 21, z: BACK + 15 });
   for (const seat of room.seats) {
     add({ id: `desk-${seat.i}`, img: "desk-m", x: seat.segX, y: BACK, w: 24, h: 21, z: BACK + 15 });

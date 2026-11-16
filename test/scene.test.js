@@ -1,10 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   BACK, CORRIDOR_Y, DESK_X, ERRAND_READ_MS, HALL_W, LANE_Y, LEFT_PASS, LIBRARY, MIN_ROOM_W, PART_END, PART_W, PLAN_ROOM_W, ROOM_H, SEAT_W,
   TALK_DEDUP_MS, TALK_MS, TALK_TURN_MS, WALL_H, Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride,
   drawables, dropTarget, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
+  FRONT_Y, GLASS, THEMES, geometry, useTheme,
 } from "../mods/ai-office/scene.js";
+
+// これまでのテストは classic（仕切りが途中まで・手前の床がつながる部屋）の寸法で書いてある。modern は下の describe("modern")
+useTheme("classic");
 
 // 毎回同じになる乱数
 function seeded(seed = 1) {
@@ -803,5 +807,88 @@ describe("talking to another agent (hc send)", () => {
   test("the label is cut short", () => {
     expect(talkLabel("  short\n text ")).toBe("short text");
     expect(talkLabel("レビューをお願いします。src/x.rs だけ")).toBe("レビューをお願いします。s…");
+  });
+});
+
+describe("modern theme", () => {
+  beforeAll(() => useTheme("modern"));
+  afterAll(() => useTheme("classic"));
+
+  test("a row is lower (the room down to the glass, then the corridor), and classic comes back unchanged", () => {
+    expect(geometry().THEME).toBe("modern");
+    expect({ ROOM_H, WALL_H, glassBottom: GLASS.y + GLASS.h }).toEqual({ ROOM_H: 116, WALL_H: 30, glassBottom: 100 });
+    expect(SHELF.y).toBe(8);
+    useTheme("classic");
+    expect({ ROOM_H, WALL_H, LANE_Y, BACK, CORRIDOR_Y, PART_END, FRONT_Y })
+      .toEqual({ ROOM_H: 140, WALL_H: 36, LANE_Y: 54, BACK: 74, CORRIDOR_Y: 118, PART_END: 96, FRONT_Y: [104, 132] });
+    expect(GLASS).toBeNull();
+    expect(LIBRARY[0]).toEqual({ x: 22, y: 66 });
+    expect(SHELF.y).toBe(14);
+    expect(useTheme("no-such-theme")).toBe("modern");
+  });
+
+  test("leaving the room goes through the door on the left, never past the right end of the desk", () => {
+    const room = roomOf(space("sp1"), [agent("t1", "sp1"), agent("t2", "sp1")]);
+    const path = planPath(room, { x: 60, y: LANE_Y }, { x: room.w - 20, y: CORRIDOR_Y });
+    expect(path).toEqual([{ x: LEFT_PASS, y: LANE_Y }, { x: LEFT_PASS, y: CORRIDOR_Y }, { x: room.w - 20, y: CORRIDOR_Y }]);
+    expect(path.some((p) => p.x === room.rightPass)).toBe(false);
+  });
+
+  test("to the next room on the right: out of the left door, along the corridor, in by its door", () => {
+    const rooms = layoutFloor(roomsOf([space("a"), space("b")], [agent("t1", "a"), agent("t2", "b")]), 1000).rooms
+      .filter((r) => !r.newRoom);
+    const [a, b] = rooms;
+    expect(b.oy).toBe(a.oy);
+    const from = { x: a.ox + 60, y: a.oy + LANE_Y };
+    const to = { x: b.ox + 60, y: b.oy + LANE_Y };
+    const path = floorPath(rooms, from, to);
+    expect(path[0]).toEqual({ x: a.ox + LEFT_PASS, y: a.oy + LANE_Y });
+    expect(path).toContainEqual({ x: a.ox + LEFT_PASS, y: a.oy + CORRIDOR_Y });
+    expect(path).toContainEqual({ x: b.ox + LEFT_PASS, y: b.oy + CORRIDOR_Y });
+    expect(path.at(-1)).toEqual(to);
+    expect(path.some((p) => p.x === a.ox + a.rightPass)).toBe(false);
+  });
+
+  test("wandering stays in the room: behind the desk, or on the floor right of the desk (not in the corridor)", () => {
+    const office = new Office(seeded(3));
+    const room = roomOf(space("sp1"), [agent("t1", "sp1")]);
+    const where = new Set();
+    for (let i = 0; i < 60; i++) {
+      const p = office.wanderTarget(room);
+      if (p.y === LANE_Y) where.add("lane");
+      else if (p.x >= room.rightPass && p.x <= room.w - 28 && p.y > BACK && p.y < GLASS.y) where.add("right of the desk");
+      else where.add(`bad ${p.x},${p.y}`);
+    }
+    expect([...where].sort()).toEqual(["lane", "right of the desk"]);
+    // 机の右へは机の奥の通路から回り込み、机の前は通らない。そこから廊下へは、通路に戻って左の扉から
+    const side = { x: room.rightPass + 4, y: BACK + 10 };
+    expect(planPath(room, { x: 40, y: LANE_Y }, side)).toEqual([{ x: side.x, y: LANE_Y }, side]);
+    expect(planPath(room, side, { x: 60, y: CORRIDOR_Y }))
+      .toEqual([{ x: side.x, y: LANE_Y }, { x: LEFT_PASS, y: LANE_Y }, { x: LEFT_PASS, y: CORRIDOR_Y }, { x: 60, y: CORRIDOR_Y }]);
+  });
+
+  test("a full desk leaves no floor on the right: wandering is only behind the desk", () => {
+    const office = new Office(seeded(5));
+    const room = roomOf(space("sp1"), Array.from({ length: 6 }, (_, i) => agent(`t${i}`, "sp1")));
+    for (let i = 0; i < 30; i++) expect(office.wanderTarget(room).y).toBe(LANE_Y);
+  });
+
+  test("the glass is in front of the desk, the plant and the sitters, and behind people in the corridor", () => {
+    const { rooms, info } = world({ t1: "idle", t2: "working" });
+    const office = new Office(seeded(1));
+    office.sync(rooms, info);
+    settle(office);
+    const c = office.chars.get("t1");
+    Object.assign(c, { x: 60, y: 110, path: [] }); // 横の廊下に立っている
+    const out = drawables(rooms[0], office);
+    const z = (id) => out.find((d) => d.id === id).z;
+    expect(z("desk-0")).toBeLessThan(z("glass"));
+    expect(z("plant")).toBeLessThan(z("glass"));
+    expect(z("char-t2")).toBeLessThan(z("glass")); // 席で作業している
+    expect(z("char-t1")).toBeGreaterThan(z("glass"));
+    expect(out.find((d) => d.id === "glass")).toMatchObject({ tile: 24, x: LEFT_PASS + 8, y: GLASS.y, h: GLASS.h });
+    useTheme("classic");
+    expect(drawables(rooms[0], office).some((d) => d.img === "glass" || d.img === "glass-door")).toBe(false);
+    useTheme("modern");
   });
 });
