@@ -8,6 +8,19 @@ import { theme, props, home, readTextFile, closeOverlay } from "herdr";
 
 const RELOAD_MS = 2000;
 
+// 引用（> の行）は左の縦線が目立って読みにくいので、> を外してふつうの段落で出す（コードブロックの中はそのまま）
+function unquote(text) {
+  let fence = null; // 開いているコードブロックの印（``` か ~~~）
+  return text.split("\n").map((line) => {
+    const m = /^\s*(`{3,}|~{3,})/.exec(line);
+    if (m && (!fence || m[1].startsWith(fence))) {
+      fence = fence ? null : m[1];
+      return line;
+    }
+    return fence ? line : line.replace(/^(\s{0,3}>\s?)+/, "");
+  }).join("\n");
+}
+
 export default class PlanView extends View {
   init(_props, cx) {
     this.plans = props()?.plans ?? [];
@@ -53,7 +66,7 @@ export default class PlanView extends View {
         ? div().text_size(12.5).text_color(t.dim).child("読んでいます…")
         : this.text === null
           ? div().text_size(12.5).text_color(t.dim).child("プランはまだ書かれていません（書かれたら出ます）")
-          : TextView.markdown(`plan-body-${this.index}`, this.text).scrollable(true).selectable(true).size_full();
+          : TextView.markdown(`plan-body-${this.index}`, unquote(this.text)).scrollable(true).selectable(true).size_full();
     return v_flex().size_full().min_h(0).text_color(t.foreground)
       .child(h_flex().flex_none().px(16).pt(14).pb(10).gap(10).items_center().border_b(1).border_color(t.border)
         .child(div().w(10).h(18).flex_none().rounded(2).bg("#c8774a")) // ホワイトボードの見出しの色

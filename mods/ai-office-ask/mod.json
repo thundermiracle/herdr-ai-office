@@ -2,8 +2,8 @@
   "place": "none",
   "title": "AI Office: question",
   "overlay": {
-    "kind": "popup",
-    "width": 440,
-    "height": 520
+    "kind": "dialog",
+    "width": 0.65,
+    "height": 0.8
   }
 }

@@ -409,7 +409,8 @@ export default class AiOffice extends View {
         props: { title: "資料室", count: skills.length, groups } });
     }
     if (click.type === "ask") {
-      openOverlay({ mod: "ai-office-ask", kind: "popup", width: 440, height: 520, props: { terminal: click.terminal, name: click.name } });
+      // 選択肢の説明や答えの確認が長いこともあるので、プランと同じ広さのダイアログにして中をスクロールさせる
+      openOverlay({ mod: "ai-office-ask", kind: "dialog", width: 0.65, height: 0.8, props: { terminal: click.terminal, name: click.name } });
     }
     if (click.type === "plan") {
       // プランは長い行（コードや表）が多いので、skill の中身より広く、窓の幅に合わせる
