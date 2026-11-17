@@ -399,6 +399,10 @@ export default class AiOffice extends View {
       .when(Boolean(d.glow), (el) => el.rounded(6).hover((s) => s.bg("#ffffff59"))) // 絵はほぼ透明なので後ろを明るくする
       .on_mouse_down("left", (_e, cx) => this.hold(cx))
       .on_click((_e, cx) => onClick(cx))
+      .when(Boolean(d.right), (el) => el.on_mouse_down("right", (_e, cx) => {
+        cx.stop_propagation();
+        this.act(d.right);
+      }))
       .when(Boolean(tip), (el) => el.tooltip(tip))
       .child(image(`${IMG}/${d.img}.png`).size_full())
       .when(Boolean(d.over), (el) => el.child(this.overlay(d)))
@@ -406,9 +410,10 @@ export default class AiOffice extends View {
   }
 
   // scene.js の click: { type: "focus", terminal } / { type: "hire", space, machine } / { type: "skills" }。
-  // 壁のプランのホワイトボード: { type: "plan", room, plans: [{ path, who }] }
+  // 壁のプランのホワイトボード: { type: "plan", room, plans: [{ path, who }] }。机の PC: { type: "tab-menu", terminal, focus? }
   act(click) {
     if (click.type === "focus") run("agent.focus", { terminal: click.terminal });
+    if (click.type === "tab-menu") this.tabMenu(click);
     if (click.type === "skills") {
       const skills = this.shelfSkills();
       const groups = Object.entries(SKILL_SOURCES)
@@ -428,6 +433,15 @@ export default class AiOffice extends View {
     if (click.type === "hire") {
       openOverlay({ mod: "ai-office-hire", kind: "popup", width: 240, height: 320, props: { space: click.space, machine: click.machine } });
     }
+  }
+
+  // 机の PC: そのエージェントのタブのメニュー（ai-office-tab: 名前を変える・閉じる。New tab は出さない）。名札と同じく、
+  // 左クリックはその人を表示してから（focus）、右クリックはメニューだけ。閉じる前に確かめるかは Herdr の tab.close に任せる
+  tabMenu({ terminal, focus }) {
+    const a = agents().find((x) => x.address === terminal);
+    if (!a) return;
+    if (focus) run("agent.focus", { terminal });
+    openOverlay({ mod: "ai-office-tab", kind: "popup", width: 200, height: 90, props: { tab: a.tab } });
   }
 
   item(d) {

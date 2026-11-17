@@ -476,7 +476,8 @@ describe("drawables", () => {
     office.sync(w.rooms, w.info);
     const d = drawables(w.rooms[0], office);
     expect(d.find((x) => x.id === "chair-0").img).toBe("chair");
-    expect(d.find((x) => x.id === "laptop-0")).toBeDefined();
+    expect(d.find((x) => x.id === "laptop-0")).toMatchObject({ // PC: タブのメニュー（クリックは表示してから）
+      click: { type: "tab-menu", terminal: "t1", focus: true }, right: { type: "tab-menu", terminal: "t1" } });
     expect(d.find((x) => x.id === "chair-1").img).toBe("chair-free");
     expect(d.find((x) => x.id === "laptop-1")).toBeUndefined();
     expect(d.find((x) => x.id === "hire-1")?.img).toBe("hire-sign");

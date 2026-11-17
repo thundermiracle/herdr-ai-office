@@ -897,7 +897,8 @@ export function animating(office) {
 
 /**
  * 1 つの部屋に描くもの（部屋の中の座標。廊下へ出ている人は x < 0）。奥から手前の順（z の小さい順）に並べて返す。
- * 1 つ 1 つ: { id, img, over?, books?, tile?, x, y, w, h, z, click?, tip?, glow?, char? } か、札 { id, text, color, x（中心）, y, z }。
+ * 1 つ 1 つ: { id, img, over?, books?, tile?, x, y, w, h, z, click?, right?, tip?, glow?, char? } か、札 { id, text, color, x（中心）, y, z }。
+ * click と right は、左クリックと右クリックでする事（main.js の act）。
  * img と over（上に重ねる絵）は img/ の下の名前（.png なし）。books は本棚の上に描く本（shelfBooks、本棚の左上から）。
  * tile があれば、img（幅 tile）を w の幅まで横に並べる（ガラスの壁）。
  * skills は資料室の本棚の skill（札の色に使う）。
@@ -925,9 +926,12 @@ export function drawables(room, office, skills = []) {
   for (const seat of room.seats) {
     add({ id: `desk-${seat.i}`, img: "desk-m", x: seat.segX, y: BACK, w: 24, h: 21, z: BACK + 15 });
     if (seat.agent) {
-      // 誰かの席: いつもの椅子とノート PC（本人が歩き回っていても置いたまま）
+      // 誰かの席: いつもの椅子とノート PC（本人が歩き回っていても置いたまま）。PC は名札と同じく、クリックでその人を
+      // 表示してから、右クリックはそのまま、その人のタブのメニュー（名前を変える・閉じる。main.js の tabMenu）
       add({ id: `chair-${seat.i}`, img: "chair", x: seat.cx - 7, y: BACK - 9, w: 14, h: 9, z: BACK - 2 });
-      add({ id: `laptop-${seat.i}`, img: "laptop", x: seat.segX + 7, y: BACK - 5, w: 10, h: 9, z: BACK + 15.5 });
+      add({ id: `laptop-${seat.i}`, img: "laptop", x: seat.segX + 7, y: BACK - 5, w: 10, h: 9, z: BACK + 15.5,
+        click: { type: "tab-menu", terminal: seat.agent, focus: true }, right: { type: "tab-menu", terminal: seat.agent },
+        tip: "PC: クリックでこのエージェントのタブのメニュー（名前を変える・閉じる）。右クリックはメニューだけ", glow: true });
       continue;
     }
     // 空いた席（雇える席）: 緑の椅子、ノート PC なし、上に「＋」の札が揺れる
