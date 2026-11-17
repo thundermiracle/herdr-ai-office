@@ -4,7 +4,7 @@ import {
   TALK_DEDUP_MS, TALK_MS, TALK_TURN_MS, WALL_H, Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride,
   drawables, dropTarget, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
-  FRONT_Y, GLASS, THEMES, geometry, useTheme,
+  FRONT_Y, GLASS, THEMES, geometry, useTheme, seatName,
 } from "../mods/ai-office/scene.js";
 
 // これまでのテストは classic（仕切りが途中まで・手前の床がつながる部屋）の寸法で書いてある。modern は下の describe("modern")
@@ -482,6 +482,35 @@ describe("drawables", () => {
     expect(d.find((x) => x.id === "laptop-1")).toBeUndefined();
     expect(d.find((x) => x.id === "hire-1")?.img).toBe("hire-sign");
     expect(d.find((x) => x.id === "hire-0")).toBeUndefined();
+  });
+});
+
+describe("who sits where", () => {
+  const claude = { name: "Claude Code", key: "claude", agent: true };
+  test("the seat name is the tab bar's: a given tab name stays, an unnamed tab follows the agent's live title", () => {
+    expect(seatName({ tabName: "1", named: null, program: claude, title: "✳ Fix the login bug", address: "t1" })).toBe("Fix the login bug");
+    expect(seatName({ tabName: "reviewer", named: true, program: claude, title: "✳ Fix the login bug", address: "t1" })).toBe("reviewer");
+    expect(seatName({ tabName: "Claude Code", named: true, program: claude, title: "Fix it", address: "t1" })).toBe("Fix it");
+    // 役に立たないタイトル（フォルダの道・アドレス・空）なら、名前のないタブはプログラムの名前
+    expect(seatName({ tabName: "1", named: null, program: claude, title: "~/Code/x", address: "t1" })).toBe("Claude Code");
+    expect(seatName({ tabName: "1", named: null, program: claude, title: "t1", address: "t1" })).toBe("Claude Code");
+    expect(seatName({ tabName: "1", named: null, program: claude, title: "", address: "t1" })).toBe("Claude Code");
+  });
+
+  test("each taken seat has a name plate on the desk; the plate, the laptop and the person share the owner", () => {
+    const office = new Office(seeded(9));
+    const w = world({ t1: "working", t2: "idle" });
+    w.info.get("t1").seatName = "Fix the login bug";
+    office.sync(w.rooms, w.info);
+    settle(office);
+    const d = drawables(w.rooms[0], office);
+    const plate = d.find((x) => x.id === "name-0");
+    expect(plate).toMatchObject({ plate: "Fix the login bug", owner: "t1", click: { type: "focus", terminal: "t1" }, y: BACK + 10 });
+    expect(d.find((x) => x.id === "laptop-0").owner).toBe("t1");
+    expect(d.find((x) => x.id === "char-t1").owner).toBe("t1");
+    expect(d.find((x) => x.id === "name-1").owner).toBe("t2"); // 席を立っている人の名札も席に残る
+    expect(d.find((x) => x.id === "name-2")).toBeUndefined(); // 空いた席には名札がない
+    expect(plate.z).toBeGreaterThan(d.find((x) => x.id === "hands-t1").z);
   });
 });
 

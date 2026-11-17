@@ -238,6 +238,21 @@ export function shelfBooks(skills) {
 }
 
 /**
+ * 机の名札に出す名前。タブバー（herdr の tabs mod の label）と同じ: 人が付けたタブ名はそのまま。名前のないタブや、
+ * プログラムの名前のタブは、エージェントの今のタイトル（Claude Code なら会話の要約）。タイトルが役に立たない
+ * （空・アドレス・プログラムの名前・フォルダの道・user@host）ときはタブ名、名前のないタブならプログラムの名前。
+ */
+export function seatName({ tabName, named, program, title, address }) {
+  const clean = (s) => (s ?? "").replace(/^[^\p{L}\p{N}\p{Ps}\p{Pi}]+/u, "").replace(/^\[ [!.] \] /, "").trim();
+  const prog = program?.name;
+  const base = named ? tabName : prog ?? tabName ?? "Terminal";
+  const live = clean(title);
+  const path = /^[~/]|^[A-Za-z]:\\/.test((title ?? "").replace(/^[^\p{L}\p{N}~/]+/u, ""));
+  const telling = live && live !== address && live !== prog && !path && !live.includes("@") && live.toLowerCase() !== program?.key;
+  return (tabName === prog || !named) && telling ? live : base;
+}
+
+/**
  * 状態から動きを決める。act はターミナルのラベル office.act（read / edit / run ...）。
  * type: 席でタイピング、read: 本棚で読む、raise: 手を挙げて待つ、done: 席で ✓、wander: うろうろ
  */
@@ -897,8 +912,10 @@ export function animating(office) {
 
 /**
  * 1 つの部屋に描くもの（部屋の中の座標。廊下へ出ている人は x < 0）。奥から手前の順（z の小さい順）に並べて返す。
- * 1 つ 1 つ: { id, img, over?, books?, tile?, x, y, w, h, z, click?, right?, tip?, glow?, char? } か、札 { id, text, color, x（中心）, y, z }。
- * click と right は、左クリックと右クリックでする事（main.js の act）。
+ * 1 つ 1 つ: { id, img, over?, books?, tile?, x, y, w, h, z, click?, right?, tip?, glow?, char?, owner? } か、
+ * 札 { id, text, color, x（中心）, y, z } か、机の名札 { id, plate（名前）, x, y, w, h, z, owner, click, tip }。
+ * click と right は、左クリックと右クリックでする事（main.js の act）。owner はそのものの持ち主のエージェント（キャラ・PC・
+ * 名札）。main.js は、どれかにマウスが乗ると、同じ持ち主のものを一緒に光らせる。
  * img と over（上に重ねる絵）は img/ の下の名前（.png なし）。books は本棚の上に描く本（shelfBooks、本棚の左上から）。
  * tile があれば、img（幅 tile）を w の幅まで横に並べる（ガラスの壁）。
  * skills は資料室の本棚の skill（札の色に使う）。
@@ -929,9 +946,15 @@ export function drawables(room, office, skills = []) {
       // 誰かの席: いつもの椅子とノート PC（本人が歩き回っていても置いたまま）。PC は名札と同じく、クリックでその人を
       // 表示してから、右クリックはそのまま、その人のタブのメニュー（名前を変える・閉じる。main.js の tabMenu）
       add({ id: `chair-${seat.i}`, img: "chair", x: seat.cx - 7, y: BACK - 9, w: 14, h: 9, z: BACK - 2 });
-      add({ id: `laptop-${seat.i}`, img: "laptop", x: seat.segX + 7, y: BACK - 5, w: 10, h: 9, z: BACK + 15.5,
+      add({ id: `laptop-${seat.i}`, img: "laptop", x: seat.segX + 7, y: BACK - 5, w: 10, h: 9, z: BACK + 15.5, owner: seat.agent,
         click: { type: "tab-menu", terminal: seat.agent, focus: true }, right: { type: "tab-menu", terminal: seat.agent },
         tip: "PC: クリックでこのエージェントのタブのメニュー（名前を変える・閉じる）。右クリックはメニューだけ", glow: true });
+      // 机の前の板の名札（タブバーと同じ名前。長ければ切る）。本人が歩き回っていても席に残るので、誰の席か分かる。
+      // クリックはキャラと同じく、その人を表示
+      const info = office.chars.get(seat.agent)?.info ?? {};
+      const name = info.seatName ?? info.tab ?? info.name ?? seat.agent;
+      add({ id: `name-${seat.i}`, plate: name, x: seat.segX + 1, y: BACK + 10, w: 22, h: 6, z: BACK + 15.9, owner: seat.agent,
+        click: { type: "focus", terminal: seat.agent }, tip: `${name}（クリックで表示）` });
       continue;
     }
     // 空いた席（雇える席）: 緑の椅子、ノート PC なし、上に「＋」の札が揺れる
@@ -952,7 +975,7 @@ export function drawables(room, office, skills = []) {
     // キャラ。effort の鉢巻きは同じ大きさの重ね絵（over）で、キャラのすぐ上に描く
     const person = (pose, x, y, h, z) => {
       add({ id: `char-${c.address}`, img: `char/${look}-${pose}`, over: band ? `band/${band}-${pose}` : null,
-        x, y, w: 18, h, z, click, tip, char: c });
+        x, y, w: 18, h, z, click, tip, char: c, owner: c.address });
     };
     if (c.seated) {
       const pose = c.behavior === "done" ? "sit-happy" : ph % 8 < 6 ? "sit-0" : "sit-1";

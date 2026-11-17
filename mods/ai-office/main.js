@@ -10,7 +10,7 @@ import {
 } from "herdr";
 import {
   SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, layoutFloor, drawables,
-  floorDrawables, running, roomAt, dropTarget, THEMES, useTheme, geometry,
+  floorDrawables, running, roomAt, dropTarget, THEMES, useTheme, geometry, seatName,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
   TOKYO, WEATHER_MS, TRIAL_WEATHER, tokyoAt, tokyoClock, weatherOf, parseWeather, windowView, windowTip, parseSkyCommand,
 } from "./scene.js";
@@ -39,7 +39,9 @@ const WEATHER_STALE_MS = 3 * 3600000; // これより古い天気は使わない
  */
 function gather(meta, codexDefaults) {
   const ag = agents();
+  const sp = spaces();
   const terms = new Map(terminals().map((t) => [t.address, t]));
+  const tabs = new Map(sp.flatMap((s) => (s.tabs ?? []).map((tab) => [tab.id, tab])));
   const info = new Map(ag.map((a) => {
     const t = terms.get(a.address);
     const app = a.app ?? a.program?.key;
@@ -64,13 +66,15 @@ function gather(meta, codexDefaults) {
       plan: t?.labels?.["office.plan"] || null, // フックが付ける（プランモードで書いたプランのファイル。セッションの終わりまで）
       tname: t?.name ?? null, // hc の名前（hc run --name）。hc send の相手はアドレスか、この名前
       tab: a.tab_name,
+      // 机の名札: タブバーと同じ名前（名前のないタブは、エージェントの今のタイトル）
+      seatName: seatName({ tabName: a.tab_name, named: tabs.get(a.tab)?.named, program: a.program, title: a.title, address: a.address }),
       name: a.program?.name ?? a.app ?? "agent",
       where: `${a.space_name} / ${a.tab_name}`,
     }];
   }));
   const ps = panes();
   const plans = new Map([...info].filter(([, a]) => a.plan).map(([address, a]) => [address, a.plan]));
-  return { rooms: roomsOf(spaces().map((s) => ({ ...s, folder: placeOf(s, ps) })), ag, plans), info };
+  return { rooms: roomsOf(sp.map((s) => ({ ...s, folder: placeOf(s, ps) })), ag, plans), info };
 }
 
 // レイアウトの根から id のブロックまでの道（見つからなければ null）
@@ -178,6 +182,7 @@ export default class AiOffice extends View {
     this.theme = useTheme(shared("ai-office.theme"));
     this.office = new Office();
     this.drag = null; // 部屋をドラッグしている間: { from: スペースの id, over: dropTarget の答えか null }
+    this.hover = null; // マウスが乗っているもの（キャラ・PC・名札）の持ち主のエージェント。同じ持ち主のものを一緒に光らせる
     this.width = 900; // on_size_change が来るまでの仮の幅（論理 px）
     this.last = Date.now();
     this.sig = "";
@@ -391,10 +396,12 @@ export default class AiOffice extends View {
     cx.stop_propagation();
   }
 
-  // クリックできる絵
+  // クリックできる絵。持ち主（owner）があれば、その持ち主のどれかにマウスが乗っている間は一緒に明るくする
   button(id, d, onClick, tip) {
     return div().id(id).absolute().left(px(d.x)).top(px(d.y)).w(px(d.w)).h(px(d.h)).cursor_pointer()
       .when(Boolean(d.glow), (el) => el.rounded(6).hover((s) => s.bg("#ffffff59"))) // 絵はほぼ透明なので後ろを明るくする
+      .when(Boolean(d.owner), (el) => el.on_hover((hovered, cx) => this.hoverOn(d.owner, hovered, cx)))
+      .when(Boolean(d.owner) && d.owner === this.hover, (el) => el.rounded(6).bg("#ffffff73"))
       .on_mouse_down("left", (_e, cx) => this.hold(cx))
       .on_click((_e, cx) => onClick(cx))
       .when(Boolean(d.right), (el) => el.on_mouse_down("right", (_e, cx) => {
@@ -442,8 +449,41 @@ export default class AiOffice extends View {
     openOverlay({ mod: "ai-office-tab", kind: "popup", width: 200, height: 90, props: { tab: a.tab } });
   }
 
+  // キャラ・PC・名札にマウスが乗った・離れた: 持ち主を覚えて描き直す（同じ持ち主のものを一緒に光らせる）
+  hoverOn(owner, hovered, cx) {
+    if (hovered) this.hover = owner;
+    else if (this.hover === owner) this.hover = null;
+    else return;
+    cx.notify();
+  }
+
+  // 机の前の板の名札（タブバーと同じ名前。入らなければ「…」で切る）。持ち主にマウスが乗っている間は黄色
+  nameplate(d) {
+    const lit = d.owner === this.hover;
+    return div().id(d.id).absolute().left(px(d.x)).top(px(d.y)).w(px(d.w)).h(px(d.h)).px(3).flex().items_center()
+      .rounded(3).border(1).border_color("#5b3a2c").bg(lit ? "#ffe08a" : "#fffaf0").cursor_pointer()
+      .on_mouse_down("left", (_e, cx) => this.hold(cx))
+      .on_click(() => this.act(d.click))
+      .on_hover((hovered, cx) => this.hoverOn(d.owner, hovered, cx))
+      .tooltip(d.tip)
+      .child(div().w_full().text_size(9).line_height(px(5)).text_color("#3b2a2a").whitespace_nowrap().text_ellipsis()
+        .overflow_hidden().child(d.plate));
+  }
+
+  // マウスが乗っている人の頭の上の、名前の札（歩いている途中でも、どの席の人か分かるように。全部の名前を出す）
+  hoverMarks(items) {
+    const c = items.find((d) => d.char && d.owner === this.hover);
+    const name = this.hover && this.office.chars.get(this.hover)?.info?.seatName;
+    if (!c || !name) return [];
+    return [h_flex().absolute().left(px(c.x + 9 - 90)).top(px(c.y - 11)).w(px(180)).h(px(9)).justify_center()
+      .child(h_flex().max_w_full().h_full().px(4).items_center().rounded(3).border(1).border_color("#3b2a2a").bg("#ffe08a")
+        .child(div().min_w(0).text_size(10).text_color("#3b2a2a").whitespace_nowrap().text_ellipsis().overflow_hidden()
+          .child(name)))];
+  }
+
   item(d) {
     if (d.text !== undefined) return this.tag(d);
+    if (d.plate !== undefined) return this.nameplate(d);
     if (d.tile) return this.tiled(d);
     return d.click ? this.button(d.id, d, () => this.act(d.click), d.tip) : this.sprite(d);
   }
@@ -693,6 +733,7 @@ export default class AiOffice extends View {
       .children(floor.rooms.flatMap((r) => this.roomBack(r, view)))
       .children(floor.rooms.filter((r) => r.newRoom).flatMap((r) => this.newRoom(r)))
       .children(items.map((d) => this.item(d)))
+      .children(this.hoverMarks(items))
       .when(Boolean(active), (el) => el.child(div().absolute().left(px(active.ox)).top(px(active.oy))
         .w(px(active.w)).h(px(BOX_H)).border(2).border_color(t.accent)))
       .children(this.dragMarks(floor, t))
