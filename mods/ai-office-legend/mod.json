@@ -1,0 +1,9 @@
+{
+  "place": "none",
+  "title": "AI Office: legend",
+  "overlay": {
+    "kind": "popup",
+    "width": 300,
+    "height": 420
+  }
+}

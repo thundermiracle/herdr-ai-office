@@ -32,8 +32,6 @@ const WEATHER_URL = `https://api.open-meteo.com/v1/forecast?latitude=${TOKYO.lat
 const WEATHER_CHECK_MS = 60000; // 天気が古くなったかを見る間隔（取り直すのは WEATHER_MS ごと）
 const WEATHER_RETRY_MS = 5 * 60000; // 取れなかったとき、次に試すまで
 const WEATHER_STALE_MS = 3 * 3600000; // これより古い天気は使わない（晴れ扱い。何時間も閉じていたあと）
-const LEGEND = "見た目: 眼鏡とネクタイ = opus、なし = sonnet、若葉 = haiku、星のピン = fable、ヘッドホン = Codex"
-  + "　鉢巻き: なし = low、青 = medium、白 = high、赤 = xhigh、赤と炎 = max";
 
 /**
  * herdr のデータを集める: スペースごとの部屋と、エージェントごとの状態・model・effort。
@@ -725,8 +723,10 @@ export default class AiOffice extends View {
           .tooltip("部屋の形: クリックでモダン（独立した部屋・ガラスの壁と廊下）とクラシック（つながった部屋）を替える")
           .on_click(() => setShared("ai-office.theme", this.theme === "modern" ? "classic" : "modern"))
           .child(`テーマ: ${THEME_NAMES[this.theme]}`))
-        .child(div().id("legend").px(6).rounded(4).text_color(t.dim).hover((s) => s.text_color(t.foreground))
-          .tooltip(LEGEND).child("凡例")))
+        .child(div().id("legend").px(6).rounded(4).cursor_pointer().text_color(t.dim).hover((s) => s.text_color(t.foreground))
+          .tooltip("クリックで凡例（キャラの見分け方: AI と model、effort の鉢巻き）")
+          .on_click(() => openOverlay({ mod: "ai-office-legend", kind: "popup", width: 300, height: 420 }))
+          .child("凡例")))
       .child(div().id("scroll").flex_1().min_h(0).overflow_scroll() // 細い列（Office ボタン）では横にも
         .child(div().p(px(MARGIN)).child(this.building(floor, this.items(placed), t, this.view()))));
   }
