@@ -6,11 +6,12 @@ import { v_flex, h_flex } from "gpui-base";
 import * as fs from "fs/promises";
 import {
   spaces, agents, terminals, panes, theme, window, run, openOverlay, pickFolder, home, appHome, readTextFile, layout, props, setShared,
-  shared, nextCommand,
+  shared, nextCommand, exec,
 } from "herdr";
 import {
   SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, layoutFloor, drawables,
-  floorDrawables, running, roomAt, dropTarget, useTheme, geometry, seatName, readTheme, addTheme, themeList, pngSize,
+  floorDrawables, running, roomAt, dropTarget, useTheme, geometry, seatName, readTheme, addTheme, themeList, pngSize, parseGitDocs,
+  FOLDER_DOCS,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
   PLACES, WEATHER_MS, TRIAL_WEATHER, defaultPlace, offsetAt, offsetLabel, placeAt, placeClock, weatherOf, parseWeather,
   windowView, windowTip, parseSkyCommand,
@@ -23,6 +24,7 @@ const DRAG_START = 4; // 部屋を押したまま、これだけ（絵の px）�
 const META_MS = 10000; // model と effort を読み直す間隔
 const HIDDEN_MS = 1000; // 隠れている間は、この間隔で見えるようになったかだけ見る
 const SKILLS_MS = 60000; // 使える skill を読み直す間隔（めったに変わらない）
+const FOLDER_DOCS_MS = 20000; // 部屋のフォルダの、まだコミットしていない .md を調べ直す間隔
 // 窓の外の天気: 選んだ場所の今の天気（Open-Meteo。キーは要らず、送るのはその場所の緯度経度だけ）
 const weatherUrl = (place) => `https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}`
   + "&current=weather_code,temperature_2m&timezone=auto";
@@ -32,9 +34,10 @@ const WEATHER_STALE_MS = 3 * 3600000; // これより古い天気は使わない
 
 /**
  * herdr のデータを集める: スペースごとの部屋と、エージェントごとの状態・model・effort。
- * meta: Claude のセッション ID → { model, effort }（loadMeta が読む）、codexDefaults: ~/.codex/config.toml の既定。
+ * meta: Claude のセッション ID → { model, effort }（loadMeta が読む）、codexDefaults: ~/.codex/config.toml の既定、
+ * folderDocs: スペースの id → 部屋のフォルダのまだコミットしていない .md（loadFolderDocs が調べる）。
  */
-function gather(meta, codexDefaults) {
+function gather(meta, codexDefaults, folderDocs) {
   const ag = agents();
   const sp = spaces();
   const terms = new Map(terminals().map((t) => [t.address, t]));
@@ -61,6 +64,7 @@ function gather(meta, codexDefaults) {
       heardAt: t?.labels?.["office.heard_at"] || null,
       heardText: t?.labels?.["office.heard_text"] || null,
       plan: t?.labels?.["office.plan"] || null, // フックが付ける（プランモードで書いたプランのファイル。セッションの終わりまで）
+      docs: (t?.labels?.["office.docs"] || "").split("\n").filter(Boolean), // フックが付ける（書いた .md。新しい順）
       tname: t?.name ?? null, // hc の名前（hc run --name）。hc send の相手はアドレスか、この名前
       tab: a.tab_name,
       // 机の名札: タブバーと同じ名前（名前のないタブは、エージェントの今のタイトル）
@@ -70,8 +74,10 @@ function gather(meta, codexDefaults) {
     }];
   }));
   const ps = panes();
-  const plans = new Map([...info].filter(([, a]) => a.plan).map(([address, a]) => [address, a.plan]));
-  return { rooms: roomsOf(sp.map((s) => ({ ...s, folder: placeOf(s, ps) })), ag, plans), info };
+  // その人が書いたもの（ホワイトボード）: プランと、書いた .md
+  const docs = new Map([...info].map(([address, a]) => [address,
+    [...(a.plan ? [{ path: a.plan, kind: "plan" }] : []), ...a.docs.map((path) => ({ path, kind: "doc" }))]]));
+  return { rooms: roomsOf(sp.map((s) => ({ ...s, folder: placeOf(s, ps) })), ag, docs, folderDocs), info };
 }
 
 // レイアウトの根から id のブロックまでの道（見つからなければ null）
@@ -233,6 +239,10 @@ export default class AiOffice extends View {
     this.codexDefaults = {};
     this.loadMeta(cx);
     cx.timer.every(META_MS, (cx) => this.loadMeta(cx));
+    this.folderDocs = new Map(); // スペースの id → 部屋のフォルダのまだコミットしていない .md（新しい順）
+    this.folderDocsKey = "";
+    this.loadFolderDocs(cx);
+    cx.timer.every(FOLDER_DOCS_MS, (cx) => this.loadFolderDocs(cx));
     this.skills = { global: [], byFolder: new Map() };
     this.skillsKey = "";
     this.loadSkills(cx);
@@ -325,6 +335,36 @@ export default class AiOffice extends View {
     });
   }
 
+  // 部屋のフォルダ（この Mac のスペースだけ）の、まだコミットしていない .md（新しい・変えたもの）を git で調べ、新しい順に
+  // FOLDER_DOCS 本まで。誰が書いたかは分からないが、Bash で書いたものや Codex のものも入る。変わったときだけ描き直す
+  loadFolderDocs(cx) {
+    if (this.hidden()) return;
+    cx.spawn(async (cx) => {
+      const ps = panes();
+      const found = new Map();
+      for (const s of spaces()) {
+        const folder = placeOf(s, ps);
+        if (s.machine || !folder) continue;
+        try {
+          const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: folder, timeout: 5 });
+          if (top.code !== 0) continue;
+          const st = await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "*.md", "*.markdown"],
+            { cwd: folder, timeout: 5 });
+          const files = st.code === 0 ? parseGitDocs(st.stdout, top.stdout.trim()).slice(0, 50) : [];
+          if (!files.length) continue;
+          const ls = await exec("ls", ["-t", ...files], { timeout: 5 }); // 新しい順
+          found.set(s.id, ls.stdout.split("\n").filter(Boolean).slice(0, FOLDER_DOCS));
+        } catch {}
+      }
+      const key = JSON.stringify([...found]);
+      if (key !== this.folderDocsKey) {
+        this.folderDocsKey = key;
+        this.folderDocs = found;
+        cx.notify();
+      }
+    });
+  }
+
   // 資料室の本棚の skill: どこでも使えるものと、各スペース（この Mac）のプロジェクトの skill。同じものは 1 冊
   shelfSkills() {
     const seen = new Set();
@@ -349,7 +389,7 @@ export default class AiOffice extends View {
       this.office = new Office();
       this.sig = "";
     }
-    const { rooms, info } = gather(this.meta, this.codexDefaults);
+    const { rooms, info } = gather(this.meta, this.codexDefaults, this.folderDocs);
     const floor = layoutFloor(rooms, this.width / SCALE - 2 * MARGIN);
     const placed = floor.rooms.filter((r) => !r.newRoom);
     this.office.sync(placed, info);
@@ -429,8 +469,8 @@ export default class AiOffice extends View {
       }
       const clock = placeClock(place, now);
       const { h, m } = clockHands(clock.min);
-      const plans = placed.map((r) => r.plans.map((p) => p.path).join(",")).join("/"); // 壁のホワイトボード（items にない）
-      const sig = `${place.id}|${h}:${m}|${this.view().key}|${clock.text}|${plans}|` + this.items(placed)
+      const docs = placed.map((r) => r.docs.map((d) => d.path).join(",")).join("/"); // 壁のホワイトボード（items にない）
+      const sig = `${place.id}|${h}:${m}|${this.view().key}|${clock.text}|${docs}|` + this.items(placed)
         .map((d) => `${d.img ?? d.text}+${d.over}+${d.books?.length ?? ""}@${d.x},${d.y}`).join(";");
       if (sig !== this.sig) {
         this.sig = sig;
@@ -484,7 +524,7 @@ export default class AiOffice extends View {
   }
 
   // scene.js の click: { type: "focus", terminal } / { type: "hire", space, machine } / { type: "skills" }。
-  // 壁のプランのホワイトボード: { type: "plan", room, plans: [{ path, who }] }。机の PC: { type: "tab-menu", terminal, focus? }
+  // 壁のホワイトボード: { type: "docs", room, docs: [{ path, kind, who }] }。机の PC: { type: "tab-menu", terminal, focus? }
   act(click) {
     if (click.type === "focus") run("agent.focus", { terminal: click.terminal });
     if (click.type === "tab-menu") this.tabMenu(click);
@@ -500,9 +540,9 @@ export default class AiOffice extends View {
       // 選択肢の説明や答えの確認が長いこともあるので、プランと同じ広さのダイアログにして中をスクロールさせる
       openOverlay({ mod: "ai-office-ask", kind: "dialog", width: 0.65, height: 0.8, props: { terminal: click.terminal, name: click.name } });
     }
-    if (click.type === "plan") {
+    if (click.type === "docs") {
       // プランは長い行（コードや表）が多いので、skill の中身より広く、窓の幅に合わせる
-      openOverlay({ mod: "ai-office-plan", kind: "dialog", width: 0.65, height: 0.8, props: { room: click.room, plans: click.plans } });
+      openOverlay({ mod: "ai-office-docs", kind: "dialog", width: 0.65, height: 0.8, props: { room: click.room, docs: click.docs } });
     }
     if (click.type === "hire") {
       openOverlay({ mod: "ai-office-hire", kind: "popup", width: 240, height: 320, props: { space: click.space, machine: click.machine } });
@@ -611,7 +651,7 @@ export default class AiOffice extends View {
   // 名札の並ぶ壁と同じく、ほかの部屋へドラッグすると部屋の順番が変わる（名札の上で離せばクリック）
   plate(room) {
     const text = room.machine ? `${room.machine}: ${room.name}` : room.name;
-    const right = room.plans.length ? room.w - 116 : room.w - 76;
+    const right = room.docs.length ? room.w - 116 : room.w - 76;
     const menu = () => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "space", target: { id: room.id } } });
     return div().id(`plate-${room.id}`).absolute().left(px(room.ox + 10)).top(px(room.oy + 5)).h(px(12)).max_w(px(right - 14))
       .cursor_pointer().on_mouse_down("left", (_e, cx) => {
@@ -682,15 +722,18 @@ export default class AiOffice extends View {
       .children(view.layers.map((img) => image(`${IMG}/${img}.png`).absolute().left(0).top(0).size_full()));
   }
 
-  // プランのホワイトボード（部屋の誰かがプランを書いた）。窓の左に掛け、クリックでプランの中身。プランがなければ掛けない
-  planBoard(room) {
-    const plans = room.plans.map((p) => {
-      const a = this.office.chars.get(p.address)?.info ?? {};
-      return { path: p.path, who: [a.name, a.tab].filter(Boolean).join(" · ") || p.address };
+  // 壁のホワイトボード（部屋の誰かのプランと書いた .md、部屋のフォルダのまだコミットしていない .md）。窓の左に掛け、
+  // クリックで中身（ai-office-docs）。どれもなければ掛けない
+  board(room) {
+    const docs = room.docs.map((d) => {
+      const a = d.address ? this.office.chars.get(d.address)?.info ?? {} : null;
+      const who = a ? [a.name, a.tab].filter(Boolean).join(" · ") || d.address : "フォルダ（まだコミットしていない）";
+      return { path: d.path, kind: d.kind, who };
     });
+    const plans = docs.filter((d) => d.kind === "plan").length;
+    const count = [plans ? `プラン ${plans}` : "", docs.length > plans ? `.md ${docs.length - plans}` : ""].filter(Boolean).join("・");
     const d = { img: "whiteboard-plan", x: room.ox + room.w - 112, y: room.oy + 7 + geometry().DECOR_DY, w: 30, h: 18, glow: true };
-    const tip = `プラン: ${plans.map((p) => p.who).join("、")}（クリックで見る）`;
-    return this.button(`plan-${room.id}`, d, () => this.act({ type: "plan", room: room.name, plans }), tip);
+    return this.button(`board-${room.id}`, d, () => this.act({ type: "docs", room: room.name, docs }), `ホワイトボード: ${count}（クリックで読む）`);
   }
 
   // 部屋の後ろのもの: 奥の壁、左の仕切り（modern: 隣とは壁、縦の廊下に面していればガラス）、壁の飾り（ホワイトボード・
@@ -702,7 +745,7 @@ export default class AiOffice extends View {
       this.wall(ox, oy, w),
       ...(HALL_SIDE === "glass" && ox === HALL_W ? this.sideGlass(ox, oy) : [this.partition(ox, oy)]),
       ...(room.newRoom ? [] : [
-        ...(room.plans.length ? [this.planBoard(room)] : []),
+        ...(room.docs.length ? [this.board(room)] : []),
         this.sky(ox + w - 72, oy + 6 + dy, view, `window-${room.id}`),
         this.clock(room, ox + w - 33, oy + 8 + dy),
         this.plate(room),

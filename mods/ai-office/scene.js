@@ -166,7 +166,8 @@ export function geometry() {
 }
 
 export const NEW_ROOM_W = 72; // 空き部屋（クリックで新しい部屋）
-export const PLAN_ROOM_W = 200; // プランのホワイトボードを掛ける部屋の幅の下限（名札・ホワイトボード・窓・時計が並ぶ）
+export const BOARD_ROOM_W = 200; // ホワイトボードを掛ける部屋の幅の下限（名札・ホワイトボード・窓・時計が並ぶ）
+export const FOLDER_DOCS = 8; // 部屋のフォルダの、まだコミットしていない .md をホワイトボードに出す数（新しい順）
 
 export function hash(text) {
   let h = 0x811c9dc5;
@@ -355,12 +356,27 @@ export function behaviorOf(status, act) {
 
 /**
  * 1 つのスペースの部屋。席はエージェントの数 + 1（最後の 1 つは空席で、クリックで雇う）。
- * plans: address → プランのファイル（フックが書く office.plan）。プランのある人がいれば、部屋の壁にホワイトボードを掛ける
+ * docs: address → その人が書いたもの [{ path, kind }]（kind: plan はフックが書く office.plan、doc は office.docs）。
+ * folderDocs: スペースの id → 部屋のフォルダのまだコミットしていない .md の道（新しい順。main.js が git で調べる）。
+ * どれかがあれば、部屋の壁にホワイトボードを掛ける。room.docs: [{ path, kind, address? }]（同じファイルは 1 つ。
+ * プランが先、そのあと人ごとの .md、最後にフォルダの .md。フォルダのものは kind: folder で、誰が書いたかは分からない）
  */
-export function roomOf(space, agentsHere, plans = new Map()) {
+export function roomOf(space, agentsHere, docs = new Map(), folderDocs = new Map()) {
   const count = agentsHere.length + 1;
   const deskEnd = DESK_X + DESK_END * 2 + count * SEAT_W;
-  const roomPlans = agentsHere.filter((a) => plans.get(a.address)).map((a) => ({ address: a.address, path: plans.get(a.address) }));
+  const roomDocs = [];
+  const seen = new Set();
+  const add = (d) => {
+    if (seen.has(d.path)) return;
+    seen.add(d.path);
+    roomDocs.push(d);
+  };
+  for (const plans of [true, false]) {
+    for (const a of agentsHere) {
+      for (const d of docs.get(a.address) ?? []) if ((d.kind === "plan") === plans) add({ path: d.path, kind: d.kind, address: a.address });
+    }
+  }
+  for (const path of folderDocs.get(space.id) ?? []) add({ path, kind: "folder" });
   return {
     id: space.id,
     name: space.name,
@@ -368,10 +384,10 @@ export function roomOf(space, agentsHere, plans = new Map()) {
     machine: space.machine ?? null,
     folder: space.folder ?? "",
     status: space.status ?? null,
-    w: Math.max(MIN_ROOM_W, deskEnd + 30, roomPlans.length ? PLAN_ROOM_W : 0),
+    w: Math.max(MIN_ROOM_W, deskEnd + 30, roomDocs.length ? BOARD_ROOM_W : 0),
     h: ROOM_H,
     deskEnd,
-    plans: roomPlans,
+    docs: roomDocs,
     rightPass: deskEnd + 10,
     seats: Array.from({ length: count }, (_, i) => {
       const segX = DESK_X + DESK_END + i * SEAT_W;
@@ -380,9 +396,28 @@ export function roomOf(space, agentsHere, plans = new Map()) {
   };
 }
 
-/** スペースごとに部屋を作る。agents は herdr の agents()（スペース・タブ・ペインの順）。plans は roomOf と同じ。 */
-export function roomsOf(spaces, agents, plans = new Map()) {
-  return spaces.map((s) => roomOf(s, agents.filter((a) => a.space === s.id), plans));
+/** スペースごとに部屋を作る。agents は herdr の agents()（スペース・タブ・ペインの順）。docs と folderDocs は roomOf と同じ。 */
+export function roomsOf(spaces, agents, docs = new Map(), folderDocs = new Map()) {
+  return spaces.map((s) => roomOf(s, agents.filter((a) => a.space === s.id), docs, folderDocs));
+}
+
+/**
+ * git status --porcelain=v1 -z（-uall）の出力から、まだコミットしていない .md の道（新しい・変えたもの。消したものは除く。
+ * 名前を変えた・写したものは新しい名前）。root はリポジトリの場所（出力の道はリポジトリからの道なので、前に付ける）。
+ */
+export function parseGitDocs(out, root) {
+  const parts = (out ?? "").split("\0");
+  const files = [];
+  for (let i = 0; i < parts.length; i++) {
+    const e = parts[i];
+    if (e.length < 4) continue;
+    const xy = e.slice(0, 2);
+    if (xy[0] === "R" || xy[0] === "C") i++; // 名前を変えた・写した: 次の区切りは元の名前
+    if (xy.includes("D")) continue;
+    const path = e.slice(3);
+    if (/\.(md|markdown)$/i.test(path)) files.push(`${root}/${path}`);
+  }
+  return files;
 }
 
 /**

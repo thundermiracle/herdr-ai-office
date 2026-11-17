@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "fs";
 import {
-  BACK, CORRIDOR_Y, DESK_X, ERRAND_READ_MS, HALL_W, LANE_Y, LEFT_PASS, LIBRARY, MIN_ROOM_W, PART_END, PART_W, PLAN_ROOM_W, ROOM_H, SEAT_W,
+  BACK, CORRIDOR_Y, DESK_X, ERRAND_READ_MS, HALL_W, LANE_Y, LEFT_PASS, LIBRARY, MIN_ROOM_W, PART_END, PART_W, BOARD_ROOM_W, ROOM_H, SEAT_W,
   TALK_DEDUP_MS, TALK_MS, TALK_TURN_MS, WALL_H, Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride,
   drawables, dropTarget, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
-  FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize,
+  FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, parseGitDocs,
 } from "../mods/ai-office/scene.js";
 
 // テーマは、オフィスと同じく mods/ai-office/themes/<名前>/ の theme.json と PNG から読む（確かめで落ちたら、ここで止まる）
@@ -124,18 +124,43 @@ describe("rooms", () => {
     expect(roomOf(space("c"), Array.from({ length: 8 }, (_, i) => agent(`t${i}`, "c"))).w).toBeGreaterThan(MIN_ROOM_W);
   });
 
-  test("a room with someone's plan gets the plan whiteboard, and is wide enough for it", () => {
+  test("a room with someone's plan gets the whiteboard, and is wide enough for it", () => {
     const agents = [agent("t1", "a"), agent("t2", "a"), agent("t3", "b")];
-    const plans = new Map([["t2", "/u/.claude/plans/quiet-fox.md"]]);
-    const [a, b] = roomsOf([space("a"), space("b")], agents, plans);
-    expect(a.plans).toEqual([{ address: "t2", path: "/u/.claude/plans/quiet-fox.md" }]);
-    expect(a.w).toBe(PLAN_ROOM_W);
-    expect(b.plans).toEqual([]);
+    const docs = new Map([["t2", [{ path: "/u/.claude/plans/quiet-fox.md", kind: "plan" }]]]);
+    const [a, b] = roomsOf([space("a"), space("b")], agents, docs);
+    expect(a.docs).toEqual([{ address: "t2", path: "/u/.claude/plans/quiet-fox.md", kind: "plan" }]);
+    expect(a.w).toBe(BOARD_ROOM_W);
+    expect(b.docs).toEqual([]);
     expect(b.w).toBe(MIN_ROOM_W);
     // 机が長くてもともと広い部屋は、そのまま
     const many = Array.from({ length: 8 }, (_, i) => agent(`t${i}`, "c"));
     const wide = roomOf(space("c"), many);
-    expect(roomOf(space("c"), many, new Map([["t0", "/p.md"]])).w).toBe(wide.w);
+    expect(roomOf(space("c"), many, new Map([["t0", [{ path: "/p.md", kind: "plan" }]]])).w).toBe(wide.w);
+  });
+
+  test("the whiteboard holds plans first, then each person's .md, then the folder's uncommitted .md, each file once", () => {
+    const agents = [agent("t1", "a"), agent("t2", "a")];
+    const docs = new Map([
+      ["t1", [{ path: "/r/notes.md", kind: "doc" }, { path: "/r/README.md", kind: "doc" }]],
+      ["t2", [{ path: "/u/.claude/plans/fox.md", kind: "plan" }, { path: "/r/design.md", kind: "doc" }]],
+    ]);
+    const folder = new Map([["a", ["/r/README.md", "/r/CHANGELOG.md"]]]); // README は t1 が書いたので、t1 の .md として 1 つ
+    const [a] = roomsOf([space("a")], agents, docs, folder);
+    expect(a.docs.map((d) => [d.kind, d.path, d.address ?? null])).toEqual([
+      ["plan", "/u/.claude/plans/fox.md", "t2"],
+      ["doc", "/r/notes.md", "t1"],
+      ["doc", "/r/README.md", "t1"],
+      ["doc", "/r/design.md", "t2"],
+      ["folder", "/r/CHANGELOG.md", null],
+    ]);
+    expect(roomsOf([space("b")], [], new Map(), folder)[0].docs).toEqual([]); // 別の部屋のフォルダのものは来ない
+    expect(roomsOf([space("a")], [], new Map(), folder)[0].w).toBe(BOARD_ROOM_W); // 誰もいなくても、フォルダの .md で掛かる
+  });
+
+  test("git status (porcelain, -z) gives the uncommitted .md: new, changed, renamed; not deleted, not other files", () => {
+    const out = ["?? docs/new.md", " M README.md", "M  notes.markdown", " D gone.md", "R  docs/to.md", "docs/from.md", "?? src/x.js", ""].join("\0");
+    expect(parseGitDocs(out, "/repo")).toEqual(["/repo/docs/new.md", "/repo/README.md", "/repo/notes.markdown", "/repo/docs/to.md"]);
+    expect(parseGitDocs("", "/repo")).toEqual([]);
   });
 
   test("agents go to their own space's room", () => {

@@ -9,16 +9,19 @@
 #   office.heard / office.heard_at / office.heard_text: hc send で話しかけられた（送った人のアドレス・出来事の値・文の始め）。
 #                    送った人にフックがない（Codex など）ときも、AI Office は送った人を行かせる
 #   office.plan: プランのファイル（Claude Code のプランモードで書く ~/.claude/plans/<名前>.md。設定 plansDirectory なら
-#                そこ）。AI Office は、その部屋の壁にプランのホワイトボードを掛け、クリックで中身を出す。セッションの終わりまで残す
+#                そこ）。AI Office は、その部屋の壁にホワイトボードを掛け、クリックで中身を出す。セッションの終わりまで残す
+#   office.docs: このセッションで書いた .md（プラン以外。新しい順に 8 本まで、改行で区切る）。ホワイトボードで読める。
+#                ~/.claude/ の中（メモリや設定）は入れない。セッションの終わりまで残す
 # イベントごとに:
 #   PreToolUse: Skill → read と、その skill。Read / Grep / Glob / LS / WebSearch / WebFetch / NotebookRead → read、
 #               Edit / Write / MultiEdit / NotebookEdit → edit、Bash → run（コマンドに hc send があれば話しかけ）、
 #               ほかのツール → act を消す（skill はそのまま）。
 #               プランモードで書く .md（プランモードで書けるのはプランのファイルだけ）と、~/.claude/plans/ の .md を書く
-#               Edit / Write / MultiEdit、ExitPlanMode の planFilePath → プラン
+#               Edit / Write / MultiEdit、ExitPlanMode の planFilePath → プラン。ほかの .md を書く Edit / Write / MultiEdit →
+#               書いた .md の一覧の先頭に（一覧はセッションごとに $TMPDIR に覚え、変わったときだけ書く）
 #   UserPromptSubmit: hc から届いた `<hc from="t3 名前">文</hc>` は話しかけられた出来事。/名前 で始まる依頼は、
 #               その skill を読む（read と skill）。ほかの依頼は act と skill を消す
-#   Stop: act と skill を消す。SessionEnd（終了・/clear）: act と skill とプランを消す
+#   Stop: act と skill を消す。SessionEnd（終了・/clear）: act と skill とプランと書いた .md の一覧を消す
 # herdr-app のターミナルの中（HC_TERMINAL_ID がある）だけで動く。サブエージェント（agent_id がある）は無視する。
 # PreToolUse はフックが終わるまでツールを待たせるので、hc は裏で走らせ、入出力をすべて閉じる
 # （閉じないと、hc が終わるまでフックが終わらない）。何も出力しない（出力は Claude Code への返事になる）。
@@ -61,7 +64,8 @@ event= # skill を使った出来事なら、その値（office.skill_at）
 talk=  # 話しかけた（相手<TAB>文）
 heard= # 話しかけられた（送った人<TAB>文）
 plan=  # プランのファイル（office.plan）
-ended= # セッションが終わった（プランも消す）
+doc=   # 書いた .md（office.docs の一覧の先頭に足す）
+ended= # セッションが終わった（プランと書いた .md も消す）
 case "$(field .hook_event_name)" in
   PreToolUse)
     case "$(field .tool_name)" in
@@ -75,11 +79,15 @@ case "$(field .hook_event_name)" in
         act=edit
         file=$(field .tool_input.file_path)
         case "$file" in
-          *.md)
+          *.md | *.markdown)
             if [ "$(field .permission_mode)" = plan ]; then
               plan=$file
             else
-              case "$file" in */.claude/plans/*) plan=$file ;; esac
+              case "$file" in
+                */.claude/plans/*) plan=$file ;;
+                */.claude/*) ;; # Claude のメモリや設定
+                *) doc=$file ;;
+              esac
             fi
             ;;
         esac
@@ -123,8 +131,25 @@ case "$(field .hook_event_name)" in
   *) exit 0 ;;
 esac
 
+# 書いた .md の一覧（$memo.docs の 1 行目はセッション、そのあと新しい順）。前のセッションの一覧は捨てる
+# （落ちて SessionEnd が来なかったとき）。先頭に足して重なりを除き、8 本まで。変わったときだけ office.docs に書く
+docs_memo="$memo.docs"
+docs=
+if [ -n "$doc" ]; then
+  session=$(field .session_id)
+  old=$(cat "$docs_memo" 2>/dev/null)
+  [ "$(printf '%s\n' "$old" | sed -n 1p)" = "$session" ] || old=
+  old_list=$(printf '%s\n' "$old" | sed 1d)
+  new_list=$({ printf '%s\n' "$doc"; printf '%s\n' "$old_list" | grep -vxF -e "$doc" -e ''; } | head -n 8)
+  if [ "$new_list" != "$old_list" ]; then
+    printf '%s\n%s\n' "$session" "$new_list" >"$docs_memo"
+    docs=$new_list
+  fi
+fi
+[ -n "$ended" ] && rm -f "$docs_memo"
+
 next="$act|$skill"
-if [ -z "$event$talk$heard$plan$ended" ] && [ -f "$memo" ] && [ "$prev" = "$next" ]; then
+if [ -z "$event$talk$heard$plan$docs$ended" ] && [ -f "$memo" ] && [ "$prev" = "$next" ]; then
   exit 0 # 同じ値で、出来事でもない
 fi
 printf '%s' "$next" >"$memo"
@@ -137,6 +162,7 @@ if [ -n "$heard" ]; then
   set -- "$@" "office.heard=${heard%%"$tab"*}" "office.heard_at=$(date +%s)-$$" "office.heard_text=${heard#*"$tab"}"
 fi
 [ -n "$plan" ] && set -- "$@" "office.plan=$plan"
-[ -n "$ended" ] && set -- "$@" "office.plan="
+[ -n "$docs" ] && set -- "$@" "office.docs=$docs"
+[ -n "$ended" ] && set -- "$@" "office.plan=" "office.docs="
 hc label "$HC_TERMINAL_ID" "$@" </dev/null >/dev/null 2>&1 &
 exit 0

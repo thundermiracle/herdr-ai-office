@@ -133,5 +133,43 @@ plan_check "ExitPlanMode planFilePath -> plan" "$(pre ExitPlanMode '' '{"plan":"
 plan_check "sub-agent plan write is ignored" "$(write Write /repo/sub.md "$in_plan,\"agent_id\":\"a1\"")" /u/.claude/plans/b.md
 plan_check "SessionEnd clears the plan" "$(event SessionEnd)" ""
 
+# 書いた .md: プラン以外の .md を書く Write / Edit / MultiEdit は office.docs（新しい順に 8 本、改行で区切る）。
+# ~/.claude/ の中は入れない。セッションが変われば新しい一覧。SessionEnd で消える
+# doc_check <説明> <JSON> <期待する office.docs（改行で区切る）>
+doc_check() {
+  local name=$1 json=$2 want=$3 start end ok=yes
+  start=$(now)
+  printf '%s' "$json" | HC_TERMINAL_ID="$term" TMPDIR="$tmp" sh -c "$hook" >"$tmp/out" 2>&1
+  end=$(now)
+  sleep 0.4
+  [ "$(label office.docs)" = "$want" ] && [ ! -s "$tmp/out" ] && [ $((end - start)) -lt 300 ] || ok=no
+  [ "$ok" = yes ] || fails=$((fails + 1))
+  printf '%-4s %-40s docs=%-44s %4sms\n' "$ok" "$name" "'$(label office.docs | tr '\n' ',')'" $((end - start))
+}
+nl='
+'
+
+doc_check "Write .md (default mode) -> docs" "$(write Write /repo/README.md)" /repo/README.md
+doc_check "another .md comes first" "$(write Write /repo/docs/a.md)" "/repo/docs/a.md$nl/repo/README.md"
+doc_check "editing an older one moves it up" "$(write Edit /repo/README.md)" "/repo/README.md$nl/repo/docs/a.md"
+doc_check "Claude's memory is not a doc" "$(write Write /u/.claude/projects/x/memory/m.md)" "/repo/README.md$nl/repo/docs/a.md"
+doc_check "a plan-mode .md is a plan, not a doc" "$(write Write /repo/docs/plans/p2.md "$in_plan")" "/repo/README.md$nl/repo/docs/a.md"
+doc_check "sub-agent writes are ignored" "$(write Write /repo/sub.md ',"agent_id":"a1"')" "/repo/README.md$nl/repo/docs/a.md"
+for i in 1 2 3 4 5 6 7 8 9; do
+  printf '%s' "$(write Write "/repo/n$i.md")" | HC_TERMINAL_ID="$term" TMPDIR="$tmp" sh -c "$hook"
+done
+sleep 0.4
+got=$(label office.docs)
+if [ "$(printf '%s\n' "$got" | wc -l | tr -d ' ')" = 8 ] && [ "$(printf '%s\n' "$got" | head -n 1)" = /repo/n9.md ] \
+  && [ "$(printf '%s\n' "$got" | tail -n 1)" = /repo/n2.md ]; then
+  echo "yes  nine new files keep the newest eight         docs=$(printf '%s' "$got" | tr '\n' ',')"
+else
+  echo "no   nine new files keep the newest eight         docs=$(printf '%s' "$got" | tr '\n' ',')"
+  fails=$((fails + 1))
+fi
+doc_check "a new session starts a new list" "$(write Write /repo/fresh.md ',"session_id":"s2"')" /repo/fresh.md
+doc_check "SessionEnd clears the docs" "$(event SessionEnd)" ""
+plan_check "SessionEnd clears a plan made meanwhile" "$(pre Read)" ""
+
 echo "fails: $fails"
 [ "$fails" -eq 0 ]
