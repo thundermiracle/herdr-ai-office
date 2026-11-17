@@ -68,8 +68,8 @@ describe("places and their time zones", () => {
       for (const phase of ["day", "dawn", "dusk", "twilight", "night"]) expect(existsSync(`${img}view/${p.id}-${phase}.png`)).toBe(true);
     }
     expect(windowView(Date.UTC(2026, 10, 12, 3), null, 0, place("paris")).layers).toContain("view/paris-night");
-    expect(windowView(Date.UTC(2026, 10, 12, 3), null, 0, place("paris"), "window-wide").layers.at(-1)).toBe("window-wide");
-    expect(existsSync(`${img}window-wide.png`)).toBe(true);
+    expect(windowView(Date.UTC(2026, 10, 12, 3), null, 0, place("paris"), "window-slide").layers.at(-1)).toBe("window-slide");
+    expect(existsSync(`${img}window-slide.png`)).toBe(true);
   });
 
   test("the sun and the sky follow the place", () => {

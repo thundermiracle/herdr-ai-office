@@ -860,7 +860,7 @@ describe("themes from the themes/ folder", () => {
     expect(modern.IMAGES.wall).toEqual({ src: "mods/ai-office/themes/modern/wall.png", w: 512, h: 30 });
     expect(modern.IMAGES.glass).toMatchObject({ w: 24, h: 14 });
     expect(themeList()[1].IMAGES.wall.src).toBe("mods/ai-office/img/wall.png"); // classic は既定の絵
-    expect(themeList().map((t) => t.WINDOW)).toEqual(["window-wide", "window"]); // 窓: modern は 1 枚ガラス、classic は十字
+    expect(themeList().map((t) => t.WINDOW)).toEqual(["window-slide", "window"]); // 窓: modern は引き違い、classic は十字
   });
 
   test("pngSize reads the picture size (a quarter of the PNG) and refuses what is not a PNG", () => {

@@ -37,7 +37,7 @@ export const HALL_W = 44; // 左の廊下の幅
 // テーマを選ぶまで（main.js がテーマのフォルダを読み終えるまで）は undefined
 export let THEME = null;
 export let ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY, HALL_SIDE, IMAGES, COLORS;
-export let WINDOW; // 窓枠の絵（img/ の下の名前）: window（十字の桟）か window-wide（桟のない 1 枚ガラス）
+export let WINDOW; // 窓枠の絵（img/ の下の名前）: window（十字の桟）か window-slide（2 枚の引き違いの窓）
 // 資料室（廊下の一番上）で本を読む場所（フロア全体の座標）。本棚の前から、読む人が増えると順に並ぶ
 export let LIBRARY;
 // 本棚（bookshelf-empty.png、資料室＝フロアの (6, SHELF.y) に置く）の中で本を立てる場所。scripts/build-art.py の bookshelf と
@@ -90,7 +90,7 @@ export function readTheme(name, json, sizes = {}, base = `mods/ai-office/themes/
   const g = json?.glass ?? null;
   if (g !== null && !(Number.isInteger(g.y) && Number.isInteger(g.height))) problems.push("glass が null か { y, height } でない");
   const window = json?.window ?? "cross";
-  if (!["cross", "wide"].includes(window)) problems.push("window が cross（十字の桟）か wide（1 枚ガラス）でない");
+  if (!["cross", "slide"].includes(window)) problems.push("window が cross（十字の桟）か slide（2 枚の引き違い）でない");
   const images = { ...DEFAULT_IMAGES };
   for (const [key, file] of Object.entries(json?.images ?? {})) {
     const size = sizes[file];
@@ -128,7 +128,7 @@ export function readTheme(name, json, sizes = {}, base = `mods/ai-office/themes/
     ROOM_H: room.height, WALL_H: room.wall, LANE_Y: room.lane, BACK: room.deskBack, BOX_H: room.box, CORRIDOR_Y: room.corridorY,
     PART_END: room.partitionEnd, SHELF_Y: room.shelfY, DECOR_DY: room.decorDy, FRONT_Y: front,
     GLASS: g ? { y: g.y, h: g.height } : null, RIGHT_EXIT: r.rightExit, HALL_SIDE: r.hallSide,
-    IMAGES: images, COLORS: { ...DEFAULT_COLORS, ...(json?.colors ?? {}) }, WINDOW: window === "wide" ? "window-wide" : "window",
+    IMAGES: images, COLORS: { ...DEFAULT_COLORS, ...(json?.colors ?? {}) }, WINDOW: window === "slide" ? "window-slide" : "window",
   };
   return { theme, problems };
 }
@@ -1011,7 +1011,7 @@ export function parseWeather(json, fetchedAt) {
 
 /**
  * 窓の外の絵（img/ の下の名前を奥から順に: 空、その場所の街並みと名物（view/<場所>-<時間帯>）、雨や雪、窓枠 frame
- * （テーマの WINDOW: window は十字の桟、window-wide は 1 枚ガラス）。
+ * （テーマの WINDOW: window は十字の桟、window-slide は 2 枚の引き違い）。
  * ms は空の時刻、weather は weatherOf か null（晴れ）、
  * t はコマ送りの数。雨と雪は 2 コマに 1 回進む（雨のためだけに毎コマ描き直さない）。雷は 24 コマごとに 2 回光る。
  * key は絵が変わったかを見るため（同じなら描き直さない）。

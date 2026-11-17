@@ -827,7 +827,7 @@ def in_glass(x, y):
 
 
 def in_view(x, y):
-    """窓枠の内側（十字の桟の裏も含む）。外の景色はここ全部に描き、十字の窓では桟がその上に重なる。"""
+    """窓枠の内側（桟の裏も含む）。外の景色はここ全部に描き、窓枠（十字の桟・引き違いの縦の桟）がその上に重なる。"""
     return 1 <= x < WIN_W - 1 and 1 <= y < WIN_H - 1
 
 
@@ -844,17 +844,23 @@ def window_frame():
     return im
 
 
-def window_frame_wide():
-    """桟のない 1 枚ガラスの窓枠（modern）: 外の枠だけ。ガラスには長い光の筋と短い筋を薄く重ねる。"""
+def window_frame_slide():
+    """引き違いの窓枠（modern）: 壁と区別できるアルミの枠（下の辺は敷居で少し濃い）と、真ん中に 2 枚の窓が重なる縦の桟
+    （明るい縁と影の 2 ドット。まんなかに鍵）。左右のガラスに光の筋を薄く重ねる。"""
     im = Image.new("RGBA", (WIN_W, WIN_H), (0, 0, 0, 0))
     for y in range(WIN_H):
         for x in range(WIN_W):
             if not in_view(x, y):
-                im.putpixel((x, y), rgb(FURN["a"]))
-    for i in range(12):
-        im.putpixel((3 + i, 1 + i), (255, 255, 255, 40))
-    for i in range(5):
-        im.putpixel((7 + i, 1 + i), (255, 255, 255, 30))
+                im.putpixel((x, y), rgb("#7f8a9c" if y == WIN_H - 1 else "#9aa4b4"))
+    mid = WIN_W // 2 - 1  # 13 と 14
+    for y in range(1, WIN_H - 1):
+        im.putpixel((mid, y), rgb("#c9d1dc"))
+        im.putpixel((mid + 1, y), rgb("#8592a6"))
+    for y in (7, 8):  # 鍵
+        im.putpixel((mid, y), rgb("#5b6678"))
+    for x0 in (2, mid + 3):  # 光の筋（左右の 1 枚ずつ）
+        for i in range(6):
+            im.putpixel((x0 + i, 1 + i), (255, 255, 255, 45))
     return im
 
 
@@ -1434,13 +1440,13 @@ def flash():
     return im
 
 
-def window_view(phase, cover, *overlays, place="tokyo", wide=False):
-    """窓 1 つ（空・その場所の街並みと名物・重ねるもの・窓枠。wide なら桟のない 1 枚ガラス）。見本用。"""
+def window_view(phase, cover, *overlays, place="tokyo", slide=False):
+    """窓 1 つ（空・その場所の街並みと名物・重ねるもの・窓枠。slide なら引き違いの窓、でなければ十字の桟）。見本用。"""
     im = sky(phase, cover)
     im.alpha_composite(city_view(place, phase))
     for o in overlays:
         im.alpha_composite(o)
-    im.alpha_composite(window_frame_wide() if wide else window_frame())
+    im.alpha_composite(window_frame_slide() if slide else window_frame())
     return im
 
 
@@ -1471,7 +1477,7 @@ def landmarks_preview():
         x0 = (i // half) * (block + 8)
         y0 = 4 + (i % half) * cell_h
         for k, phase in enumerate(SKY):
-            sheet.alpha_composite(window_view(phase, "clear", place=place, wide=True), (x0 + label + k * cell_w, y0))
+            sheet.alpha_composite(window_view(phase, "clear", place=place, slide=True), (x0 + label + k * cell_w, y0))
     Z = 6
     big = sheet.resize((sheet.width * Z, sheet.height * Z), Image.NEAREST)
     d = ImageDraw.Draw(big)
@@ -1565,7 +1571,7 @@ def main():
     n += 4
     # 窓: 枠（ガラスは透明）と、後ろに重ねる空（時間帯 x 空模様）・雨・雪・稲光
     save(window_frame(), "window")
-    save(window_frame_wide(), "window-wide")
+    save(window_frame_slide(), "window-slide")
     for phase in SKY:
         for cover in COVERS:
             save(sky(phase, cover), f"sky/{phase}-{cover}")
