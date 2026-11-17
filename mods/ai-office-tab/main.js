@@ -43,6 +43,7 @@ export default class TabMenu extends View {
       .children(ITEMS.map(([label, command, icon], i) => v_flex()
         .when(command === "tab.close", (el) => el.child(div().mx(7).my(4).h(1).bg(t.border)))
         .child(h_flex().id(`mi-${i}`).h(31).px(8).gap(9).rounded(7).items_center().justify_between().text_color(t.foreground)
+          .cursor_pointer()
           .when(i === this.at, (el) => el.bg(t.selected))
           .hover((s) => s.bg(t.hover))
           .on_click(() => this.choose(i))

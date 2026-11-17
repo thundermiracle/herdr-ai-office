@@ -1,11 +1,24 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { existsSync, readdirSync, readFileSync } from "fs";
 import {
   BACK, CORRIDOR_Y, DESK_X, ERRAND_READ_MS, HALL_W, LANE_Y, LEFT_PASS, LIBRARY, MIN_ROOM_W, PART_END, PART_W, PLAN_ROOM_W, ROOM_H, SEAT_W,
   TALK_DEDUP_MS, TALK_MS, TALK_TURN_MS, WALL_H, Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride,
   drawables, dropTarget, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
-  FRONT_Y, GLASS, THEMES, geometry, useTheme, seatName,
+  FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize,
 } from "../mods/ai-office/scene.js";
+
+// テーマは、オフィスと同じく mods/ai-office/themes/<名前>/ の theme.json と PNG から読む（確かめで落ちたら、ここで止まる）
+const THEMES_DIR = new URL("../mods/ai-office/themes/", import.meta.url).pathname;
+const themeJson = (name) => JSON.parse(readFileSync(`${THEMES_DIR}${name}/theme.json`, "utf8"));
+const themeSizes = (name, json) => Object.fromEntries(Object.values(json.images ?? {})
+  .map((file) => [file, pngSize(readFileSync(`${THEMES_DIR}${name}/${file}`))]));
+for (const name of readdirSync(THEMES_DIR).filter((n) => existsSync(`${THEMES_DIR}${n}/theme.json`))) {
+  const json = themeJson(name);
+  const { theme, problems } = readTheme(name, json, themeSizes(name, json));
+  if (problems.length) throw new Error(`themes/${name}: ${problems.join(" / ")}`);
+  addTheme(theme);
+}
 
 // これまでのテストは classic（仕切りが途中まで・手前の床がつながる部屋）の寸法で書いてある。modern は下の describe("modern")
 useTheme("classic");
@@ -837,6 +850,47 @@ describe("talking to another agent (hc send)", () => {
   test("the label is cut short", () => {
     expect(talkLabel("  short\n text ")).toBe("short text");
     expect(talkLabel("レビューをお願いします。src/x.rs だけ")).toBe("レビューをお願いします。s…");
+  });
+});
+
+describe("themes from the themes/ folder", () => {
+  test("the bundled themes load in their order, with their own pictures where they differ", () => {
+    expect(themeList().map((t) => [t.name, t.label])).toEqual([["modern", "モダン"], ["classic", "クラシック"]]);
+    const modern = themeList()[0];
+    expect(modern.IMAGES.wall).toEqual({ src: "mods/ai-office/themes/modern/wall.png", w: 512, h: 30 });
+    expect(modern.IMAGES.glass).toMatchObject({ w: 24, h: 14 });
+    expect(themeList()[1].IMAGES.wall.src).toBe("mods/ai-office/img/wall.png"); // classic は既定の絵
+  });
+
+  test("pngSize reads the picture size (a quarter of the PNG) and refuses what is not a PNG", () => {
+    expect(pngSize(readFileSync(`${THEMES_DIR}modern/glass-door.png`))).toEqual({ w: 34, h: 16 });
+    expect(pngSize(new TextEncoder().encode("not a png at all, really"))).toBeNull();
+  });
+
+  test("a broken theme is refused, with the reasons", () => {
+    const json = themeJson("modern");
+    const sizes = themeSizes("modern", json);
+    const problems = (change) => {
+      const copy = structuredClone(json);
+      change(copy);
+      return readTheme("broken", copy, sizes).problems.join(" / ");
+    };
+    expect(problems(() => {})).toBe("");
+    expect(problems((j) => { j.room.deskBack = 70; })).toContain("ガラス"); // 机がガラスに重なる
+    expect(problems((j) => { delete j.images.door; })).toContain("images.door");
+    expect(problems((j) => { j.room.hallSide = "door"; })).toContain("room.hallSide");
+    expect(problems((j) => { j.room.lane = 60; })).toContain("room.lane");
+    expect(problems((j) => { j.images.wall = "missing.png"; })).toContain("読めない");
+    const classic = themeJson("classic");
+    classic.room.wall = 30; // 既定の壁の絵は 36
+    expect(readTheme("broken", classic, {}).problems.join(" / ")).toContain("壁の絵の高さ");
+  });
+
+  test("a theme from the user's folder points its pictures there", () => {
+    const json = themeJson("modern");
+    const { theme } = readTheme("mine", json, themeSizes("modern", json), "ai-office-themes/mine");
+    expect(theme.IMAGES.wall.src).toBe("ai-office-themes/mine/wall.png");
+    expect(theme.IMAGES.floor.src).toBe("mods/ai-office/img/floor.png");
   });
 });
 

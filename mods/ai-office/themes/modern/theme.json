@@ -1,0 +1,26 @@
+{
+  "label": "モダン",
+  "description": "独立した部屋。隣とは壁、廊下側はガラスの壁と扉で、列ごとに横の廊下",
+  "order": 1,
+  "room": {
+    "height": 116,
+    "wall": 30,
+    "lane": 48,
+    "deskBack": 62,
+    "box": 100,
+    "corridorY": 112,
+    "wanderFront": null,
+    "rightExit": false,
+    "partitionEnd": 100,
+    "hallSide": "glass",
+    "shelfY": 8,
+    "decorDy": -2
+  },
+  "glass": { "y": 86, "height": 14 },
+  "images": {
+    "wall": "wall.png",
+    "corridor": "corridor.png",
+    "glass": "glass.png",
+    "door": "glass-door.png"
+  }
+}

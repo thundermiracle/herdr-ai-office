@@ -1,7 +1,8 @@
 # ドット絵を作る: uv run --with pillow scripts/build-art.py
 # 絵は文字の格子で描き、外側の輪郭は自動で付ける。書き出すときに 4 倍に拡大する
 # （mod では絵の 1 ピクセル = 2 論理 px で描くので、Retina では物理 1:1 になり、にじまない）。
-# 出力: mods/ai-office/img/（mod が使う PNG）と tmp/art-preview.png（確認用の一覧と部屋の見本）
+# 出力: mods/ai-office/img/（mod が使う PNG）、mods/ai-office/themes/modern/（modern のテーマの絵）、
+#       tmp/art-preview.png（確認用の一覧と部屋の見本）
 import random
 from pathlib import Path
 from PIL import Image
@@ -9,6 +10,7 @@ from PIL import Image
 SCALE = 4
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "mods" / "ai-office" / "img"
+THEMES = ROOT / "mods" / "ai-office" / "themes"  # テーマごとの絵（themes/<名前>/。theme.json の images が指す）
 PREVIEW = ROOT / "tmp" / "art-preview.png"
 
 
@@ -765,7 +767,7 @@ def wall_texture(w_tiles=32, h=36):
     return im
 
 
-# ---- modern の部屋の手前（scene.js の THEMES.modern の GLASS: 高さ 14） ----
+# ---- modern のテーマの部屋の手前（themes/modern/theme.json の glass: 高さ 14） ----
 GLASS_H = 14
 
 
@@ -1016,8 +1018,8 @@ def up(im):
     return im.resize((im.width * SCALE, im.height * SCALE), Image.NEAREST)
 
 
-def save(im, name):
-    path = OUT / f"{name}.png"
+def save(im, name, out=OUT):
+    path = out / f"{name}.png"
     path.parent.mkdir(parents=True, exist_ok=True)
     up(im).save(path, optimize=True)
     return path
@@ -1079,11 +1081,14 @@ def main():
     save(floor_texture(), "floor")
     save(wall_texture(), "wall")
     save(hall_texture(), "hall")
-    save(wall_texture(h=30), "wall-30")  # modern の低い壁
-    save(corridor_texture(), "corridor")
-    save(glass_tile(), "glass")
-    save(glass_door(), "glass-door")
-    n += 7
+    n += 3
+    # modern のテーマの絵（低い壁・横の廊下の床・ガラスの壁の 1 枚・扉）
+    modern = THEMES / "modern"
+    save(wall_texture(h=30), "wall", modern)
+    save(corridor_texture(), "corridor", modern)
+    save(glass_tile(), "glass", modern)
+    save(glass_door(), "glass-door", modern)
+    n += 4
     # 窓: 枠（ガラスは透明）と、後ろに重ねる空（時間帯 x 空模様）・雨・雪・稲光
     save(window_frame(), "window")
     for phase in SKY:

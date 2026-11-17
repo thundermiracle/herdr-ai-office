@@ -17,63 +17,149 @@ export const TALK_DEDUP_MS = 20000; // 受け取った側の出来事は、同�
 export const TALK_COLOR = "#e8b84a"; // 話しかけるときの札（送った文）の色
 
 // オフィスは 1 枚のフロア: 左に縦の廊下（一番上が資料室で、本棚はここに 1 つ）、その右に部屋をすき間なく並べる。
-// 部屋の形はテーマで選ぶ（THEMES。useTheme が下の寸法を差し替える）:
+// 部屋の形と、床・壁・ガラスなどの絵は、テーマで選ぶ。テーマは themes/<名前>/theme.json と PNG（人が足すものは
+// ~/.config/herdr-app/ai-office-themes/<名前>/ にも置ける）。main.js がフォルダを読み、readTheme で確かめて addTheme で
+// 登録し、useTheme が下の寸法と絵を差し替える。同梱のテーマ:
 // - modern（初め）: 独立した部屋。部屋どうしの間は奥から手前まで壁でふさぎ、手前（廊下側）はガラスの壁で、左に扉が 1 つ。
 //   列ごとに部屋の手前を横の廊下が通り、左の縦の廊下につながる。部屋を出入りするのは扉（通り道 LEFT_PASS）だけ
 // - classic: 部屋の左端は仕切りの壁で、奥から PART_END までをふさぎ、手前は通路として開けておく（廊下や隣の部屋とつながる）
 // 部屋の中の座標は部屋の左上から、フロア全体の座標はフロアの左上（廊下の左上）から。
 export const DESK_X = 26; // 机の左端（左の仕切りの内側）
 export const DESK_END = 8; // 机の端の板の幅
+export const DESK_H = 21; // 机の高さ（奥の縁から脚の下まで）
 export const SEAT_W = 24;
 export const PART_W = 4; // 部屋の左の仕切り（壁）の厚さ
 export const MIN_ROOM_W = 160;
-export const LEFT_PASS = 14; // 机の左の通り道（x）。右は部屋ごと（room.rightPass）。modern の扉はこの x が真ん中
+export const LEFT_PASS = 14; // 机の左の通り道（x）。右は部屋ごと（room.rightPass）。ガラスの部屋の扉はこの x が真ん中
 export const HALL_W = 44; // 左の廊下の幅
-export const THEMES = {
-  modern: {
-    ROOM_H: 116, // 部屋（奥の壁からガラスの壁の下まで 100）と、その手前の横の廊下（16）
-    WALL_H: 30,
-    LANE_Y: 48, // 机の奥の通路（足の y）。席を立つとここに出る
-    BACK: 62, // 机の奥の縁（机の下端は 83。手前のガラスの壁との間に床が見える）
-    FRONT_Y: null, // 手前の床はない（うろうろは部屋の中だけ: 机の奥の通路と、机の右の床。wanderTarget）
-    CORRIDOR_Y: 112, // 部屋の外へ行くときに通る高さ（横の廊下。足の y）
-    PART_END: 100, // 部屋どうしの間の壁は、奥からガラスの壁の下まで
-    GLASS: { y: 86, h: 14 }, // 手前のガラスの壁（透けて見える）
-    BOX_H: 100, // 部屋の枠（選んでいる部屋の枠・ドラッグの印）。廊下は含めない
-    RIGHT_EXIT: false, // 部屋を出入りするのは左の扉だけ
-    DECOR_DY: -2, // 壁の飾り（ホワイトボード・窓・時計）を上へずらす量（壁が 36 より低いので）
-    SHELF_Y: 8, // 資料室の本棚の上端
-  },
-  classic: {
-    ROOM_H: 140, WALL_H: 36, LANE_Y: 54, BACK: 74, FRONT_Y: [104, 132], CORRIDOR_Y: 118, PART_END: 96,
-    GLASS: null, BOX_H: 140, RIGHT_EXIT: true, DECOR_DY: 0, SHELF_Y: 14,
-  },
-};
-// テーマで変わる寸法。このファイルの中と bun test は、そのまま読む（ほかのモジュールからは geometry() で読む）
-export let THEME;
-export let ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY;
+
+// テーマで変わる寸法と絵。このファイルの中と bun test は、そのまま読む（ほかのモジュールからは geometry() で読む）。
+// テーマを選ぶまで（main.js がテーマのフォルダを読み終えるまで）は undefined
+export let THEME = null;
+export let ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY, HALL_SIDE, IMAGES, COLORS;
 // 資料室（廊下の一番上）で本を読む場所（フロア全体の座標）。本棚の前から、読む人が増えると順に並ぶ
 export let LIBRARY;
 // 本棚（bookshelf-empty.png、資料室＝フロアの (6, SHELF.y) に置く）の中で本を立てる場所。scripts/build-art.py の bookshelf と
 // 同じ寸法: 3 段で、本の下端の次の行が y = 14・27・40、横は x = 3〜28。本は幅 2 で、1 段に 13 冊
 export let SHELF;
 
-/** 部屋の形を選ぶ（THEMES の名前。知らない名前は modern）。寸法が変わるので、部屋を並べ直し、Office も作り直すこと。 */
+// テーマが images に書かなかった絵（src は herdr-app のフォルダ appHome から。w, h は絵の px）
+export const DEFAULT_IMAGES = {
+  wall: { src: "mods/ai-office/img/wall.png", w: 512, h: 36 },
+  floor: { src: "mods/ai-office/img/floor.png", w: 512, h: 160 },
+  hall: { src: "mods/ai-office/img/hall.png", w: 48, h: 560 },
+};
+// 仕切りの壁と、縦の廊下に面したガラスの壁の色（テーマの colors で変えられる）
+export const DEFAULT_COLORS = {
+  partition: "#e3cfa6", partitionEdge: "#8a6040", partitionFace: "#b07a4c", partitionBase: "#5b3a2c",
+  sideGlass: "#bee6fae6", sideGlassEdge: "#46536f",
+};
+const PNG_SCALE = 4; // テーマの PNG は、絵の 1 ピクセル = 4 ピクセル（オフィスは 2 論理 px で描くので、Retina で 1:1）
+
+/** PNG の大きさを絵の px で（先頭の IHDR から。PNG の px の 1/4）。PNG でなければ null。 */
+export function pngSize(bytes) {
+  const b = bytes;
+  if (!b || b.length < 24 || b[0] !== 0x89 || b[1] !== 0x50 || b[2] !== 0x4e || b[3] !== 0x47) return null;
+  const u32 = (i) => ((b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3]) >>> 0;
+  return { w: u32(16) / PNG_SCALE, h: u32(20) / PNG_SCALE };
+}
+
+/**
+ * theme.json（JSON.parse したもの）を読んで確かめる。sizes: images に書いたファイル名 → pngSize（読めなかったものはなし）。
+ * base: そのテーマのフォルダ（appHome から。絵の src になる）。返すもの: { theme, problems }。problems が空でなければ、
+ * そのテーマは使わない（部屋が描けない・人が机や壁を通り抜けるなど）。書き方は README の「テーマを足す」。
+ */
+export function readTheme(name, json, sizes = {}, base = `mods/ai-office/themes/${name}`) {
+  const problems = [];
+  const r = json?.room ?? {};
+  const int = (key) => {
+    if (!Number.isInteger(r[key])) problems.push(`room.${key} が整数でない`);
+    return r[key];
+  };
+  const room = {
+    height: int("height"), wall: int("wall"), lane: int("lane"), deskBack: int("deskBack"), box: int("box"),
+    corridorY: int("corridorY"), partitionEnd: int("partitionEnd"), shelfY: int("shelfY"), decorDy: int("decorDy"),
+  };
+  if (typeof r.rightExit !== "boolean") problems.push("room.rightExit が true か false でない");
+  if (!["glass", "partition"].includes(r.hallSide)) problems.push("room.hallSide が glass か partition でない");
+  const front = r.wanderFront ?? null;
+  if (front !== null && !(Array.isArray(front) && front.length === 2 && front.every(Number.isInteger) && front[0] <= front[1])) {
+    problems.push("room.wanderFront が null か [上, 下] でない");
+  }
+  const g = json?.glass ?? null;
+  if (g !== null && !(Number.isInteger(g.y) && Number.isInteger(g.height))) problems.push("glass が null か { y, height } でない");
+  const images = { ...DEFAULT_IMAGES };
+  for (const [key, file] of Object.entries(json?.images ?? {})) {
+    const size = sizes[file];
+    if (!size) {
+      problems.push(`images.${key}（${file}）が読めない`);
+      continue;
+    }
+    if (!Number.isInteger(size.w) || !Number.isInteger(size.h)) problems.push(`images.${key}（${file}）の大きさが 4 の倍数でない`);
+    images[key] = { src: `${base}/${file}`, w: size.w, h: size.h };
+  }
+  if (problems.length === 0) {
+    const deskEnd = room.deskBack + DESK_H;
+    const need = (ok, text) => { if (!ok) problems.push(text); };
+    need(room.wall < room.lane && room.lane < room.deskBack - 9, "room.lane（机の奥の通路）は、壁（room.wall）より下、椅子（room.deskBack − 9）より上に");
+    need(deskEnd <= room.box && room.box <= room.height, "机（room.deskBack + 21 まで）≦ 部屋の枠（room.box）≦ 1 列の高さ（room.height）に");
+    need(room.partitionEnd <= room.box, "仕切り（room.partitionEnd）は部屋の枠（room.box）まで");
+    need(room.shelfY >= 0 && room.shelfY + 76 < room.height, "資料室の本棚（room.shelfY）と読む所（+ 76）が 1 列に入らない");
+    need(6 + room.decorDy >= 0 && 7 + room.decorDy + 18 <= room.wall - 5, "壁の飾り（窓・ホワイトボード。room.decorDy）が壁に入らない");
+    need(images.wall.h === room.wall, `壁の絵の高さ（${images.wall.h}）が room.wall と違う`);
+    if (images.corridor) need(images.corridor.h === room.height - room.box, "横の廊下の絵の高さが、1 列の高さ − 部屋の枠と違う");
+    if (g) {
+      need(g.y >= deskEnd && g.y + g.height === room.box, "ガラス（glass.y から glass.height）は机より手前で、下端が部屋の枠（room.box）に");
+      need(room.box < room.corridorY && room.corridorY < room.height, "room.corridorY（横の廊下）は部屋の枠の下、1 列の中に");
+      need(front === null, "ガラスの部屋の room.wanderFront は null（うろうろは部屋の中だけ）");
+      need(images.glass?.h === g.height, "images.glass（ガラスの壁の 1 枚）が要る。高さは glass.height");
+      need(images.door?.h === g.height + 2 && images.door.w >= 20, "images.door（扉。柱 2・開いた所 16・柱 2・寄せた戸）が要る。高さは glass.height + 2");
+    } else {
+      need(deskEnd < room.corridorY && room.corridorY < room.height, "room.corridorY（手前の通路）は机の下、1 列の中に");
+      need(front !== null && deskEnd < front[0] && front[1] < room.height, "手前が開いた部屋の room.wanderFront は、机の下から 1 列の中まで");
+    }
+  }
+  const theme = {
+    name, label: typeof json?.label === "string" ? json.label : name, description: typeof json?.description === "string" ? json.description : "",
+    order: Number.isFinite(json?.order) ? json.order : 100,
+    ROOM_H: room.height, WALL_H: room.wall, LANE_Y: room.lane, BACK: room.deskBack, BOX_H: room.box, CORRIDOR_Y: room.corridorY,
+    PART_END: room.partitionEnd, SHELF_Y: room.shelfY, DECOR_DY: room.decorDy, FRONT_Y: front,
+    GLASS: g ? { y: g.y, h: g.height } : null, RIGHT_EXIT: r.rightExit, HALL_SIDE: r.hallSide,
+    IMAGES: images, COLORS: { ...DEFAULT_COLORS, ...(json?.colors ?? {}) },
+  };
+  return { theme, problems };
+}
+
+const themes = new Map(); // 名前（フォルダの名前）→ readTheme の theme
+
+/** テーマを使えるようにする（同じ名前なら差し替える）。 */
+export function addTheme(theme) {
+  themes.set(theme.name, theme);
+}
+
+/** 使えるテーマ（theme.json の order の順、同じなら名前の順）。 */
+export function themeList() {
+  return [...themes.values()].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+}
+
+/**
+ * テーマを選んで、寸法と絵を差し替える。知らない名前なら modern、それもなければ最初のテーマ。テーマがひとつもなければ null。
+ * 寸法が変わるので、部屋を並べ直し、Office も作り直すこと。
+ */
 export function useTheme(name) {
-  THEME = THEMES[name] ? name : "modern";
-  const g = THEMES[THEME];
-  ({ ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY } = g);
-  LIBRARY = [{ x: 22, y: g.SHELF_Y + 52 }, { x: 12, y: g.SHELF_Y + 64 }, { x: 32, y: g.SHELF_Y + 64 }, { x: 22, y: g.SHELF_Y + 76 }];
-  SHELF = { x: 6, y: g.SHELF_Y, bases: [14, 27, 40], left: 3, right: 29, bookW: 2 };
+  const t = themes.get(name) ?? themes.get("modern") ?? themeList()[0];
+  if (!t) return null;
+  THEME = t.name;
+  ({ ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY, HALL_SIDE, IMAGES, COLORS } = t);
+  LIBRARY = [{ x: 22, y: t.SHELF_Y + 52 }, { x: 12, y: t.SHELF_Y + 64 }, { x: 32, y: t.SHELF_Y + 64 }, { x: 22, y: t.SHELF_Y + 76 }];
+  SHELF = { x: 6, y: t.SHELF_Y, bases: [14, 27, 40], left: 3, right: 29, bookW: 2 };
   return THEME;
 }
 
-/** 今のテーマの寸法（main.js 用。ほかのモジュールからは、差し替えた値をこれで確実に読む）。 */
+/** 今のテーマの寸法と絵（main.js 用。ほかのモジュールからは、差し替えた値をこれで確実に読む）。 */
 export function geometry() {
-  return { THEME, ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY, SHELF };
+  return { THEME, ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY, HALL_SIDE, IMAGES, COLORS, SHELF };
 }
-
-useTheme("modern");
 
 export const NEW_ROOM_W = 72; // 空き部屋（クリックで新しい部屋）
 export const PLAN_ROOM_W = 200; // プランのホワイトボードを掛ける部屋の幅の下限（名札・ホワイトボード・窓・時計が並ぶ）
@@ -917,7 +1003,7 @@ export function animating(office) {
  * click と right は、左クリックと右クリックでする事（main.js の act）。owner はそのものの持ち主のエージェント（キャラ・PC・
  * 名札）。main.js は、どれかにマウスが乗ると、同じ持ち主のものを一緒に光らせる。
  * img と over（上に重ねる絵）は img/ の下の名前（.png なし）。books は本棚の上に描く本（shelfBooks、本棚の左上から）。
- * tile があれば、img（幅 tile）を w の幅まで横に並べる（ガラスの壁）。
+ * tile があれば、img（幅 tile）を w の幅まで横に並べる（ガラスの壁）。src があれば img/ でなくその絵（テーマの絵）。
  * skills は資料室の本棚の skill（札の色に使う）。
  */
 export function drawables(room, office, skills = []) {
@@ -931,13 +1017,16 @@ export function drawables(room, office, skills = []) {
   for (const c of office.chars.values()) if (talking(c) && turnOf(c) === 1) answering.add(c.errand.to);
   const talkBubble = (c, x, y) => add({ id: `talk-${c.address}`, img: "bubble-talk", x, y, w: 13, h: 14, z: 1000 });
   add({ id: "plant", img: "plant", x: room.w - 18, y: BACK + 4, w: 12, h: 17, z: 95 });
-  // modern の手前のガラスの壁と扉: 机・植木・部屋の中の人より手前、横の廊下を歩く人より奥。ガラスは glass.png を
-  // 横に並べる（tile）。扉は通り道 LEFT_PASS を真ん中に 16 開いていて、両側に柱、開けた戸は右のガラスの手前に寄せてある
+  // ガラスの部屋（テーマの glass）の手前のガラスの壁と扉: 机・植木・部屋の中の人より手前、横の廊下を歩く人より奥。
+  // ガラスはテーマの images.glass を横に並べる（tile）。扉（images.door）は通り道 LEFT_PASS を真ん中に 16 開いていて、
+  // 両側に柱、開けた戸は右のガラスの手前に寄せてある。src はテーマのフォルダの絵（main.js は img より src を使う）
   if (GLASS) {
     const door = LEFT_PASS - 10; // 扉の左の柱
     const z = GLASS.y + GLASS.h;
-    add({ id: "glass", img: "glass", tile: 24, x: door + 18, y: GLASS.y, w: room.w - door - 18, h: GLASS.h, z });
-    add({ id: "glass-door", img: "glass-door", x: door, y: GLASS.y - 2, w: 34, h: GLASS.h + 2, z: z + 0.1 });
+    add({ id: "glass", img: "glass", src: IMAGES.glass.src, tile: IMAGES.glass.w, x: door + 18, y: GLASS.y, w: room.w - door - 18,
+      h: GLASS.h, z });
+    add({ id: "glass-door", img: "glass-door", src: IMAGES.door.src, x: door, y: GLASS.y - 2, w: IMAGES.door.w, h: IMAGES.door.h,
+      z: z + 0.1 });
   }
   add({ id: "desk-l", img: "desk-l", x: DESK_X, y: BACK, w: 8, h: 21, z: BACK + 15 });
   for (const seat of room.seats) {

@@ -1,0 +1,9 @@
+{
+  "place": "none",
+  "title": "AI Office: theme",
+  "overlay": {
+    "kind": "popup",
+    "width": 320,
+    "height": 200
+  }
+}

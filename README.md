@@ -74,9 +74,11 @@ Files・Changes のボタンは同梱の `tabs` mod に直接書かれていて�
 
 ## テーマ（部屋の形）
 
-オフィスの右上の「テーマ: モダン」をクリックすると、モダンとクラシックが替わる。選んだテーマは shared
-（`ai-office.theme`）に置くので、再起動しても残り、ほかに開いているオフィス（右の列と浮いた窓）も同じテーマになる。
-替えると部屋が並び直し、みんな自分の席の後ろから始め直す。初めはモダン。
+オフィスの右上の「テーマ: モダン ▾」をクリックすると、テーマのドロップダウンが出る（使っているテーマの左にチェック、
+テーマごとの説明。使えなかったテーマは下に薄く、理由と一緒に）。選ぶとそのテーマになる。↑↓ と Enter、Esc でも選べる。
+選んだテーマは shared（`ai-office.theme`）に置くので、再起動しても残り、ほかに
+開いているオフィス（右の列と浮いた窓）も同じテーマになる。替えると部屋が並び直し、みんな自分の席の後ろから始め直す。
+初めはモダン。同梱のテーマは 2 つ:
 
 | | モダン（初め） | クラシック |
 |---|---|---|
@@ -87,7 +89,55 @@ Files・Changes のボタンは同梱の `tabs` mod に直接書かれていて�
 | 1 列の高さ | 116（奥の壁 30・部屋・ガラスの壁 14・横の廊下 16） | 140（奥の壁 36） |
 
 モダンのガラスは透けて見え（机は壁から離して置く）、横の廊下を歩く人はガラスの手前に出る。
-`scene.js` の `THEMES` が寸法の組で、`useTheme` が差し替える。
+
+### テーマを足す
+
+テーマは 1 つのフォルダ（`theme.json` と PNG）。フォルダの名前がテーマの名前になる。置き場所は 2 つで、同じ名前なら人のほうが勝つ:
+
+- `mods/ai-office/themes/<名前>/`: 同梱（このリポジトリ）。`scripts/sync.sh` でコピーされる
+- `~/.config/herdr-app/ai-office-themes/<名前>/`: 自分で足す所。`scripts/sync.sh` で消えない
+
+テーマはオフィスが起動したときに読むので、足したら mod を読み直す（`scripts/sync.sh ai-office` か Herdr を開き直す）。
+使えるかは `bun scripts/check-theme.js <フォルダ>` で確かめられる（オフィスと同じ確かめ。使えないなら理由が出る）。
+使えないテーマはオフィスでは飛ばし、「テーマ」のドロップダウンの下に理由を出す。
+
+```jsonc
+// mods/ai-office/themes/modern/theme.json（数はどれも絵の px。オフィスは絵の 1 px を 2 論理 px で描く）
+{
+  "label": "モダン",                 // 「テーマ: …」に出す名前
+  "description": "独立した部屋。…",  // ツールチップに出す説明
+  "order": 1,                        // 回る順（小さい順。同じなら名前の順）
+  "room": {
+    "height": 116,         // 1 列の高さ（部屋と、その手前の廊下・通路）
+    "wall": 30,            // 奥の壁の高さ（壁の絵の高さと同じに）
+    "lane": 48,            // 机の奥の通路（足の y）。壁より下、椅子（deskBack − 9）より上
+    "deskBack": 62,        // 机の奥の縁（机は 21 の高さ）
+    "box": 100,            // 部屋の枠（選んでいる部屋の枠・ドラッグの印）。ガラスの部屋はガラスの下端
+    "corridorY": 112,      // 部屋の外へ行くときに通る高さ（足の y）
+    "wanderFront": null,   // 手前でうろうろする y の範囲 [上, 下]。ガラスの部屋は null（部屋の中だけ）
+    "rightExit": false,    // 机の右の通り道からも部屋を出るか（手前が開いた部屋だけ true にできる）
+    "partitionEnd": 100,   // 部屋の左の仕切り（壁）が、奥からどこまで
+    "hallSide": "glass",   // 縦の廊下に面した左の壁: glass か partition
+    "shelfY": 8,           // 資料室の本棚の上端
+    "decorDy": -2          // 壁の飾り（窓・時計・ホワイトボード）を上下にずらす量
+  },
+  "glass": { "y": 86, "height": 14 },  // 手前のガラスの壁。null なら手前は開いている
+  "images": {                          // このフォルダの PNG。書かないものは img/ の既定（wall 36・floor・hall）
+    "wall": "wall.png",                // 奥の壁（横に並べる）
+    "corridor": "corridor.png",        // 列ごとの横の廊下の床（高さは height − box）
+    "glass": "glass.png",              // ガラスの壁の 1 枚（横に並べる。高さは glass.height）
+    "door": "glass-door.png"           // 扉: 左の柱 2・開いた所 16・右の柱 2・寄せた戸（高さは glass.height + 2）
+  },
+  "colors": {}             // 仕切りとガラスの壁の色（partition・partitionEdge・partitionFace・partitionBase・sideGlass・sideGlassEdge）
+}
+```
+
+- 上の // は説明。本物の theme.json は JSON なので、コメントは書けない
+- PNG は絵の 1 px = 4 px で描く（オフィスは 2 論理 px で描くので、Retina でにじまない）。大きさは PNG から読む
+- 確かめること（使えない理由になる）: 数が整数か、机の奥の通路が壁と椅子の間か、机が部屋の枠に入るか、ガラスが机より
+  手前で下端が部屋の枠か、廊下・通路の高さが 1 列の中か、壁の絵の高さが `room.wall` と同じか、ガラスの部屋に
+  ガラスと扉の絵があるか、など（`scene.js` の `readTheme`）
+- テーマで変えられるのは、寸法と、床・壁・廊下・ガラス・扉の絵と、仕切りの色。机の並べ方・歩き方の決まり・家具は変えられない
 
 ## 状態と動き
 
@@ -190,7 +240,7 @@ scripts/sky.sh auto         # 本物に戻す
 | プランのホワイトボード | そのプラン（部屋の誰かがプランモードで書いた .md）の中身をマークダウンで出す |
 | 空き部屋（「+ 部屋」のドア） | フォルダを選んで、新しいスペース（部屋）を作る（この Mac だけ） |
 | 窓（マウスを乗せる） | 東京の時刻と天気・気温（試し中はその旨） |
-| 右上の「テーマ」 | モダンとクラシックを替える（上の「テーマ」） |
+| 右上の「テーマ」 | テーマのドロップダウン（使っているテーマにチェック）。選ぶとそのテーマになる（上の「テーマ」） |
 | 右上の「凡例」 | キャラの見分け方（AI と model、effort の鉢巻き）を、キャラの絵で縦に並べたポップアップ |
 
 ## 話しかけに行く（hc send）
@@ -242,21 +292,23 @@ hooks/register.sh remove   # このフックだけ外す（ほかのフックは
 
 | 場所 | 何か |
 |---|---|
-| `mods/ai-office/` | mod 本体。`scene.js` は計算だけ（herdr も gpui-kit も import しない）、`main.js` が描く |
+| `mods/ai-office/` | mod 本体。`scene.js` は計算だけ（herdr も gpui-kit も import しない）、`main.js` が描く。`themes/` は同梱のテーマ（modern・classic） |
 | `mods/ai-office-hire/` | 空いた席をクリックすると出る「雇う」ポップアップ |
 | `mods/ai-office-toggle/` | タブバーの右隣の「Office」ボタン（`layout.toggle`） |
 | `mods/ai-office-skills/` | 本棚をクリックすると出る、使える skill の一覧 |
 | `mods/ai-office-skill/` | 一覧の skill をクリックすると出る、その skill の中身 |
 | `mods/ai-office-plan/` | 壁のプランのホワイトボードをクリックすると出る、プランの中身 |
+| `mods/ai-office-theme/` | 右上の「テーマ」をクリックすると出る、テーマのドロップダウン |
 | `mods/ai-office-legend/` | 右上の「凡例」をクリックすると出る、キャラの見分け方（オフィスと同じ絵） |
 | `mods/ai-office-tab/` | 机の PC をクリックすると出る、そのエージェントのタブのメニュー（名前を変える・閉じる） |
 | `mods/ai-office-ask/` | 質問の「?」をクリックすると出る、質問と選択肢（`parse.js` が画面から読む） |
 | `layouts/ai-office.json` | オフィスと、選んだエージェントのターミナルを並べたレイアウト |
 | `layouts/main-dots-office.json` | main-dots に「Office」ボタンとオフィスの列を足したレイアウト |
-| `scripts/build-art.py` | ドット絵（文字の格子で描き、4 倍の PNG に書き出す）。`tmp/art-preview.png` に一覧と部屋の見本 |
+| `scripts/build-art.py` | ドット絵（文字の格子で描き、4 倍の PNG に書き出す）。modern のテーマの絵は `themes/modern/` へ。`tmp/art-preview.png` に一覧と部屋の見本 |
 | `hooks/` | Claude Code のフックと、その登録・削除 |
 | `scripts/fake-agent.sh`、`scripts/fake-question.py`、`scripts/demo.sh` | AI を使わずに状態を報告する偽エージェント、選択肢の画面で答えを受け取る偽の質問役、それを 6 人並べた見本（office-test-2 の reviewer のプランは `scripts/sample-plan.md`） |
 | `scripts/sync.sh` | mod とレイアウトを ~/.config/herdr-app にコピーして `herdr-app check` |
+| `scripts/check-theme.js` | テーマのフォルダを確かめる（`bun scripts/check-theme.js <フォルダ>`） |
 | `scripts/sky.sh` | 窓の外を試す（天気と東京の時刻を決める、1 日の早送り、本物に戻す） |
 | `spike/` | 描画方針を決めたときの確認用 mod（アニメ画像・にじみ・アニメの負荷） |
 | `test/` | `bun test`（scene.js）と `test/hook-test.sh`（フック。使い捨てのターミナルで試す） |
