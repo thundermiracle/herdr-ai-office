@@ -167,7 +167,6 @@ export function geometry() {
 
 export const NEW_ROOM_W = 72; // 空き部屋（クリックで新しい部屋）
 export const BOARD_ROOM_W = 200; // ホワイトボードを掛ける部屋の幅の下限（名札・ホワイトボード・窓・時計が並ぶ）
-export const FOLDER_DOCS = 8; // 部屋のフォルダの、まだコミットしていない .md をホワイトボードに出す数（新しい順）
 
 export function hash(text) {
   let h = 0x811c9dc5;
@@ -380,14 +379,26 @@ export function behaviorOf(status, act) {
   return "wander";
 }
 
+// ホワイトボードに出さない .md（明らかにノイズ）: エージェントへの指示や設定（CLAUDE.md・AGENTS.md・GEMINI.md・SKILL.md・
+// MEMORY.md と、.claude/・.codex/ などの中）、依存や作ったものの中（node_modules/・vendor/・dist/・build/ など）、.git/ と
+// .github/（テンプレート）、決まり文句のファイル（LICENSE・CODE_OF_CONDUCT・SECURITY）、一時フォルダ（/tmp・/var/folders）の作業メモ
+const NOISE_NAMES = /^(claude(\.local)?|agents|gemini|skill|memory|license|code_of_conduct|security)\.(md|markdown)$/i;
+const NOISE_DIRS = /\/(\.claude|\.codex|\.cursor|\.gemini|\.git|\.github|node_modules|vendor|dist|build|target|\.venv|venv|\.next|\.cache|coverage)\//;
+const NOISE_TEMP = /^(\/private)?\/(tmp|var\/folders)\//;
+
+/** 明らかにノイズの .md か（ホワイトボードに出さない。プランには使わない）。 */
+export function isNoiseDoc(path) {
+  return NOISE_NAMES.test(path.split("/").pop()) || NOISE_DIRS.test(path) || NOISE_TEMP.test(path);
+}
+
 /**
  * 1 つのスペースの部屋。席はエージェントの数 + 1（最後の 1 つは空席で、クリックで雇う）。
  * docs: address → その人が書いたもの [{ path, kind }]（kind: plan はフックが書く office.plan、doc は office.docs）。
- * folderDocs: スペースの id → 部屋のフォルダのまだコミットしていない .md の道（新しい順。main.js が git で調べる）。
- * どれかがあれば、部屋の壁にホワイトボードを掛ける。room.docs: [{ path, kind, address? }]（同じファイルは 1 つ。
- * プランが先、そのあと人ごとの .md、最後にフォルダの .md。フォルダのものは kind: folder で、誰が書いたかは分からない）
+ * 部屋にいる人の書いたものだけで（ほかの部屋の人のものは載らない）、明らかにノイズの .md は除く（isNoiseDoc）。
+ * どれかがあれば、部屋の壁にホワイトボードを掛ける。room.docs: [{ path, kind, address }]（同じファイルは 1 つ。
+ * プランが先、そのあと人ごとの .md）
  */
-export function roomOf(space, agentsHere, docs = new Map(), folderDocs = new Map()) {
+export function roomOf(space, agentsHere, docs = new Map()) {
   const count = agentsHere.length + 1;
   const deskEnd = DESK_X + DESK_END * 2 + count * SEAT_W;
   const roomDocs = [];
@@ -399,10 +410,12 @@ export function roomOf(space, agentsHere, docs = new Map(), folderDocs = new Map
   };
   for (const plans of [true, false]) {
     for (const a of agentsHere) {
-      for (const d of docs.get(a.address) ?? []) if ((d.kind === "plan") === plans) add({ path: d.path, kind: d.kind, address: a.address });
+      for (const d of docs.get(a.address) ?? []) {
+        if ((d.kind === "plan") !== plans || (d.kind !== "plan" && isNoiseDoc(d.path))) continue;
+        add({ path: d.path, kind: d.kind, address: a.address });
+      }
     }
   }
-  for (const path of folderDocs.get(space.id) ?? []) add({ path, kind: "folder" });
   return {
     id: space.id,
     name: space.name,
@@ -422,29 +435,11 @@ export function roomOf(space, agentsHere, docs = new Map(), folderDocs = new Map
   };
 }
 
-/** スペースごとに部屋を作る。agents は herdr の agents()（スペース・タブ・ペインの順）。docs と folderDocs は roomOf と同じ。 */
-export function roomsOf(spaces, agents, docs = new Map(), folderDocs = new Map()) {
-  return spaces.map((s) => roomOf(s, agents.filter((a) => a.space === s.id), docs, folderDocs));
+/** スペースごとに部屋を作る。agents は herdr の agents()（スペース・タブ・ペインの順）。docs は roomOf と同じ。 */
+export function roomsOf(spaces, agents, docs = new Map()) {
+  return spaces.map((s) => roomOf(s, agents.filter((a) => a.space === s.id), docs));
 }
 
-/**
- * git status --porcelain=v1 -z（-uall）の出力から、まだコミットしていない .md の道（新しい・変えたもの。消したものは除く。
- * 名前を変えた・写したものは新しい名前）。root はリポジトリの場所（出力の道はリポジトリからの道なので、前に付ける）。
- */
-export function parseGitDocs(out, root) {
-  const parts = (out ?? "").split("\0");
-  const files = [];
-  for (let i = 0; i < parts.length; i++) {
-    const e = parts[i];
-    if (e.length < 4) continue;
-    const xy = e.slice(0, 2);
-    if (xy[0] === "R" || xy[0] === "C") i++; // 名前を変えた・写した: 次の区切りは元の名前
-    if (xy.includes("D")) continue;
-    const path = e.slice(3);
-    if (/\.(md|markdown)$/i.test(path)) files.push(`${root}/${path}`);
-  }
-  return files;
-}
 
 /**
  * 1 枚のフロアに並べる: 廊下の右に部屋をすき間なく左から並べ、幅（廊下を除く）に入らなければ次の列へ。

@@ -5,7 +5,7 @@ import {
   TALK_DEDUP_MS, TALK_MS, TALK_TURN_MS, WALL_H, Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride,
   drawables, dropTarget, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
-  FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, parseGitDocs, plateText,
+  FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, isNoiseDoc, plateText,
 } from "../mods/ai-office/scene.js";
 
 // テーマは、オフィスと同じく mods/ai-office/themes/<名前>/ の theme.json と PNG から読む（確かめで落ちたら、ここで止まる）
@@ -138,29 +138,33 @@ describe("rooms", () => {
     expect(roomOf(space("c"), many, new Map([["t0", [{ path: "/p.md", kind: "plan" }]]])).w).toBe(wide.w);
   });
 
-  test("the whiteboard holds plans first, then each person's .md, then the folder's uncommitted .md, each file once", () => {
-    const agents = [agent("t1", "a"), agent("t2", "a")];
+  test("the whiteboard holds only this room's people's plans and .md: plans first, each file once, no noise", () => {
+    const agents = [agent("t1", "a"), agent("t2", "a"), agent("t9", "b")];
     const docs = new Map([
-      ["t1", [{ path: "/r/notes.md", kind: "doc" }, { path: "/r/README.md", kind: "doc" }]],
-      ["t2", [{ path: "/u/.claude/plans/fox.md", kind: "plan" }, { path: "/r/design.md", kind: "doc" }]],
+      ["t1", [{ path: "/r/notes.md", kind: "doc" }, { path: "/r/CLAUDE.md", kind: "doc" }, { path: "/r/README.md", kind: "doc" }]],
+      ["t2", [{ path: "/u/.claude/plans/fox.md", kind: "plan" }, { path: "/r/README.md", kind: "doc" }, { path: "/private/tmp/x/plan.md", kind: "doc" }]],
+      ["t9", [{ path: "/other/spec.md", kind: "doc" }]], // ほかの部屋（b）の人
     ]);
-    const folder = new Map([["a", ["/r/README.md", "/r/CHANGELOG.md"]]]); // README は t1 が書いたので、t1 の .md として 1 つ
-    const [a] = roomsOf([space("a")], agents, docs, folder);
-    expect(a.docs.map((d) => [d.kind, d.path, d.address ?? null])).toEqual([
-      ["plan", "/u/.claude/plans/fox.md", "t2"],
+    const [a, b] = roomsOf([space("a"), space("b")], agents, docs);
+    expect(a.docs.map((d) => [d.kind, d.path, d.address])).toEqual([
+      ["plan", "/u/.claude/plans/fox.md", "t2"], // プランは ~/.claude/ の中でも出す
       ["doc", "/r/notes.md", "t1"],
-      ["doc", "/r/README.md", "t1"],
-      ["doc", "/r/design.md", "t2"],
-      ["folder", "/r/CHANGELOG.md", null],
+      ["doc", "/r/README.md", "t1"], // t2 も書いたが、1 つ
     ]);
-    expect(roomsOf([space("b")], [], new Map(), folder)[0].docs).toEqual([]); // 別の部屋のフォルダのものは来ない
-    expect(roomsOf([space("a")], [], new Map(), folder)[0].w).toBe(BOARD_ROOM_W); // 誰もいなくても、フォルダの .md で掛かる
+    expect(b.docs.map((d) => d.path)).toEqual(["/other/spec.md"]); // ほかの部屋のものは混ざらない
+    expect(roomsOf([space("c")], [agent("t5", "c")], new Map([["t5", [{ path: "/r/AGENTS.md", kind: "doc" }]]]))[0])
+      .toMatchObject({ docs: [], w: MIN_ROOM_W }); // ノイズだけなら、ホワイトボードは掛けない
   });
 
-  test("git status (porcelain, -z) gives the uncommitted .md: new, changed, renamed; not deleted, not other files", () => {
-    const out = ["?? docs/new.md", " M README.md", "M  notes.markdown", " D gone.md", "R  docs/to.md", "docs/from.md", "?? src/x.js", ""].join("\0");
-    expect(parseGitDocs(out, "/repo")).toEqual(["/repo/docs/new.md", "/repo/README.md", "/repo/notes.markdown", "/repo/docs/to.md"]);
-    expect(parseGitDocs("", "/repo")).toEqual([]);
+  test("obvious noise is not put on the whiteboard", () => {
+    for (const path of ["/r/CLAUDE.md", "/r/claude.local.md", "/r/AGENTS.md", "/r/GEMINI.md", "/r/skills/x/SKILL.md", "/r/LICENSE.md",
+      "/r/.github/PULL_REQUEST_TEMPLATE.md", "/r/node_modules/pkg/README.md", "/r/dist/a.md", "/r/.claude/notes.md",
+      "/tmp/a.md", "/private/tmp/claude-1/scratchpad/plan.md", "/var/folders/xy/T/b.md"]) {
+      expect([path, isNoiseDoc(path)]).toEqual([path, true]);
+    }
+    for (const path of ["/r/README.md", "/r/docs/report.md", "/r/TODO.md", "/r/CHANGELOG.md", "/Users/me/Desktop/memo.md"]) {
+      expect([path, isNoiseDoc(path)]).toEqual([path, false]);
+    }
   });
 
   test("agents go to their own space's room", () => {

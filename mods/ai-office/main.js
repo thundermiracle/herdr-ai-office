@@ -6,13 +6,11 @@ import { v_flex, h_flex } from "gpui-base";
 import * as fs from "fs/promises";
 import {
   spaces, agents, terminals, panes, theme, window, run, openOverlay, pickFolder, home, appHome, readTextFile, layout, props, setShared,
-  shared, nextCommand, exec,
+  shared, nextCommand,
 } from "herdr";
 import {
   SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, layoutFloor, drawables,
-  floorDrawables, running, roomAt, dropTarget, useTheme, geometry, seatName, readTheme, addTheme, themeList, pngSize, parseGitDocs,
-  plateText,
-  FOLDER_DOCS,
+  floorDrawables, running, roomAt, dropTarget, useTheme, geometry, seatName, readTheme, addTheme, themeList, pngSize, plateText,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
   PLACES, WEATHER_MS, TRIAL_WEATHER, defaultPlace, offsetAt, offsetLabel, placeAt, placeClock, weatherOf, parseWeather,
   windowView, windowTip, parseSkyCommand,
@@ -25,7 +23,6 @@ const DRAG_START = 4; // 部屋を押したまま、これだけ（絵の px）�
 const META_MS = 10000; // model と effort を読み直す間隔
 const HIDDEN_MS = 1000; // 隠れている間は、この間隔で見えるようになったかだけ見る
 const SKILLS_MS = 60000; // 使える skill を読み直す間隔（めったに変わらない）
-const FOLDER_DOCS_MS = 20000; // 部屋のフォルダの、まだコミットしていない .md を調べ直す間隔
 // 窓の外の天気: 選んだ場所の今の天気（Open-Meteo。キーは要らず、送るのはその場所の緯度経度だけ）
 const weatherUrl = (place) => `https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}`
   + "&current=weather_code,temperature_2m&timezone=auto";
@@ -35,10 +32,9 @@ const WEATHER_STALE_MS = 3 * 3600000; // これより古い天気は使わない
 
 /**
  * herdr のデータを集める: スペースごとの部屋と、エージェントごとの状態・model・effort。
- * meta: Claude のセッション ID → { model, effort }（loadMeta が読む）、codexDefaults: ~/.codex/config.toml の既定、
- * folderDocs: スペースの id → 部屋のフォルダのまだコミットしていない .md（loadFolderDocs が調べる）。
+ * meta: Claude のセッション ID → { model, effort }（loadMeta が読む）、codexDefaults: ~/.codex/config.toml の既定。
  */
-function gather(meta, codexDefaults, folderDocs) {
+function gather(meta, codexDefaults) {
   const ag = agents();
   const sp = spaces();
   const terms = new Map(terminals().map((t) => [t.address, t]));
@@ -78,7 +74,7 @@ function gather(meta, codexDefaults, folderDocs) {
   // その人が書いたもの（ホワイトボード）: プランと、書いた .md
   const docs = new Map([...info].map(([address, a]) => [address,
     [...(a.plan ? [{ path: a.plan, kind: "plan" }] : []), ...a.docs.map((path) => ({ path, kind: "doc" }))]]));
-  return { rooms: roomsOf(sp.map((s) => ({ ...s, folder: placeOf(s, ps) })), ag, docs, folderDocs), info };
+  return { rooms: roomsOf(sp.map((s) => ({ ...s, folder: placeOf(s, ps) })), ag, docs), info };
 }
 
 // レイアウトの根から id のブロックまでの道（見つからなければ null）
@@ -240,10 +236,6 @@ export default class AiOffice extends View {
     this.codexDefaults = {};
     this.loadMeta(cx);
     cx.timer.every(META_MS, (cx) => this.loadMeta(cx));
-    this.folderDocs = new Map(); // スペースの id → 部屋のフォルダのまだコミットしていない .md（新しい順）
-    this.folderDocsKey = "";
-    this.loadFolderDocs(cx);
-    cx.timer.every(FOLDER_DOCS_MS, (cx) => this.loadFolderDocs(cx));
     this.skills = { global: [], byFolder: new Map() };
     this.skillsKey = "";
     this.loadSkills(cx);
@@ -336,38 +328,6 @@ export default class AiOffice extends View {
     });
   }
 
-  // 部屋のフォルダ（この Mac のスペースだけ）の、まだコミットしていない .md（新しい・変えたもの）を git で調べ、新しい順に
-  // FOLDER_DOCS 本まで。誰が書いたかは分からないが、Bash で書いたものや Codex のものも入る。変わったときだけ描き直す
-  loadFolderDocs(cx) {
-    if (this.hidden()) return;
-    cx.spawn(async (cx) => {
-      const ps = panes();
-      const found = new Map();
-      for (const s of spaces()) {
-        const folder = placeOf(s, ps);
-        if (s.machine || !folder) continue;
-        try {
-          // --no-optional-locks: 裏で調べるだけなので、git status が .git/index.lock を作って索引を書き直さないように
-          // （作っている途中で止まると印が残り、その人の git の操作が失敗する）。timeout はミリ秒
-          const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: folder, timeout: 5000 });
-          if (top.code !== 0) continue;
-          const st = await exec("git", ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--",
-            "*.md", "*.markdown"], { cwd: folder, timeout: 5000 });
-          const files = st.code === 0 ? parseGitDocs(st.stdout, top.stdout.trim()).slice(0, 50) : [];
-          if (!files.length) continue;
-          const ls = await exec("ls", ["-t", ...files], { timeout: 5000 }); // 新しい順
-          found.set(s.id, ls.stdout.split("\n").filter(Boolean).slice(0, FOLDER_DOCS));
-        } catch {}
-      }
-      const key = JSON.stringify([...found]);
-      if (key !== this.folderDocsKey) {
-        this.folderDocsKey = key;
-        this.folderDocs = found;
-        cx.notify();
-      }
-    });
-  }
-
   // 資料室の本棚の skill: どこでも使えるものと、各スペース（この Mac）のプロジェクトの skill。同じものは 1 冊
   shelfSkills() {
     const seen = new Set();
@@ -392,7 +352,7 @@ export default class AiOffice extends View {
       this.office = new Office();
       this.sig = "";
     }
-    const { rooms, info } = gather(this.meta, this.codexDefaults, this.folderDocs);
+    const { rooms, info } = gather(this.meta, this.codexDefaults);
     const floor = layoutFloor(rooms, this.width / SCALE - 2 * MARGIN);
     const placed = floor.rooms.filter((r) => !r.newRoom);
     this.office.sync(placed, info);
@@ -727,13 +687,12 @@ export default class AiOffice extends View {
       .children(view.layers.map((img) => image(`${IMG}/${img}.png`).absolute().left(0).top(0).size_full()));
   }
 
-  // 壁のホワイトボード（部屋の誰かのプランと書いた .md、部屋のフォルダのまだコミットしていない .md）。窓の左に掛け、
-  // クリックで中身（ai-office-docs）。どれもなければ掛けない
+  // 壁のホワイトボード（この部屋の人のプランと書いた .md）。窓の左に掛け、クリックで中身（ai-office-docs）。
+  // どれもなければ掛けない
   board(room) {
     const docs = room.docs.map((d) => {
-      const a = d.address ? this.office.chars.get(d.address)?.info ?? {} : null;
-      const who = a ? [a.name, a.tab].filter(Boolean).join(" · ") || d.address : "フォルダ（まだコミットしていない）";
-      return { path: d.path, kind: d.kind, who };
+      const a = this.office.chars.get(d.address)?.info ?? {};
+      return { path: d.path, kind: d.kind, who: [a.name, a.tab].filter(Boolean).join(" · ") || d.address };
     });
     const plans = docs.filter((d) => d.kind === "plan").length;
     const count = [plans ? `プラン ${plans}` : "", docs.length > plans ? `.md ${docs.length - plans}` : ""].filter(Boolean).join("・");

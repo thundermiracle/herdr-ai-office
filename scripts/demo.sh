@@ -8,8 +8,8 @@
 #   office-test-2: 30 秒ごとに office-test の idle へ話しかけに行く（lead、opus）・プランを書いてタイピング（タブ reviewer、sonnet。
 #   壁にプランのホワイトボード、中身は scripts/sample-plan.md）・
 #   30 秒ごとに同じ部屋の reviewer へ話しかけに行く（タブ designer、haiku）の 3 人。
-#   office-test-3 …: 名前がとても長い部屋（名札が「…」で切れる）。プランの人（opus）と、.md を 2 本書いた人（タブ writer、sonnet。
-#   README と TODO）の 2 人で、ホワイトボードとダイアログの左の一覧を試す。
+#   office-test-3 …: 名前がとても長い部屋（名札が「…」で切れる）。プランの人（opus）と、.md を 2 本書いた人（タブ writer、sonnet）の
+#   2 人で、ホワイトボードとダイアログの左の一覧を試す（書いたものは scripts/sample-docs/。ほかの部屋のものと重ならない）。
 #   質問や完了を報告するので、herdr-app の通知音とトーストが出る（cycle は 40 秒ごとに質問する）。
 # herdr-app は作ったスペースとタブをすぐ見せるので、start の間（1〜2 秒）は画面が見本へ動き、その間に打ったキーは見本の
 # ターミナルに入る。終わったら（途中で失敗しても）元のスペース・タブ・ペインに戻し、戻ったかを確かめる。
@@ -77,10 +77,12 @@ TABS
     herdr-app do tab.new --space "$sp2" --name designer \
       --argv "$(argv talks:reviewer:4 fake-claude --model claude-haiku-5-5 --effort low)" >/dev/null
     # 3 つ目の部屋: 名前がとても長い（名札は「…」で切れる）。プランの人と .md を書いた人で、ホワイトボードと左の一覧を試す
+    # 書いたものは、ほかの部屋（office-test-2 のプランや、本物のエージェントの .md）と重ならない見本（scripts/sample-docs/）
     sp3=$(herdr-app do space.new --name "$name3" --folder "$repo" \
-      --argv "$(argv "plan:$repo/scripts/sample-plan.md" fake-claude --model claude-opus-5-5 --effort high)" | jq -r .space)
+      --argv "$(argv "plan:$repo/scripts/sample-docs/plan.md" fake-claude --model claude-opus-5-5 --effort high)" | jq -r .space)
     herdr-app do tab.new --space "$sp3" --name writer \
-      --argv "$(argv "docs:$repo/README.md,$repo/TODO.md" fake-claude --model claude-sonnet-5-5 --effort medium)" >/dev/null
+      --argv "$(argv "docs:$repo/scripts/sample-docs/research.md,$repo/scripts/sample-docs/release-notes.md" fake-claude \
+        --model claude-sonnet-5-5 --effort medium)" >/dev/null
     echo "「${name}」（${sp}）と「${name2}」（${sp2}）と「${name3}」（${sp3}）を作りました"
     ;;
   stop)

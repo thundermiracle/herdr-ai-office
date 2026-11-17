@@ -1,7 +1,6 @@
-// ai-office-docs: 部屋の壁のホワイトボードをクリックすると出る、部屋の書いたもの（プラン・AI が書いた .md・部屋のフォルダの
-// まだコミットしていない .md）の中身をマークダウンで。
-// props: { room: 部屋の名前, docs: [{ path, kind, who }] }（kind: plan / doc / folder。順はプラン、人ごとの .md、フォルダの .md）。
-// 何本もあれば左に一覧（書いた人ごと。フォルダのものは最後）。開いている間は 2 秒ごとに読み直す（変わったときだけ描き直す）。
+// ai-office-docs: 部屋の壁のホワイトボードをクリックすると出る、部屋の人が書いたもの（プランと、AI が書いた .md）の中身を
+// マークダウンで。props: { room: 部屋の名前, docs: [{ path, kind, who }] }（kind: plan / doc。順はプラン、人ごとの .md）。
+// 何本もあれば左に一覧（書いた人ごと）。開いている間は 2 秒ごとに読み直す（変わったときだけ描き直す）。
 // フックは書く直前にラベルを付けるので、開いたときにまだファイルがないこともある。Esc か「閉じる」で閉じる。
 // キー: ↑↓ で少しずつ、Space・PageDown と Shift+Space・PageUp で 1 画面ずつ、Home・End で端までスクロール。
 // ← → で前と次の書いたもの、1〜9 でその番号のもの。
@@ -14,7 +13,7 @@ import { theme, props, home, readTextFile, closeOverlay } from "herdr";
 const RELOAD_MS = 2000;
 const LINE = 40; // ↑↓ で動かす量（px）
 const SIDE_W = 210; // 左の一覧の幅（何本もあるとき）
-const COLOR = { plan: "#c8774a", doc: "#4a7fd0", folder: "#9aa4b4" }; // 見出しと一覧の印の色（ホワイトボードの見出しの橙・青・灰）
+const COLOR = { plan: "#c8774a", doc: "#4a7fd0" }; // 見出しと一覧の印の色（ホワイトボードの見出しの橙・青）
 
 // 引用（> の行）は左の縦線が目立って読みにくいので、> を外してふつうの段落で出す（コードブロックの中はそのまま）
 function unquote(text) {
@@ -106,7 +105,7 @@ export default class DocsView extends View {
     cx.stop_propagation();
   }
 
-  // 左の一覧: 書いた人ごとに見出し、その下にプランと .md（番号は 1〜9 のキー）。フォルダのものは最後
+  // 左の一覧: 書いた人ごとに見出し、その下にプランと .md（番号は 1〜9 のキー）
   sidebar(t) {
     const groups = [];
     this.docs.forEach((d, i) => {

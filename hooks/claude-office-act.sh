@@ -11,7 +11,8 @@
 #   office.plan: プランのファイル（Claude Code のプランモードで書く ~/.claude/plans/<名前>.md。設定 plansDirectory なら
 #                そこ）。AI Office は、その部屋の壁にホワイトボードを掛け、クリックで中身を出す。セッションの終わりまで残す
 #   office.docs: このセッションで書いた .md（プラン以外。新しい順に 8 本まで、改行で区切る）。ホワイトボードで読める。
-#                ~/.claude/ の中（メモリや設定）は入れない。セッションの終わりまで残す
+#                Write / Edit / MultiEdit と、Bash の `> x.md`・`>> x.md`・`tee x.md`（hooks/md-writes.jq で読む）。
+#                ~/.claude/ の中（メモリや設定）と一時フォルダ（/tmp・/var/folders）は入れない。セッションの終わりまで残す
 # イベントごとに:
 #   PreToolUse: Skill → read と、その skill。Read / Grep / Glob / LS / WebSearch / WebFetch / NotebookRead → read、
 #               Edit / Write / MultiEdit / NotebookEdit → edit、Bash → run（コマンドに hc send があれば話しかけ）、
@@ -86,6 +87,7 @@ case "$(field .hook_event_name)" in
               case "$file" in
                 */.claude/plans/*) plan=$file ;;
                 */.claude/*) ;; # Claude のメモリや設定
+                /tmp/* | /private/tmp/* | /var/folders/* | /private/var/folders/*) ;; # 一時フォルダの作業メモ
                 *) doc=$file ;;
               esac
             fi
@@ -100,6 +102,12 @@ case "$(field .hook_event_name)" in
         act=run
         cmd=$(field .tool_input.command)
         case "$cmd" in *"hc send"*) talk=$(printf '%s' "$cmd" | jq -Rrs "$SEND_JQ" 2>/dev/null) ;; esac
+        # .md へ書き込む Bash（> x.md・>> x.md・tee x.md）は、書いた .md（式は hooks/md-writes.jq。読めなくても止まらない）
+        case "$cmd" in
+          *.md* | *.markdown* | *.MD*)
+            doc=$(printf '%s' "$cmd" | jq -Rrs -f "$(dirname "$0")/md-writes.jq" --arg cwd "$(field .cwd)" --arg home "$HOME" 2>/dev/null)
+            ;;
+        esac
         ;;
       *) act= ;;
     esac
@@ -132,7 +140,7 @@ case "$(field .hook_event_name)" in
 esac
 
 # 書いた .md の一覧（$memo.docs の 1 行目はセッション、そのあと新しい順）。前のセッションの一覧は捨てる
-# （落ちて SessionEnd が来なかったとき）。先頭に足して重なりを除き、8 本まで。変わったときだけ office.docs に書く
+# （落ちて SessionEnd が来なかったとき）。先頭に足して（Bash なら何本も）重なりを除き、8 本まで。変わったときだけ office.docs に書く
 docs_memo="$memo.docs"
 docs=
 if [ -n "$doc" ]; then
@@ -140,7 +148,7 @@ if [ -n "$doc" ]; then
   old=$(cat "$docs_memo" 2>/dev/null)
   [ "$(printf '%s\n' "$old" | sed -n 1p)" = "$session" ] || old=
   old_list=$(printf '%s\n' "$old" | sed 1d)
-  new_list=$({ printf '%s\n' "$doc"; printf '%s\n' "$old_list" | grep -vxF -e "$doc" -e ''; } | head -n 8)
+  new_list=$(printf '%s\n%s\n' "$doc" "$old_list" | awk 'NF && !seen[$0]++' | head -n 8)
   if [ "$new_list" != "$old_list" ]; then
     printf '%s\n%s\n' "$session" "$new_list" >"$docs_memo"
     docs=$new_list
