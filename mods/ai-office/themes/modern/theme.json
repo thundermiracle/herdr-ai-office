@@ -2,6 +2,7 @@
   "label": "モダン",
   "description": "独立した部屋。隣とは壁、廊下側はガラスの壁と扉で、列ごとに横の廊下",
   "order": 1,
+  "window": "wide",
   "room": {
     "height": 116,
     "wall": 30,

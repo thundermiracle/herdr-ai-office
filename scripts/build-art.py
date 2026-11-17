@@ -826,8 +826,13 @@ def in_glass(x, y):
     return any(px <= x < px + 12 and py <= y < py + 6 for px, py in PANES)
 
 
+def in_view(x, y):
+    """窓枠の内側（十字の桟の裏も含む）。外の景色はここ全部に描き、十字の窓では桟がその上に重なる。"""
+    return 1 <= x < WIN_W - 1 and 1 <= y < WIN_H - 1
+
+
 def window_frame():
-    """窓枠: ガラスは透明（後ろの空が見える）。ガラスには斜めの光の筋を薄く重ねる。"""
+    """十字の窓枠（classic）: ガラスは透明（後ろの空が見える）。ガラスには斜めの光の筋を薄く重ねる。"""
     im = Image.new("RGBA", (WIN_W, WIN_H), (0, 0, 0, 0))
     for y in range(WIN_H):
         for x in range(WIN_W):
@@ -836,6 +841,20 @@ def window_frame():
     for px, py in PANES:
         for i in range(6 if py == 1 else 5):
             im.putpixel((px + i, py + i), (255, 255, 255, 45))
+    return im
+
+
+def window_frame_wide():
+    """桟のない 1 枚ガラスの窓枠（modern）: 外の枠だけ。ガラスには長い光の筋と短い筋を薄く重ねる。"""
+    im = Image.new("RGBA", (WIN_W, WIN_H), (0, 0, 0, 0))
+    for y in range(WIN_H):
+        for x in range(WIN_W):
+            if not in_view(x, y):
+                im.putpixel((x, y), rgb(FURN["a"]))
+    for i in range(12):
+        im.putpixel((3 + i, 1 + i), (255, 255, 255, 40))
+    for i in range(5):
+        im.putpixel((7 + i, 1 + i), (255, 255, 255, 30))
     return im
 
 
@@ -869,9 +888,9 @@ SKY = {
     },
 }
 COVERS = ("clear", "cloudy", "overcast")
-# 下の 2 枚の街並み: (左端, 右端, 屋上の行)。右下には赤いタワー（上の右の 1 枚まで伸びる）
-BUILDINGS = [(1, 3, 12), (4, 6, 10), (7, 8, 12), (9, 12, 11), (15, 17, 12), (18, 19, 11), (25, 26, 10)]
-TOWER = {"tip": [(22, y) for y in range(3, 7)], "deck": [(21, 9), (22, 9), (23, 9), (21, 11), (22, 11), (23, 11)],
+# 下の街並み: (左端, 右端, 屋上の行)。右下には赤いタワー（上まで伸びる）。最後の 1 棟は十字の桟の裏（桟のない窓で見える）
+BUILDINGS = [(1, 3, 12), (4, 6, 10), (7, 8, 12), (9, 12, 11), (15, 17, 12), (18, 19, 11), (25, 26, 10), (13, 14, 12)]
+TOWER = {"tip": [(22, y) for y in range(3, 9)], "deck": [(21, 9), (22, 9), (23, 9), (21, 11), (22, 11), (23, 11)],
          "body": [(22, 10), (21, 12), (23, 12), (20, 13), (24, 13), (20, 14), (24, 14)]}
 CLOUD_A = ["..LL...", ".LLLLL.", "LLLLLLL", ".SSSSS."]
 CLOUD_B = [".LL..", "LLLLL", ".SSS."]
@@ -879,7 +898,7 @@ DISC = [".XX.", "XYYX", "XYYX", ".XX."]  # 太陽と月（X が縁）
 
 
 def sky(phase, cover):
-    """空 1 枚: 4 段の空（段の境は市松でぼかす）、太陽か月と星、雲、街並み（夜は窓の明かり）、タワー。"""
+    """空 1 枚: 4 段の空（段の境は市松でぼかす）、太陽か月と星、雲。街並みと名物は場所ごとの絵（city_view）を重ねる。"""
     c = SKY[phase]
     bands = c["gray"][:4] if cover == "overcast" else c["sky"]
     im = Image.new("RGBA", (WIN_W, WIN_H), rgb(bands[3]))
@@ -895,7 +914,7 @@ def sky(phase, cover):
             else:
                 band = 3
             im.putpixel((x, y), rgb(bands[band]))
-    put = lambda x, y, col: in_glass(x, y) and im.putpixel((x, y), rgb(col) if isinstance(col, str) else col)
+    put = lambda x, y, col: in_view(x, y) and im.putpixel((x, y), rgb(col) if isinstance(col, str) else col)
 
     def shape(rows_, x0, y0, colors):
         for dy, row in enumerate(rows_):
@@ -933,24 +952,447 @@ def sky(phase, cover):
             shape(CLOUD_A, 5, 2, {"L": light, "S": shade})
             shape(CLOUD_B, 15, 3, {"L": light, "S": shade})
             shape(CLOUD_B, 8, 9, {"L": light, "S": shade})
-    body_a, body_b, unlit, lit, p = c["bld"]
-    lights = random.Random(f"lights-{phase}")
-    for i, (x0, x1, top) in enumerate(BUILDINGS):
-        body = body_a if i % 2 == 0 else body_b
-        for x in range(x0, x1 + 1):
-            for y in range(top, WIN_H):
-                window = y > top and (y - top) % 2 == 0 and (x - x0) % 2 == 1 - (i % 2) and x < x1 + (i % 2)
-                col = body
-                if window:
-                    col = lit if lights.random() < p else unlit
-                put(x, y, col)
-    frame, deck = c["tower"]
-    for x, y in TOWER["tip"] + TOWER["body"]:
-        put(x, y, frame)
-    for x, y in TOWER["deck"]:
-        put(x, y, deck)
+    return im
+
+
+# ---- 窓の外の街並みと名物（場所ごと。scene.js の PLACES の id）: 空（sky）の上に重ねる絵 view/<場所>-<時間帯> ----
+# 名物は文字の格子（"." は描かない）と、置く所（左上の x, y）と、色（文字 → (昼の色, 明かり)）。昼の色は暗くなるほど
+# 街のシルエットの色に寄せ（LIGHT_MIX）、明かりのある色は薄明と夜にその明かりで灯る（ライトアップ）。
+# back は街並みの奥（山や丘）、front は手前（名物）。buildings は街並み（BUILDINGS の形。None なら名物と重ならないものを全部）。
+# beacons はてっぺんの赤い灯り（薄明と夜）。東京だけは、名物を分ける前の窓とピクセルまで同じになるよう、元の描き方のまま
+LIGHT_MIX = {"day": 0.0, "dawn": 0.45, "dusk": 0.55, "twilight": 0.75, "night": 0.85}
+LANDMARKS = {
+    "sydney": {  # ハーバーブリッジとオペラハウス（海は窓の幅いっぱい）
+        "buildings": [],
+        "back": [(["~" * 26, "~" * 26], 1, 13, {"~": ("#3f7fb5", None)})],
+        "front": [
+            ([
+                "...aaaaaa...",
+                ".aa......aa.",
+                "a..........a",
+                "dddddddddddd",
+                "p..........p",
+                "p..........p",
+            ], 1, 9, {"a": ("#8c96a3", "#ffe08a"), "d": ("#6e7682", None), "p": ("#c9b48a", None)}),
+            ([
+                "....w.......",
+                "...ww...w...",
+                "..www..ww..w",
+                ".wwww.www.ww",
+                "bbbbbbbbbbbb",
+            ], 15, 9, {"w": ("#f4f2ea", "#fff2c8"), "b": ("#c9a77a", None)}),
+        ],
+    },
+    "tokyo": {"tokyo": True},
+    "seoul": {  # 南山の上の N ソウルタワー
+        "front": [([
+            "....a....",
+            "....a....",
+            "...ppp...",
+            "...PPP...",
+            "...ppp...",
+            "....t....",
+            "....t....",
+            "....t....",
+            "....t....",
+            "....t....",
+            "...hhh...",
+            ".hhhhhhh.",
+            "hhhhhhhhh",
+            "hhhhhhhhh",
+        ], 17, 1, {"a": ("#e6e8ee", None), "p": ("#e1e5ec", None), "P": ("#9fb2c6", "#ffe08a"), "t": ("#cfd5de", None),
+                   "h": ("#5e8a55", None)})],
+        "beacons": [(21, 1)],
+    },
+    "shanghai": {  # 東方明珠塔（ピンクの玉）
+        "front": [([
+            "...s...",
+            "...s...",
+            "...s...",
+            "..PPP..",
+            "..PPP..",
+            "...s...",
+            "...s...",
+            "..sss..",
+            "..sss..",
+            ".PPPPP.",
+            ".PPPPP.",
+            "..PPP..",
+            ".s.s.s.",
+            "s..s..s",
+        ], 18, 1, {"s": ("#c8cdd6", None), "P": ("#d9558a", "#ff8fbf")})],
+        "beacons": [(21, 1)],
+    },
+    "taipei": {  # 台北 101（積み重ねた節）
+        "front": [([
+            "..s..",
+            ".ttt.",
+            "ttttt",
+            ".ttt.",
+            "ttttt",
+            ".ttt.",
+            "ttttt",
+            ".ttt.",
+            "ttttt",
+            ".ttt.",
+            "ttttt",
+            ".TTT.",
+            ".TTT.",
+            ".TTT.",
+        ], 19, 1, {"s": ("#c9d3d8", None), "t": ("#5f9e93", "#7fdcc4"), "T": ("#4f857c", "#5fb8a5")})],
+        "beacons": [(21, 1)],
+    },
+    "singapore": {  # マリーナベイ・サンズ（3 本の塔の上の船）
+        "front": [([
+            "..bbbbbbbbbb",
+            "bbbbbbbbbbb.",
+            ".TT..TT..TT.",
+            ".TT..TT..TT.",
+            ".TT..TT..TT.",
+            ".TT..TT..TT.",
+            ".TT..TT..TT.",
+            ".WT..TW..WT.",
+            ".TT..TT..TT.",
+            ".TW..WT..TW.",
+            ".TT..TT..TT.",
+            ".TT..TT..TT.",
+        ], 15, 3, {"b": ("#d4dbe2", "#e8f0ff"), "T": ("#a7b6c6", None), "W": ("#a7b6c6", "#ffd86b")})],
+    },
+    "bangkok": {  # ワット・アルン（とうもろこしのような塔）
+        "front": [([
+            "....s....",
+            "....p....",
+            "....p....",
+            "...ppp...",
+            "...ppp...",
+            "...ppp...",
+            "..ppppp..",
+            "..ppppp..",
+            ".s.ppp.s.",
+            ".p.ppp.p.",
+            "ppppppppp",
+            "ppppppppp",
+            "ggggggggg",
+        ], 17, 2, {"s": ("#d9a441", "#ffd27a"), "p": ("#efe6d2", "#f2c46a"), "g": ("#9a7a52", None)})],
+    },
+    "delhi": {  # インド門
+        "front": [([
+            "...ccccc...",
+            "..ggggggg..",
+            "..ggggggg..",
+            "..ggggggg..",
+            "..ggggggg..",
+            "..ggggggg..",
+            "..gg...gg..",
+            "..gg...gg..",
+            "..gg...gg..",
+            ".ggg...ggg.",
+            "ggggggggggg",
+        ], 16, 4, {"c": ("#b0744a", "#e0a060"), "g": ("#c98b5a", "#d99a62")})],
+    },
+    "dubai": {  # ブルジュ・ハリファ（細く高い針）
+        "front": [([
+            "..n..",
+            "..n..",
+            "..n..",
+            "..n..",
+            ".nnn.",
+            ".nNn.",
+            ".nnn.",
+            ".nnn.",
+            ".nNn.",
+            "nnnnn",
+            "nnNnn",
+            "nnnnn",
+            "nNnnn",
+            "nnnnn",
+        ], 19, 1, {"n": ("#7f8fa6", None), "N": ("#7f8fa6", "#ffe08a")})],
+        "beacons": [(21, 1)],
+    },
+    "moscow": {  # ワシリー寺院（玉ねぎ屋根と金の塔）
+        "front": [([
+            ".....g.....",
+            ".....g.....",
+            "....ggg....",
+            ".r..ggg..b.",
+            "rrr.ggg.bbb",
+            "rrr.ggg.bbb",
+            ".w..www..w.",
+            ".w..www..w.",
+            ".w..www..w.",
+            "wwwwwwwwwww",
+            "wwwwwwwwwww",
+            "wwwwwwwwwww",
+            "wwwwwwwwwww",
+        ], 16, 2, {"g": ("#d9b04a", "#ffd56a"), "r": ("#d9483b", "#ff6a55"), "b": ("#3f9a6a", "#5fd08f"),
+                   "w": ("#b5523f", "#d9725a")})],
+    },
+    "berlin": {  # テレビ塔（銀の玉）
+        "front": [([
+            "..a..",
+            "..a..",
+            ".sss.",
+            "sSsss",
+            ".sss.",
+            "..t..",
+            "..t..",
+            "..t..",
+            "..t..",
+            "..t..",
+            "..t..",
+            "..t..",
+            ".ttt.",
+            ".ttt.",
+        ], 19, 1, {"a": ("#e05a48", None), "s": ("#c8ced6", None), "S": ("#c8ced6", "#ffe08a"), "t": ("#d8d3c8", None)})],
+        "beacons": [(21, 1)],
+    },
+    "paris": {  # エッフェル塔（夜は金色）
+        "front": [([
+            "....e....",
+            "....e....",
+            "...eee...",
+            "...e.e...",
+            "...eee...",
+            "..e...e..",
+            "..eeeee..",
+            "..e...e..",
+            ".eeeeeee.",
+            ".e.....e.",
+            ".e.....e.",
+            "e..eee..e",
+            "e.e...e.e",
+            "ee.....ee",
+        ], 17, 1, {"e": ("#8a6a4a", "#ffc65a")})],
+    },
+    "london": {  # ビッグ・ベン（時計台）と国会議事堂
+        "front": [([
+            "..r.......",
+            "..r.......",
+            ".rrr......",
+            ".CCC......",
+            ".ccc......",
+            ".bbb......",
+            ".bbb......",
+            ".bbb......",
+            ".bbb......",
+            ".bbb......",
+            ".bbb.p.p.p",
+            ".bbbpppppp",
+            "bbbbpppppp",
+            "bbbbpppppp",
+        ], 17, 1, {"r": ("#4a5a64", None), "C": ("#f4ecd2", "#fff2b0"), "c": ("#c9a96e", None), "b": ("#c9a96e", "#e2c27e"),
+                   "p": ("#b8995e", "#d8b56e")})],
+    },
+    "sao-paulo": {  # オクタビオ・フリアス橋（X の柱と斜めの綱）
+        "front": [([
+            ".....x.x....",
+            ".....x.x....",
+            "......x.....",
+            "......x.....",
+            ".....cxc....",
+            "....c.x.c...",
+            "...c..x..c..",
+            "..c...x...c.",
+            ".c....x....c",
+            "c.....x.....",
+            "dddddddddddd",
+            "............",
+            "wwwwwwwwwwww",
+        ], 15, 2, {"x": ("#ededed", "#bfe8ff"), "c": ("#c3cbd3", "#9fd8ff"), "d": ("#7a8494", None), "w": ("#4f7fa8", None)})],
+    },
+    "new-york": {  # エンパイア・ステート・ビル
+        "front": [([
+            "...s...",
+            "...s...",
+            "..sss..",
+            "..bBb..",
+            ".bbbbb.",
+            ".bBbbb.",
+            ".bbbbb.",
+            ".bbbbb.",
+            "bbbbbbb",
+            "bbBbbbb",
+            "bbbbbBb",
+            "bbbbbbb",
+            "bBbbbbb",
+            "bbbbbbb",
+        ], 19, 1, {"s": ("#cfc8b8", "#c8a8ff"), "b": ("#b3aa97", None), "B": ("#b3aa97", "#ffd86b")})],
+    },
+    "chicago": {  # ウィリス・タワー（黒い塔と 2 本のアンテナ）
+        "front": [([
+            ".a...a.",
+            ".a...a.",
+            ".kkkk..",
+            ".kkkk..",
+            ".kkkkk.",
+            ".kkkkk.",
+            "kkkkkkk",
+            "kkkkkkk",
+            "kkkkkkk",
+            "kkKkkkk",
+            "kkkkkKk",
+            "kkkkkkk",
+            "kKkkkkk",
+            "kkkkkkk",
+        ], 18, 1, {"a": ("#e9e9ef", None), "k": ("#33363d", None), "K": ("#33363d", "#ffd86b")})],
+        "beacons": [(19, 1), (23, 1)],
+    },
+    "denver": {  # ロッキー山脈（雪の頂。上の 2 枚に 1 つずつ）の手前の街
+        "back": [([
+            "........s...........s.....",
+            ".......sss.........sss....",
+            "......ssmss.......ssmss...",
+            ".....mmmmmmm.....mmmmmmm..",
+            "....mmmmmmmmm...mmmmmmmmm.",
+            "...mmmmmmmmmmm.mmmmmmmmmmm",
+            "..mmmmmmmmmmmmmmmmmmmmmmmm",
+            ".mmmmmmmmmmmmmmmmmmmmmmmmm",
+            "mmmmmmmmmmmmmmmmmmmmmmmmmm",
+            "mmmmmmmmmmmmmmmmmmmmmmmmmm",
+            "mmmmmmmmmmmmmmmmmmmmmmmmmm",
+            "mmmmmmmmmmmmmmmmmmmmmmmmmm",
+            "mmmmmmmmmmmmmmmmmmmmmmmmmm",
+        ], 1, 2, {"m": ("#66748d", None), "s": ("#ffffff", None)})],
+        "front": [],
+    },
+    "los-angeles": {  # 丘の上のハリウッドの看板と、ヤシの木
+        "back": [([
+            "......hhhh................",
+            "...hhSSSSSShh.............",
+            "..hhhhhhhhhhhhh...........",
+            ".hhhhhhhhhhhhhhhh.........",
+            "hhhhhhhhhhhhhhhhhhh.......",
+            "hhhhhhhhhhhhhhhhhhhhhh....",
+            "hhhhhhhhhhhhhhhhhhhhhhhhhh",
+            "hhhhhhhhhhhhhhhhhhhhhhhhhh",
+            "hhhhhhhhhhhhhhhhhhhhhhhhhh",
+            "hhhhhhhhhhhhhhhhhhhhhhhhhh",
+            "hhhhhhhhhhhhhhhhhhhhhhhhhh",
+        ], 1, 4, {"h": ("#8a8a5a", None), "S": ("#f4f4f4", "#f4f4f4")})],
+        "front": [
+            ([
+                "p.p.p",
+                ".ppp.",
+                "p.t.p",
+                "..t..",
+                "..t..",
+                "..t..",
+                "..t..",
+                "..t..",
+                "..t..",
+                "..t..",
+                "..t..",
+                "..t..",
+                "..t..",
+            ], 19, 2, {"p": ("#3f7a3a", None), "t": ("#7a5a3a", None)}),
+            ([
+                "p.p.p",
+                ".ppp.",
+                "p.t.p",
+                "..t..",
+                "..t..",
+                "..t..",
+                "..t..",
+                "..t..",
+                "..t..",
+                "..t..",
+            ], 23, 5, {"p": ("#3f7a3a", None), "t": ("#7a5a3a", None)}),
+        ],
+    },
+    "honolulu": {  # ダイヤモンドヘッド（右上まで上がる稜線）と海とヤシの木
+        "back": [([
+            "..........rr..",
+            "........rrhhr.",
+            "......rrhhhhhr",
+            "....rrhhhhhhhh",
+            "..rrhhhhhhhhhh",
+            "rrhhhhhhhhhhhh",
+            "hhhhhhhhhhhhhh",
+            "hhhhhhhhhhhhhh",
+            "hhhhhhhhhhhhhh",
+        ], 13, 3, {"h": ("#7a8652", None), "r": ("#9aa66a", None)})],
+        "buildings": [(6, 7, 9), (8, 10, 10), (11, 12, 11)],
+        "front": [
+            ([
+                "wwwwfwwwwwwwwwwfwwwwwwwwww",
+                "wwwwwwwwwfwwwwwwwwwwwfwwww",
+                "wwwwwwwwwwwwwwwwwwwwwwwwww",
+            ], 1, 12, {"w": ("#3f86b8", None), "f": ("#e8f4fb", None)}),
+            ([
+                "p.p.p",
+                ".ppp.",
+                "p.t.p",
+                "..t..",
+                "..t..",
+                "..t..",
+                "..t..",
+                "..t..",
+                "..t..",
+            ], 1, 3, {"p": ("#3f7a3a", None), "t": ("#7a5a3a", None)}),
+        ],
+    },
+}
+
+
+def mix(a, b, t):
+    ca, cb = rgb(a), rgb(b)
+    return tuple(round(ca[i] + (cb[i] - ca[i]) * t) for i in range(3)) + (255,)
+
+
+def city_view(place, phase):
+    """窓の外の街並みと名物（透明の上に。sky の上に重ねる）。東京は元の街並みと東京タワーのまま。"""
+    c = SKY[phase]
+    im = Image.new("RGBA", (WIN_W, WIN_H), (0, 0, 0, 0))
+    put = lambda x, y, col: in_view(x, y) and im.putpixel((x, y), rgb(col) if isinstance(col, str) else col)
+    spec = LANDMARKS[place]
+
+    def color(day, lamp):
+        if lamp and phase in ("twilight", "night"):
+            return rgb(lamp)
+        return mix(day, c["bld"][0], LIGHT_MIX[phase])
+
+    def draw(parts):
+        for rows, x0, y0, pal in parts:
+            for dy, row in enumerate(rows):
+                for dx, ch in enumerate(row):
+                    if ch in pal:
+                        put(x0 + dx, y0 + dy, color(*pal[ch]))
+
+    def skyline(buildings):
+        body_a, body_b, unlit, lit, p = c["bld"]
+        lights = random.Random(f"lights-{phase}")
+        for x0, x1, top in buildings:
+            i = BUILDINGS.index((x0, x1, top)) if (x0, x1, top) in BUILDINGS else x0
+            body = body_a if i % 2 == 0 else body_b
+            for x in range(x0, x1 + 1):
+                for y in range(top, WIN_H):
+                    window = y > top and (y - top) % 2 == 0 and (x - x0) % 2 == 1 - (i % 2) and x < x1 + (i % 2)
+                    col = body
+                    if window:
+                        col = lit if lights.random() < p else unlit
+                    put(x, y, col)
+
+    if spec.get("tokyo"):
+        skyline(BUILDINGS)
+        frame, deck = c["tower"]
+        for x, y in TOWER["tip"] + TOWER["body"]:
+            put(x, y, frame)
+        for x, y in TOWER["deck"]:
+            put(x, y, deck)
+        if phase in ("night", "twilight"):
+            put(22, 3, "#ff5040")  # てっぺんの赤い灯り
+        return im
+    draw(spec.get("back", []))
+    front = spec.get("front", [])
+    buildings = spec.get("buildings")
+    if buildings is None:  # 名物と横に重ならない街並み
+        spans = [(x0, x0 + max(len(r) for r in rows) - 1) for rows, x0, _y0, _pal in front]
+        buildings = [b for b in BUILDINGS if not any(b[0] <= hi and lo <= b[1] for lo, hi in spans)]
+    skyline(buildings)
+    draw(front)
     if phase in ("night", "twilight"):
-        put(22, 3, "#ff5040")  # てっぺんの赤い灯り
+        for x, y in spec.get("beacons", []):
+            put(x, y, "#ff5040")
     return im
 
 
@@ -962,7 +1404,7 @@ def rain(frame):
         x, y0 = rng.randrange(WIN_W), rng.randrange(WIN_H)
         for k, alpha in ((0, 100), (1, 170), (2, 235)):
             y = (y0 + frame * 4 + k) % WIN_H
-            if in_glass(x, y):
+            if in_view(x, y):
                 im.putpixel((x, y), (235, 242, 255, alpha))
     return im
 
@@ -975,7 +1417,7 @@ def snow(frame):
     for i in range(24):
         x0, y0 = rng.randrange(WIN_W), rng.randrange(WIN_H)
         x, y = (x0 + sway[(frame + i) % 8]) % WIN_W, (y0 + frame * 2) % WIN_H
-        if in_glass(x, y):
+        if in_view(x, y):
             im.putpixel((x, y), (255, 255, 255, 240))
     return im
 
@@ -985,19 +1427,20 @@ def flash():
     im = Image.new("RGBA", (WIN_W, WIN_H), (0, 0, 0, 0))
     for y in range(WIN_H):
         for x in range(WIN_W):
-            if in_glass(x, y):
+            if in_view(x, y):
                 im.putpixel((x, y), (255, 255, 255, 96))
-    for x, y in [(9, 1), (8, 2), (8, 3), (7, 4), (8, 5), (7, 6), (6, 9), (6, 10), (5, 11)]:
+    for x, y in [(9, 1), (8, 2), (8, 3), (7, 4), (8, 5), (7, 6), (7, 7), (6, 8), (6, 9), (6, 10), (5, 11)]:
         im.putpixel((x, y), (255, 248, 200, 255))
     return im
 
 
-def window_view(phase, cover, *overlays):
-    """窓 1 つ（空・重ねるもの・窓枠）。見本用。"""
+def window_view(phase, cover, *overlays, place="tokyo", wide=False):
+    """窓 1 つ（空・その場所の街並みと名物・重ねるもの・窓枠。wide なら桟のない 1 枚ガラス）。見本用。"""
     im = sky(phase, cover)
+    im.alpha_composite(city_view(place, phase))
     for o in overlays:
         im.alpha_composite(o)
-    im.alpha_composite(window_frame())
+    im.alpha_composite(window_frame_wide() if wide else window_frame())
     return im
 
 
@@ -1011,6 +1454,37 @@ def sky_preview():
             sheet.alpha_composite(window_view(phase, cover, *overlays), (4 + k * (WIN_W + 4), 4 + r * (WIN_H + 4)))
     path = PREVIEW.parent / "sky-preview.png"
     sheet.resize((sheet.width * 8, sheet.height * 8), Image.NEAREST).save(path)
+    print(f"preview -> {path.relative_to(ROOT)}")
+
+
+def landmarks_preview():
+    """名物の見本（絵の 1 ピクセル = 6px）: 場所ごとに、時間帯（昼・朝焼け・夕焼け・薄明・夜。晴れ）の窓を横に並べる。
+    場所は 2 列に分ける。tmp/landmarks-preview.png"""
+    from PIL import ImageDraw, ImageFont
+    places = list(LANDMARKS)
+    half = (len(places) + 1) // 2
+    label = 34  # 場所の名前の幅（絵の px）
+    cell_w, cell_h = WIN_W + 3, WIN_H + 3
+    block = label + len(SKY) * cell_w
+    sheet = Image.new("RGBA", (2 * block + 8, 4 + half * cell_h), rgb("#2a2d36"))
+    for i, place in enumerate(places):
+        x0 = (i // half) * (block + 8)
+        y0 = 4 + (i % half) * cell_h
+        for k, phase in enumerate(SKY):
+            sheet.alpha_composite(window_view(phase, "clear", place=place, wide=True), (x0 + label + k * cell_w, y0))
+    Z = 6
+    big = sheet.resize((sheet.width * Z, sheet.height * Z), Image.NEAREST)
+    d = ImageDraw.Draw(big)
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/Supplemental/Arial.ttf", 30)
+    except OSError:
+        font = ImageFont.load_default()
+    for i, place in enumerate(places):
+        x0 = (i // half) * (block + 8)
+        y0 = 4 + (i % half) * cell_h
+        d.text((x0 * Z + 12, (y0 + WIN_H / 2) * Z), place, font=font, fill="#e6e8ee", anchor="lm")
+    path = PREVIEW.parent / "landmarks-preview.png"
+    big.save(path)
     print(f"preview -> {path.relative_to(ROOT)}")
 
 
@@ -1029,7 +1503,7 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     n = 0
     import shutil
-    for sub in ("char", "band", "sky"):
+    for sub in ("char", "band", "sky", "view"):
         shutil.rmtree(OUT / sub, ignore_errors=True)
     for name, look in LOOKS.items():
         (h, H, j), (c, C) = look["hair"], look["shirt"]
@@ -1091,6 +1565,7 @@ def main():
     n += 4
     # 窓: 枠（ガラスは透明）と、後ろに重ねる空（時間帯 x 空模様）・雨・雪・稲光
     save(window_frame(), "window")
+    save(window_frame_wide(), "window-wide")
     for phase in SKY:
         for cover in COVERS:
             save(sky(phase, cover), f"sky/{phase}-{cover}")
@@ -1099,10 +1574,15 @@ def main():
     for i in range(8):
         save(snow(i), f"sky/snow-{i}")
     save(flash(), "sky/flash")
-    n += 1 + len(SKY) * len(COVERS) + 4 + 8 + 1
+    n += 2 + len(SKY) * len(COVERS) + 4 + 8 + 1
+    for place in LANDMARKS:  # 場所ごとの街並みと名物（時間帯ごと）
+        for phase in SKY:
+            save(city_view(place, phase), f"view/{place}-{phase}")
+            n += 1
     print(f"{n} images -> {OUT.relative_to(ROOT)}")
     preview(p, furniture)
     sky_preview()
+    landmarks_preview()
 
 
 def preview(p, furniture):

@@ -37,6 +37,7 @@ export const HALL_W = 44; // 左の廊下の幅
 // テーマを選ぶまで（main.js がテーマのフォルダを読み終えるまで）は undefined
 export let THEME = null;
 export let ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY, HALL_SIDE, IMAGES, COLORS;
+export let WINDOW; // 窓枠の絵（img/ の下の名前）: window（十字の桟）か window-wide（桟のない 1 枚ガラス）
 // 資料室（廊下の一番上）で本を読む場所（フロア全体の座標）。本棚の前から、読む人が増えると順に並ぶ
 export let LIBRARY;
 // 本棚（bookshelf-empty.png、資料室＝フロアの (6, SHELF.y) に置く）の中で本を立てる場所。scripts/build-art.py の bookshelf と
@@ -88,6 +89,8 @@ export function readTheme(name, json, sizes = {}, base = `mods/ai-office/themes/
   }
   const g = json?.glass ?? null;
   if (g !== null && !(Number.isInteger(g.y) && Number.isInteger(g.height))) problems.push("glass が null か { y, height } でない");
+  const window = json?.window ?? "cross";
+  if (!["cross", "wide"].includes(window)) problems.push("window が cross（十字の桟）か wide（1 枚ガラス）でない");
   const images = { ...DEFAULT_IMAGES };
   for (const [key, file] of Object.entries(json?.images ?? {})) {
     const size = sizes[file];
@@ -125,7 +128,7 @@ export function readTheme(name, json, sizes = {}, base = `mods/ai-office/themes/
     ROOM_H: room.height, WALL_H: room.wall, LANE_Y: room.lane, BACK: room.deskBack, BOX_H: room.box, CORRIDOR_Y: room.corridorY,
     PART_END: room.partitionEnd, SHELF_Y: room.shelfY, DECOR_DY: room.decorDy, FRONT_Y: front,
     GLASS: g ? { y: g.y, h: g.height } : null, RIGHT_EXIT: r.rightExit, HALL_SIDE: r.hallSide,
-    IMAGES: images, COLORS: { ...DEFAULT_COLORS, ...(json?.colors ?? {}) },
+    IMAGES: images, COLORS: { ...DEFAULT_COLORS, ...(json?.colors ?? {}) }, WINDOW: window === "wide" ? "window-wide" : "window",
   };
   return { theme, problems };
 }
@@ -150,7 +153,7 @@ export function useTheme(name) {
   const t = themes.get(name) ?? themes.get("modern") ?? themeList()[0];
   if (!t) return null;
   THEME = t.name;
-  ({ ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY, HALL_SIDE, IMAGES, COLORS } = t);
+  ({ ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY, HALL_SIDE, IMAGES, COLORS, WINDOW } = t);
   LIBRARY = [{ x: 22, y: t.SHELF_Y + 52 }, { x: 12, y: t.SHELF_Y + 64 }, { x: 32, y: t.SHELF_Y + 64 }, { x: 22, y: t.SHELF_Y + 76 }];
   SHELF = { x: 6, y: t.SHELF_Y, bases: [14, 27, 40], left: 3, right: 29, bookW: 2 };
   return THEME;
@@ -158,7 +161,8 @@ export function useTheme(name) {
 
 /** 今のテーマの寸法と絵（main.js 用。ほかのモジュールからは、差し替えた値をこれで確実に読む）。 */
 export function geometry() {
-  return { THEME, ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY, HALL_SIDE, IMAGES, COLORS, SHELF };
+  return { THEME, ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY, HALL_SIDE, IMAGES, COLORS, WINDOW,
+    SHELF };
 }
 
 export const NEW_ROOM_W = 72; // 空き部屋（クリックで新しい部屋）
@@ -1006,19 +1010,21 @@ export function parseWeather(json, fetchedAt) {
 }
 
 /**
- * 窓の外の絵（img/ の下の名前を奥から順に。最後が窓枠）。ms は空の時刻、weather は weatherOf か null（晴れ）、
+ * 窓の外の絵（img/ の下の名前を奥から順に: 空、その場所の街並みと名物（view/<場所>-<時間帯>）、雨や雪、窓枠 frame
+ * （テーマの WINDOW: window は十字の桟、window-wide は 1 枚ガラス）。
+ * ms は空の時刻、weather は weatherOf か null（晴れ）、
  * t はコマ送りの数。雨と雪は 2 コマに 1 回進む（雨のためだけに毎コマ描き直さない）。雷は 24 コマごとに 2 回光る。
  * key は絵が変わったかを見るため（同じなら描き直さない）。
  */
-export function windowView(ms, weather, t, place = TOKYO) {
+export function windowView(ms, weather, t, place = TOKYO, frame = "window") {
   const phase = skyPhase(sunAt(ms, place));
   const fx = weather?.fx ?? null;
   const step = Math.floor(t / 2);
-  const layers = [`sky/${phase}-${weather?.cover ?? "clear"}`];
+  const layers = [`sky/${phase}-${weather?.cover ?? "clear"}`, `view/${place.id}-${phase}`];
   if (fx === "rain" || fx === "thunder") layers.push(`sky/rain-${step % RAIN_FRAMES}`);
   if (fx === "snow") layers.push(`sky/snow-${step % SNOW_FRAMES}`);
   if (fx === "thunder" && (t % 24 === 0 || t % 24 === 2)) layers.push("sky/flash");
-  layers.push("window");
+  layers.push(frame);
   return { phase, layers, key: layers.join("+") };
 }
 

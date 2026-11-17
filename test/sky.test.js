@@ -61,6 +61,17 @@ describe("places and their time zones", () => {
     expect(defaultPlace(345, jan).id).toBe("delhi"); // ネパール（UTC+5:45）はいちばん近いデリー
   });
 
+  test("every place has its own skyline and landmark for each time of day", () => {
+    const { existsSync } = require("fs");
+    const img = new URL("../mods/ai-office/img/", import.meta.url).pathname;
+    for (const p of PLACES) {
+      for (const phase of ["day", "dawn", "dusk", "twilight", "night"]) expect(existsSync(`${img}view/${p.id}-${phase}.png`)).toBe(true);
+    }
+    expect(windowView(Date.UTC(2026, 10, 12, 3), null, 0, place("paris")).layers).toContain("view/paris-night");
+    expect(windowView(Date.UTC(2026, 10, 12, 3), null, 0, place("paris"), "window-wide").layers.at(-1)).toBe("window-wide");
+    expect(existsSync(`${img}window-wide.png`)).toBe(true);
+  });
+
   test("the sun and the sky follow the place", () => {
     const noonUtc = Date.UTC(2026, 10, 12, 3); // 東京は昼の 12 時、ロンドンは夜中の 3 時
     expect(windowView(noonUtc, null, 0, TOKYO).phase).toBe("day");
@@ -144,15 +155,15 @@ describe("windowView", () => {
   const noon = jst(2026, 11, 12, 12, 0);
 
   test("the sky for the time and the weather, under the frame", () => {
-    expect(windowView(noon, null, 0).layers).toEqual(["sky/day-clear", "window"]);
-    expect(windowView(night, weatherOf(2), 0).layers).toEqual(["sky/night-cloudy", "window"]);
-    expect(windowView(night, weatherOf(63), 0).layers).toEqual(["sky/night-overcast", "sky/rain-0", "window"]);
-    expect(windowView(noon, weatherOf(73), 6).layers).toEqual(["sky/day-overcast", "sky/snow-3", "window"]);
+    expect(windowView(noon, null, 0).layers).toEqual(["sky/day-clear", "view/tokyo-day", "window"]);
+    expect(windowView(night, weatherOf(2), 0).layers).toEqual(["sky/night-cloudy", "view/tokyo-night", "window"]);
+    expect(windowView(night, weatherOf(63), 0).layers).toEqual(["sky/night-overcast", "view/tokyo-night", "sky/rain-0", "window"]);
+    expect(windowView(noon, weatherOf(73), 6).layers).toEqual(["sky/day-overcast", "view/tokyo-day", "sky/snow-3", "window"]);
   });
 
   test("rain moves every other tick and loops; a clear sky does not change between ticks", () => {
     const rain = weatherOf(63);
-    const frames = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((t) => windowView(noon, rain, t).layers[1]);
+    const frames = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((t) => windowView(noon, rain, t).layers[2]);
     expect(frames).toEqual(["sky/rain-0", "sky/rain-0", "sky/rain-1", "sky/rain-1", "sky/rain-2", "sky/rain-2", "sky/rain-3", "sky/rain-3", "sky/rain-0"]);
     expect(RAIN_FRAMES).toBe(4);
     expect(windowView(noon, weatherOf(0), 1).key).toBe(windowView(noon, weatherOf(0), 2).key);

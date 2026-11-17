@@ -2,6 +2,7 @@
   "label": "クラシック",
   "description": "左の仕切りだけ（奥から途中まで）。手前の床が隣の部屋とつながる",
   "order": 2,
+  "window": "cross",
   "room": {
     "height": 140,
     "wall": 36,

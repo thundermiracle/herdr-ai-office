@@ -285,7 +285,7 @@ export default class AiOffice extends View {
     const ms = this.trial.time === null ? now : placeAt(place, now, this.trial.time);
     const weather = this.trial.weather ? weatherOf(TRIAL_WEATHER[this.trial.weather]) : liveWeather(now, place);
     const trial = this.trial.time !== null || this.trial.weather !== null;
-    return { ...windowView(ms, weather, this.office.t, place), tip: windowTip(ms, weather, trial, place) };
+    return { ...windowView(ms, weather, this.office.t, place, geometry().WINDOW), tip: windowTip(ms, weather, trial, place) };
   }
 
   // 自分のブロック（props の block）が隠れているか: そのものか親が hidden、または stack の選ばれていない子。
