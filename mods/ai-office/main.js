@@ -23,7 +23,6 @@ const HALL_TEX = { w: 48, h: 560 }; // hall.png（廊下の床）の大きさ
 const CORRIDOR_TEX = { w: 512, h: 16 }; // corridor.png（modern の横の廊下の床）の大きさ
 const THEME_NAMES = { modern: "モダン", classic: "クラシック" };
 const MARGIN = 6; // フロアのまわりの余白
-const WIDE = 260; // これ以上の幅の部屋にはホワイトボードも掛ける
 const META_MS = 10000; // model と effort を読み直す間隔
 const HIDDEN_MS = 1000; // 隠れている間は、この間隔で見えるようになったかだけ見る
 const SKILLS_MS = 60000; // 使える skill を読み直す間隔（めったに変わらない）
@@ -465,13 +464,13 @@ export default class AiOffice extends View {
     return ["clock-face", `clock-m-${m}`, `clock-h-${h}`].map((img) => this.sprite({ img, x, y, w: 13, h: 13 }));
   }
 
-  // 壁の名札（スペースの名前）。左の仕切りの右から、窓（広い部屋ではホワイトボード）の手前まで伸ばせる。
+  // 壁の名札（スペースの名前）。左の仕切りの右から、窓（プランがあればホワイトボード）の手前まで伸ばせる。
   // 左クリックでそのスペースを選び、herdr のスペースのメニュー（名前を変える・閉じる、git ならワークツリー）を出す。
   // 右クリックはメニューだけ。閉じるときは herdr が確かめる（部屋のエージェントも終わる）。
   // 床と同じく、ほかの部屋へドラッグすると部屋の順番が変わる（名札の上で離せばクリック）
   plate(room) {
     const text = room.machine ? `${room.machine}: ${room.name}` : room.name;
-    const right = room.w >= WIDE || room.plans.length ? room.w - 116 : room.w - 76;
+    const right = room.plans.length ? room.w - 116 : room.w - 76;
     const menu = () => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "space", target: { id: room.id } } });
     return div().id(`plate-${room.id}`).absolute().left(px(room.ox + 10)).top(px(room.oy + 5)).h(px(12)).max_w(px(right - 14))
       .cursor_pointer().on_mouse_down("left", (_e, cx) => {
@@ -540,7 +539,7 @@ export default class AiOffice extends View {
       .children(view.layers.map((img) => image(`${IMG}/${img}.png`).absolute().left(0).top(0).size_full()));
   }
 
-  // プランのホワイトボード（部屋の誰かがプランを書いた）。広い部屋の飾りのホワイトボードと同じ所に掛け、クリックでプランの中身
+  // プランのホワイトボード（部屋の誰かがプランを書いた）。窓の左に掛け、クリックでプランの中身。プランがなければ掛けない
   planBoard(room) {
     const plans = room.plans.map((p) => {
       const a = this.office.chars.get(p.address)?.info ?? {};
@@ -560,8 +559,7 @@ export default class AiOffice extends View {
       this.wall(ox, oy, w),
       ...(GLASS && ox === HALL_W ? this.sideGlass(ox, oy) : [this.partition(ox, oy)]),
       ...(room.newRoom ? [] : [
-        ...(room.plans.length ? [this.planBoard(room)]
-          : w >= WIDE ? [this.sprite({ img: "whiteboard", x: ox + w - 112, y: oy + 7 + dy, w: 30, h: 18 })] : []),
+        ...(room.plans.length ? [this.planBoard(room)] : []),
         this.sky(ox + w - 72, oy + 6 + dy, view, `window-${room.id}`),
         ...this.clock(ox + w - 33, oy + 8 + dy),
         this.plate(room),
