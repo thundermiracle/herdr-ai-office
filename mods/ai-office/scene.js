@@ -815,29 +815,100 @@ export class Office {
 }
 
 /**
- * 壁時計の針の向き（12 方向のどれか）。時針は時の数だけで決め（切り捨て。2:31 でも 2 時を指す）、
- * 分針は 5 分ごと。絵は img/clock-h-<h>.png と img/clock-m-<m>.png。
+ * 壁時計の針の向き（12 方向のどれか）。min はその場所の 0 時からの分（placeClock）。時針は時の数だけで決め
+ * （切り捨て。2:31 でも 2 時を指す）、分針は 5 分ごと。絵は img/clock-h-<h>.png と img/clock-m-<m>.png。
  */
-export function clockHands(date) {
-  return { h: date.getHours() % 12, m: Math.floor(date.getMinutes() / 5) };
+export function clockHands(min) {
+  return { h: Math.floor(min / 60) % 12, m: Math.floor((min % 60) / 5) };
 }
 
-// ---- 窓の外（東京の時刻と天気） ----
+// ---- 場所（壁時計の時刻と、窓の外の空と天気） ----
 
-/** 窓の外の基準の東京。日本は夏時間がないので、東京の時刻はいつも UTC+9。 */
-export const TOKYO = { lat: 35.6895, lon: 139.6917, offsetMin: 540 };
+/**
+ * 選べる場所（壁時計をクリックして選ぶ。壁時計の時刻・窓の空・天気がその場所になる）。東から西の順。
+ * std は冬の UTC からの分、dst は夏時間の決まり（us: 米国、eu: 欧州、au: 豪州の南東部。null はなし）。
+ * mod の中には Intl がないので、夏時間は dst の決まりで計算する（tz は IANA の名前。bun test で Intl と比べる）。
+ */
+export const PLACES = [
+  { id: "sydney", name: "シドニー", lat: -33.8688, lon: 151.2093, std: 600, dst: "au", tz: "Australia/Sydney" },
+  { id: "tokyo", name: "東京", lat: 35.6895, lon: 139.6917, std: 540, dst: null, tz: "Asia/Tokyo" },
+  { id: "seoul", name: "ソウル", lat: 37.5665, lon: 126.978, std: 540, dst: null, tz: "Asia/Seoul" },
+  { id: "shanghai", name: "上海", lat: 31.2304, lon: 121.4737, std: 480, dst: null, tz: "Asia/Shanghai" },
+  { id: "taipei", name: "台北", lat: 25.033, lon: 121.5654, std: 480, dst: null, tz: "Asia/Taipei" },
+  { id: "singapore", name: "シンガポール", lat: 1.3521, lon: 103.8198, std: 480, dst: null, tz: "Asia/Singapore" },
+  { id: "bangkok", name: "バンコク", lat: 13.7563, lon: 100.5018, std: 420, dst: null, tz: "Asia/Bangkok" },
+  { id: "delhi", name: "デリー", lat: 28.6139, lon: 77.209, std: 330, dst: null, tz: "Asia/Kolkata" },
+  { id: "dubai", name: "ドバイ", lat: 25.2048, lon: 55.2708, std: 240, dst: null, tz: "Asia/Dubai" },
+  { id: "moscow", name: "モスクワ", lat: 55.7558, lon: 37.6173, std: 180, dst: null, tz: "Europe/Moscow" },
+  { id: "berlin", name: "ベルリン", lat: 52.52, lon: 13.405, std: 60, dst: "eu", tz: "Europe/Berlin" },
+  { id: "paris", name: "パリ", lat: 48.8566, lon: 2.3522, std: 60, dst: "eu", tz: "Europe/Paris" },
+  { id: "london", name: "ロンドン", lat: 51.5074, lon: -0.1278, std: 0, dst: "eu", tz: "Europe/London" },
+  { id: "sao-paulo", name: "サンパウロ", lat: -23.5505, lon: -46.6333, std: -180, dst: null, tz: "America/Sao_Paulo" },
+  { id: "new-york", name: "ニューヨーク", lat: 40.7128, lon: -74.006, std: -300, dst: "us", tz: "America/New_York" },
+  { id: "chicago", name: "シカゴ", lat: 41.8781, lon: -87.6298, std: -360, dst: "us", tz: "America/Chicago" },
+  { id: "denver", name: "デンバー", lat: 39.7392, lon: -104.9903, std: -420, dst: "us", tz: "America/Denver" },
+  { id: "los-angeles", name: "ロサンゼルス", lat: 34.0522, lon: -118.2437, std: -480, dst: "us", tz: "America/Los_Angeles" },
+  { id: "honolulu", name: "ホノルル", lat: 21.3069, lon: -157.8583, std: -600, dst: null, tz: "Pacific/Honolulu" },
+];
+/** 東京（場所を選べるようにする前は、窓の外はいつも東京だった。関数の場所の既定）。 */
+export const TOKYO = PLACES.find((p) => p.id === "tokyo");
 const DAY_MS = 86400000;
 
-/** 東京の 0 時からの分（0..1439）と "HH:MM"。 */
-export function tokyoClock(ms) {
-  const min = Math.floor(((ms / 60000 + TOKYO.offsetMin) % 1440 + 1440) % 1440);
+// その年のその月（0 始まり）の n 番目の日曜日の日にち（n が -1 なら最後の日曜日）
+function sundayOf(year, month, n) {
+  if (n > 0) return 1 + ((7 - new Date(Date.UTC(year, month, 1)).getUTCDay()) % 7) + (n - 1) * 7;
+  const last = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return last - new Date(Date.UTC(year, month, last)).getUTCDay();
+}
+
+/** その時刻（ms）の、その場所の UTC からの分（夏時間なら std + 60）。 */
+export function offsetAt(place, ms) {
+  const { std, dst } = place;
+  if (!dst) return std;
+  const year = new Date(ms + std * 60000).getUTCFullYear();
+  const local = (month, n, hour) => Date.UTC(year, month, sundayOf(year, month, n), hour) - std * 60000; // その場所の標準時で
+  const utc = (month, n, hour) => Date.UTC(year, month, sundayOf(year, month, n), hour);
+  let summer = false;
+  // 米国: 3 月の第 2 日曜 2 時から、11 月の第 1 日曜 2 時（夏時間の。標準時の 1 時）まで
+  if (dst === "us") summer = ms >= local(2, 2, 2) && ms < local(10, 1, 1);
+  // 欧州: 3 月の最後の日曜から 10 月の最後の日曜まで（どちらも UTC の 1 時）
+  if (dst === "eu") summer = ms >= utc(2, -1, 1) && ms < utc(9, -1, 1);
+  // 豪州の南東部: 10 月の第 1 日曜 2 時から、4 月の第 1 日曜 3 時（夏時間の。標準時の 2 時）まで（南半球なので年をまたぐ）
+  if (dst === "au") summer = ms < local(3, 1, 2) || ms >= local(9, 1, 2);
+  return summer ? std + 60 : std;
+}
+
+/** UTC からの分を "UTC+9" "UTC−4" "UTC+5:30" に。 */
+export function offsetLabel(min) {
+  const sign = min < 0 ? "−" : "+";
+  const a = Math.abs(min);
+  return `UTC${sign}${Math.floor(a / 60)}${a % 60 ? `:${String(a % 60).padStart(2, "0")}` : ""}`;
+}
+
+/** Mac の時差（分）にいちばん近い場所（同じなら一覧の順。日本なら東京）。場所をまだ選んでいないときに使う。 */
+export function defaultPlace(offsetMin, ms) {
+  let best = TOKYO;
+  let gap = Infinity;
+  for (const p of PLACES) {
+    const d = Math.abs(offsetAt(p, ms) - offsetMin);
+    if (d < gap) {
+      best = p;
+      gap = d;
+    }
+  }
+  return best;
+}
+
+/** その場所の 0 時からの分（0..1439）と "HH:MM"。 */
+export function placeClock(place, ms) {
+  const min = Math.floor(((ms / 60000 + offsetAt(place, ms)) % 1440 + 1440) % 1440);
   const two = (n) => String(n).padStart(2, "0");
   return { min, text: `${two(Math.floor(min / 60))}:${two(min % 60)}` };
 }
 
-/** 東京のその日（ms の日）の 0 時から min 分の時刻（ms）。 */
-export function tokyoAt(ms, min) {
-  const offset = TOKYO.offsetMin * 60000;
+/** その場所のその日（ms の日）の 0 時から min 分の時刻（ms）。夏時間の切り替わる日は 1 時間ずれることがある（窓の試しには十分）。 */
+export function placeAt(place, ms, min) {
+  const offset = offsetAt(place, ms) * 60000;
   return Math.floor((ms + offset) / DAY_MS) * DAY_MS - offset + min * 60000;
 }
 
@@ -863,16 +934,16 @@ export function sunAt(ms, { lat, lon } = TOKYO) {
 }
 
 /**
- * 東京のその日の日の出と日の入り（0 時からの分）。太陽の上の縁が地平線を通るとき（高さ −0.833°、
+ * その場所のその日の日の出と日の入り（0 時からの分）。太陽の上の縁が地平線を通るとき（高さ −0.833°、
  * 大気で浮き上がる分を含む）。1 分ずつ見る。
  */
-export function sunTimes(ms) {
-  const start = tokyoAt(ms, 0);
+export function sunTimes(ms, place = TOKYO) {
+  const start = placeAt(place, ms, 0);
   let rise = null;
   let set = null;
-  let prev = sunAt(start).elevation;
+  let prev = sunAt(start, place).elevation;
   for (let m = 1; m < 1440; m++) {
-    const el = sunAt(start + m * 60000).elevation;
+    const el = sunAt(start + m * 60000, place).elevation;
     if (rise === null && prev < -0.833 && el >= -0.833) rise = m;
     if (set === null && prev >= -0.833 && el < -0.833) set = m;
     prev = el;
@@ -891,9 +962,9 @@ export function skyPhase({ elevation, morning }) {
   return "night";
 }
 
-/** 試すときの時間帯の時刻（その日の、だいたいまんなか。0 時からの分）。薄明は夕方の。 */
-export function phaseMinute(ms, phase) {
-  const { rise, set } = sunTimes(ms);
+/** 試すときの時間帯の時刻（その場所のその日の、だいたいまんなか。0 時からの分）。薄明は夕方の。 */
+export function phaseMinute(ms, phase, place = TOKYO) {
+  const { rise, set } = sunTimes(ms, place);
   const at = { night: 0, dawn: rise + 10, day: 12 * 60, dusk: set - 10, twilight: set + 25 };
   return Object.prototype.hasOwnProperty.call(at, phase) ? at[phase] : null;
 }
@@ -939,8 +1010,8 @@ export function parseWeather(json, fetchedAt) {
  * t はコマ送りの数。雨と雪は 2 コマに 1 回進む（雨のためだけに毎コマ描き直さない）。雷は 24 コマごとに 2 回光る。
  * key は絵が変わったかを見るため（同じなら描き直さない）。
  */
-export function windowView(ms, weather, t) {
-  const phase = skyPhase(sunAt(ms));
+export function windowView(ms, weather, t, place = TOKYO) {
+  const phase = skyPhase(sunAt(ms, place));
   const fx = weather?.fx ?? null;
   const step = Math.floor(t / 2);
   const layers = [`sky/${phase}-${weather?.cover ?? "clear"}`];
@@ -951,19 +1022,19 @@ export function windowView(ms, weather, t) {
   return { phase, layers, key: layers.join("+") };
 }
 
-/** 窓のツールチップ: 東京の時刻と天気（と気温）。試し中なら戻し方も。 */
-export function windowTip(ms, weather, trial = false) {
+/** 窓のツールチップ: その場所の時刻と天気（と気温）。試し中なら戻し方も。 */
+export function windowTip(ms, weather, trial = false, place = TOKYO) {
   const now = weather ? (weather.temp == null ? weather.label : `${weather.label} ${Math.round(weather.temp)}°C`) : "天気はまだ分かりません";
-  const tip = `東京 ${tokyoClock(ms).text} · ${now}`;
+  const tip = `${place.name} ${placeClock(place, ms).text} · ${now}`;
   return trial ? `${tip}（試し中。herdr-app do ai-office.sky-auto で本物に戻す）` : tip;
 }
 
 /**
- * 窓を試すコマンド（herdr-app do ai-office.sky-<なに>）: 天気（TRIAL_WEATHER の名前）、東京の時刻（1930 のように 4 桁）、
+ * 窓を試すコマンド（herdr-app do ai-office.sky-<なに>）: 天気（TRIAL_WEATHER の名前）、その場所の時刻（1930 のように 4 桁）、
  * 時間帯（night / twilight / dawn / day / dusk）、auto（どちらも本物に戻す）。
  * 変える項目だけを返す（{ weather?, time? }。time は 0 時からの分、null は本物）。ほかのコマンドは null。
  */
-export function parseSkyCommand(command, ms) {
+export function parseSkyCommand(command, ms, place = TOKYO) {
   const m = /^sky-([a-z0-9]+)$/.exec(command ?? "");
   if (!m) return null;
   const word = m[1];
@@ -971,7 +1042,7 @@ export function parseSkyCommand(command, ms) {
   if (Object.prototype.hasOwnProperty.call(TRIAL_WEATHER, word)) return { weather: word };
   const hm = /^(\d\d)(\d\d)$/.exec(word);
   if (hm) return Number(hm[1]) < 24 && Number(hm[2]) < 60 ? { time: Number(hm[1]) * 60 + Number(hm[2]) } : null;
-  const min = phaseMinute(ms, word);
+  const min = phaseMinute(ms, word, place);
   return min === null ? null : { time: min };
 }
 

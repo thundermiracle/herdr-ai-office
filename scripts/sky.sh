@@ -1,10 +1,10 @@
 #!/bin/bash
 # 窓の外を試す（herdr-app do ai-office.sky-<なに> を送る。オフィスが見えているときだけ届く）:
 #   sky.sh rain            天気: clear / cloudy / overcast / fog / rain / snow / thunder
-#   sky.sh 19:30           東京の時刻（HH:MM）。または時間帯: night / twilight / dawn / day / dusk
+#   sky.sh 19:30           選んだ場所の時刻（HH:MM）。または時間帯: night / twilight / dawn / day / dusk
 #   sky.sh snow night      天気と時刻の両方
-#   sky.sh lapse [天気]    東京の 1 日を 30 秒ほどで早送りして、最後に本物に戻す
-#   sky.sh auto            本物（今の東京の時刻と天気）に戻す
+#   sky.sh lapse [天気]    選んだ場所の 1 日を 30 秒ほどで早送りして、最後に本物に戻す
+#   sky.sh auto            本物（選んだ場所の今の時刻と天気）に戻す
 set -euo pipefail
 
 # 届かなければ（オフィスが閉じていると herdr-app は unknown command を返す）、開き方を言って止まる

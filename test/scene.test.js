@@ -528,7 +528,7 @@ describe("who sits where", () => {
 });
 
 describe("clockHands", () => {
-  const at = (h, m) => clockHands(new Date(2026, 10, 11, h, m));
+  const at = (h, m) => clockHands(h * 60 + m); // その場所の 0 時からの分
   test("the hour hand points at the hour (floored), the minute hand moves every 5 minutes", () => {
     expect(at(0, 0)).toEqual({ h: 0, m: 0 });
     expect(at(2, 31)).toEqual({ h: 2, m: 6 });

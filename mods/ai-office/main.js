@@ -12,7 +12,8 @@ import {
   SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, layoutFloor, drawables,
   floorDrawables, running, roomAt, dropTarget, useTheme, geometry, seatName, readTheme, addTheme, themeList, pngSize,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
-  TOKYO, WEATHER_MS, TRIAL_WEATHER, tokyoAt, tokyoClock, weatherOf, parseWeather, windowView, windowTip, parseSkyCommand,
+  PLACES, WEATHER_MS, TRIAL_WEATHER, defaultPlace, offsetAt, offsetLabel, placeAt, placeClock, weatherOf, parseWeather,
+  windowView, windowTip, parseSkyCommand,
 } from "./scene.js";
 
 const IMG = "mods/ai-office/img";
@@ -22,9 +23,9 @@ const DRAG_START = 4; // 部屋を押したまま、これだけ（絵の px）�
 const META_MS = 10000; // model と effort を読み直す間隔
 const HIDDEN_MS = 1000; // 隠れている間は、この間隔で見えるようになったかだけ見る
 const SKILLS_MS = 60000; // 使える skill を読み直す間隔（めったに変わらない）
-// 窓の外の天気: 東京の今の天気（Open-Meteo。キーは要らず、送るのは東京の緯度経度だけ）
-const WEATHER_URL = `https://api.open-meteo.com/v1/forecast?latitude=${TOKYO.lat}&longitude=${TOKYO.lon}`
-  + "&current=weather_code,temperature_2m&timezone=Asia%2FTokyo";
+// 窓の外の天気: 選んだ場所の今の天気（Open-Meteo。キーは要らず、送るのはその場所の緯度経度だけ）
+const weatherUrl = (place) => `https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}`
+  + "&current=weather_code,temperature_2m&timezone=auto";
 const WEATHER_CHECK_MS = 60000; // 天気が古くなったかを見る間隔（取り直すのは WEATHER_MS ごと）
 const WEATHER_RETRY_MS = 5 * 60000; // 取れなかったとき、次に試すまで
 const WEATHER_STALE_MS = 3 * 3600000; // これより古い天気は使わない（晴れ扱い。何時間も閉じていたあと）
@@ -200,16 +201,23 @@ async function loadThemes() {
   return skipped;
 }
 
-// 最後に取った東京の天気（どのコピーが取ったものでも。shared は Herdr を閉じても残る）。古すぎれば null
-function liveWeather(now) {
+// 壁時計と窓の外の場所（壁時計のクリックで選ぶ。shared の ai-office.place に、どのコピーで選んでも）。まだ選んでいなければ、
+// Mac の今の時差にいちばん近い場所（日本なら東京）
+function currentPlace() {
+  return PLACES.find((p) => p.id === shared("ai-office.place")) ?? defaultPlace(-new Date().getTimezoneOffset(), Date.now());
+}
+
+// 最後に取ったその場所の天気（どのコピーが取ったものでも。shared は Herdr を閉じても残る）。別の場所の天気や、古すぎれば null。
+// 場所を選べるようにする前の天気（place がない）は東京のもの
+function liveWeather(now, place) {
   const w = shared("ai-office.weather");
-  return w && typeof w.cover === "string" && now - w.fetchedAt < WEATHER_STALE_MS ? w : null;
+  return w && typeof w.cover === "string" && (w.place ?? "tokyo") === place.id && now - w.fetchedAt < WEATHER_STALE_MS ? w : null;
 }
 
 export default class AiOffice extends View {
   init(_props, cx) {
     this.theme = null; // 使っているテーマ（テーマを読み終えるまでは null で、フロアを描かない）
-    this.skippedThemes = []; // 使えなかったテーマと理由（「テーマ」のツールチップに出す）
+    this.skippedThemes = []; // 使えなかったテーマと理由（「テーマ」のドロップダウンの下に出す）
     cx.spawn(async (cx) => {
       this.skippedThemes = await loadThemes();
       cx.notify();
@@ -230,13 +238,15 @@ export default class AiOffice extends View {
     this.loadSkills(cx);
     cx.timer.every(SKILLS_MS, (cx) => this.loadSkills(cx));
     this.weatherTried = 0;
+    this.weatherFor = null; // 最後に天気を取りにいった場所（場所が変わったら、待たずに取る）
+    this.placeId = currentPlace().id;
     this.loadWeather(cx);
     cx.timer.every(WEATHER_CHECK_MS, (cx) => this.loadWeather(cx));
     // 窓を試す（herdr-app do ai-office.sky-rain、sky-1930、sky-night、sky-auto）。この窓を開いている間だけ
     this.trial = { weather: null, time: null };
     cx.spawn(async (cx) => {
       for (;;) {
-        const change = parseSkyCommand(await nextCommand(), Date.now());
+        const change = parseSkyCommand(await nextCommand(), Date.now(), currentPlace());
         if (!change) continue;
         Object.assign(this.trial, change);
         cx.notify();
@@ -245,33 +255,37 @@ export default class AiOffice extends View {
     this.schedule(cx);
   }
 
-  // 東京の今の天気を、古くなったら取り直す。みんなが見る shared に置くので、ほかのコピーも次に開いたときも使う
-  // （描き直しは shared が変わったときに Herdr がする）。隠れている間は取らない。取れなければ前の値のまま
+  // 選んだ場所の今の天気を、古くなったら（別の場所の天気なら、すぐ）取り直す。みんなが見る shared に置くので、ほかのコピーも
+  // 次に開いたときも使う（描き直しは shared が変わったときに Herdr がする）。隠れている間は取らない。取れなければ前の値のまま
   loadWeather(cx) {
     const now = Date.now();
+    const place = currentPlace();
     const last = shared("ai-office.weather");
-    if (this.hidden() || (last && now - last.fetchedAt < WEATHER_MS) || now - this.weatherTried < WEATHER_RETRY_MS) return;
+    const fresh = last && (last.place ?? "tokyo") === place.id && now - last.fetchedAt < WEATHER_MS;
+    if (this.hidden() || fresh || (this.weatherFor === place.id && now - this.weatherTried < WEATHER_RETRY_MS)) return;
     this.weatherTried = now;
+    this.weatherFor = place.id;
     cx.spawn(async () => {
       try {
-        const res = await fetch(WEATHER_URL);
+        const res = await fetch(weatherUrl(place));
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const weather = parseWeather(await res.json(), Date.now());
         if (!weather) throw new Error("応答に今の天気がない");
-        setShared("ai-office.weather", weather);
+        setShared("ai-office.weather", { ...weather, place: place.id });
       } catch (e) {
-        console.log(`ai-office: 東京の天気を取れなかった: ${e?.message ?? e}`);
+        console.log(`ai-office: ${place.name}の天気を取れなかった: ${e?.message ?? e}`);
       }
     });
   }
 
-  // 窓の外: 東京の今（試し中は、その時刻と天気）の空
+  // 窓の外: 選んだ場所の今（試し中は、その場所のその時刻と天気）の空
   view() {
     const now = Date.now();
-    const ms = this.trial.time === null ? now : tokyoAt(now, this.trial.time);
-    const weather = this.trial.weather ? weatherOf(TRIAL_WEATHER[this.trial.weather]) : liveWeather(now);
+    const place = currentPlace();
+    const ms = this.trial.time === null ? now : placeAt(place, now, this.trial.time);
+    const weather = this.trial.weather ? weatherOf(TRIAL_WEATHER[this.trial.weather]) : liveWeather(now, place);
     const trial = this.trial.time !== null || this.trial.weather !== null;
-    return { ...windowView(ms, weather, this.office.t), tip: windowTip(ms, weather, trial) };
+    return { ...windowView(ms, weather, this.office.t, place), tip: windowTip(ms, weather, trial, place) };
   }
 
   // 自分のブロック（props の block）が隠れているか: そのものか親が hidden、または stack の選ばれていない子。
@@ -408,9 +422,15 @@ export default class AiOffice extends View {
       this.office.tick(dt);
       // 描く絵（名前と位置）が前のコマと同じなら描き直さない。時計の針・窓の外（雨のコマも）・ツールチップの
       // 東京の時刻（1 分ごと）が変わったときも描き直す
-      const { h, m } = clockHands(new Date());
+      const place = currentPlace();
+      if (place.id !== this.placeId) { // 場所が変わった（どのコピーで選んでも）: その場所の天気をすぐ取りにいく
+        this.placeId = place.id;
+        this.loadWeather(cx);
+      }
+      const clock = placeClock(place, now);
+      const { h, m } = clockHands(clock.min);
       const plans = placed.map((r) => r.plans.map((p) => p.path).join(",")).join("/"); // 壁のホワイトボード（items にない）
-      const sig = `${h}:${m}|${this.view().key}|${tokyoClock(now).text}|${plans}|` + this.items(placed)
+      const sig = `${place.id}|${h}:${m}|${this.view().key}|${clock.text}|${plans}|` + this.items(placed)
         .map((d) => `${d.img ?? d.text}+${d.over}+${d.books?.length ?? ""}@${d.x},${d.y}`).join(";");
       if (sig !== this.sig) {
         this.sig = sig;
@@ -559,10 +579,30 @@ export default class AiOffice extends View {
         .child(div().text_size(10).text_color("#3b2a2a").whitespace_nowrap().child(d.text)));
   }
 
-  // 壁時計（今の時刻。文字盤に時針と分針を重ねる）
-  clock(x, y) {
-    const { h, m } = clockHands(new Date());
-    return ["clock-face", `clock-m-${m}`, `clock-h-${h}`].map((img) => this.sprite({ img, x, y, w: 13, h: 13 }));
+  // 壁時計（選んだ場所の今の時刻。文字盤に時針と分針を重ねる）。クリックで場所（タイムゾーン）のドロップダウン。
+  // 奥の壁は部屋のドラッグのつかみ所なので、押したときは止める（hold。ドラッグにしない）
+  clock(room, x, y) {
+    const place = currentPlace();
+    const { min, text } = placeClock(place, Date.now());
+    const { h, m } = clockHands(min);
+    return div().id(`clock-${room.id}`).absolute().left(px(x)).top(px(y)).w(px(13)).h(px(13)).rounded_full().cursor_pointer()
+      .hover((st) => st.bg("#ffffff59"))
+      .on_mouse_down("left", (_e, cx) => this.hold(cx))
+      .on_click(() => this.placeMenu())
+      .tooltip(`${place.name} ${text}（${offsetLabel(offsetAt(place, Date.now()))}）: クリックで場所（タイムゾーン）を選ぶ`)
+      .children(["clock-face", `clock-m-${m}`, `clock-h-${h}`].map((img) => image(`${IMG}/${img}.png`).absolute().left(0).top(0).size_full()));
+  }
+
+  // 壁時計のクリック: 場所のドロップダウン（ai-office-pick）。選ぶと、壁時計の時刻・窓の空・天気がその場所になる
+  placeMenu() {
+    const now = Date.now();
+    const items = PLACES.map((p) => {
+      const offset = offsetAt(p, now);
+      const summer = p.dst && offset !== p.std ? "（夏時間）" : "";
+      return { name: p.id, label: p.name, description: `${offsetLabel(offset)}${summer} · 今 ${placeClock(p, now).text}` };
+    });
+    openOverlay({ mod: "ai-office-pick", kind: "popup", width: 300, height: 420,
+      props: { key: "ai-office.place", items, current: currentPlace().id, height: 420 } });
   }
 
   // 壁の名札（スペースの名前）。左の仕切りの右から、窓（プランがあればホワイトボード）の手前まで伸ばせる。
@@ -635,8 +675,8 @@ export default class AiOffice extends View {
     ];
   }
 
-  // 窓: 外の空（東京の時刻と天気。scene.js の windowView）を奥から重ね、最後に窓枠（ガラスは透明）。
-  // ホバーで東京の時刻と天気
+  // 窓: 外の空（選んだ場所の時刻と天気。scene.js の windowView）を奥から重ね、最後に窓枠（ガラスは透明）。
+  // ホバーでその場所の時刻と天気
   sky(x, y, view, id) {
     return div().id(id).absolute().left(px(x)).top(px(y)).w(px(28)).h(px(16)).tooltip(view.tip)
       .children(view.layers.map((img) => image(`${IMG}/${img}.png`).absolute().left(0).top(0).size_full()));
@@ -664,7 +704,7 @@ export default class AiOffice extends View {
       ...(room.newRoom ? [] : [
         ...(room.plans.length ? [this.planBoard(room)] : []),
         this.sky(ox + w - 72, oy + 6 + dy, view, `window-${room.id}`),
-        ...this.clock(ox + w - 33, oy + 8 + dy),
+        this.clock(room, ox + w - 33, oy + 8 + dy),
         this.plate(room),
       ]),
     ];
@@ -692,14 +732,16 @@ export default class AiOffice extends View {
     ];
   }
 
-  // 右上の「テーマ」: テーマのドロップダウン（ai-office-theme。使っているテーマにチェック、使えなかったテーマと理由も）
+  // 右上の「テーマ」: テーマのドロップダウン（ai-office-pick。使っているテーマにチェック、使えなかったテーマと理由も）
   themeMenu(themes) {
-    // 高さは、説明が 2 行に折り返しても入るように見込む（足りないと切れる）
-    const height = Math.min(480, 12 + themes.length * 62 + (this.skippedThemes.length ? 10 + this.skippedThemes.length * 52 : 0));
-    openOverlay({ mod: "ai-office-theme", kind: "popup", width: 320, height, props: {
-      themes: themes.map(({ name, label, description }) => ({ name, label, description })),
+    // 高さは、説明が 2 行に折り返しても入るように見込む（多ければ中をスクロール）
+    const height = Math.min(420, 12 + themes.length * 62 + (this.skippedThemes.length ? 10 + this.skippedThemes.length * 52 : 0));
+    openOverlay({ mod: "ai-office-pick", kind: "popup", width: 320, height, props: {
+      key: "ai-office.theme",
+      items: themes.map(({ name, label, description }) => ({ name, label, description })),
       current: this.theme,
-      skipped: this.skippedThemes,
+      notes: this.skippedThemes.map((x) => ({ title: `使えない: ${x.name}`, text: x.why })),
+      height,
     } });
   }
 

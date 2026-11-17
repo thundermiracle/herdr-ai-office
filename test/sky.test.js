@@ -1,8 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
-  RAIN_FRAMES, TRIAL_WEATHER, parseSkyCommand, parseWeather, phaseMinute, skyPhase, sunAt, sunTimes, tokyoAt, tokyoClock,
-  weatherOf, windowTip, windowView,
+  PLACES, RAIN_FRAMES, TOKYO, TRIAL_WEATHER, defaultPlace, offsetAt, offsetLabel, parseSkyCommand, parseWeather, phaseMinute,
+  placeAt, placeClock, skyPhase, sunAt, sunTimes, weatherOf, windowTip, windowView,
 } from "../mods/ai-office/scene.js";
+
+const place = (id) => PLACES.find((p) => p.id === id);
+const tokyoClock = (ms) => placeClock(TOKYO, ms);
+const tokyoAt = (ms, min) => placeAt(TOKYO, ms, min);
 
 // 東京の y-m-d h:mm（UTC+9）の時刻
 const jst = (y, mo, d, h = 0, mi = 0) => Date.UTC(y, mo - 1, d, h - 9, mi);
@@ -18,6 +22,53 @@ describe("Tokyo time", () => {
     expect(tokyoAt(jst(2026, 11, 12, 16, 15), 0)).toBe(jst(2026, 11, 12));
     expect(tokyoAt(jst(2026, 11, 12, 0, 5), 19 * 60 + 30)).toBe(jst(2026, 11, 12, 19, 30));
     expect(tokyoAt(jst(2026, 11, 12, 23, 59), 60)).toBe(jst(2026, 11, 12, 1, 0));
+  });
+});
+
+describe("places and their time zones", () => {
+  // mod の中には Intl がないので、夏時間は決まり（us / eu / au）で計算している。bun には Intl があるので、それと比べる
+  const intlOffset = (tz, ms) => {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric",
+      month: "numeric", day: "numeric", hour: "numeric", minute: "numeric" }).formatToParts(ms).map((x) => [x.type, Number(x.value)]));
+    return Math.round((Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute) - ms) / 60000);
+  };
+
+  test("every place's offset matches Intl, around each switch and through the year", () => {
+    const at = [];
+    for (let m = 0; m < 12; m++) at.push(Date.UTC(2026, m, 15, 12)); // 毎月のなかば
+    // 切り替わる前後（2026 年: 米国 3/8・11/1、欧州 3/29・10/25、シドニー 4/5（終わり）・10/4（始まり））
+    for (const [mo, d] of [[3, 8], [11, 1], [3, 29], [10, 25], [4, 5], [10, 4]]) {
+      for (const h of [-12, 0, 6, 12, 18, 30]) at.push(Date.UTC(2026, mo - 1, d) + h * 3600000);
+    }
+    at.push(Date.UTC(2026, 11, 31, 23, 30), Date.UTC(2027, 0, 1, 0, 30));
+    for (const p of PLACES) for (const ms of at) expect([p.id, new Date(ms).toISOString(), offsetAt(p, ms)]).toEqual([p.id, new Date(ms).toISOString(), intlOffset(p.tz, ms)]);
+  });
+
+  test("the clock of a place, with summer time", () => {
+    expect(placeClock(place("new-york"), Date.UTC(2026, 6, 1, 12, 0)).text).toBe("08:00"); // 夏時間（UTC−4）
+    expect(placeClock(place("new-york"), Date.UTC(2026, 0, 1, 12, 0)).text).toBe("07:00"); // 冬（UTC−5）
+    expect(placeClock(place("delhi"), Date.UTC(2026, 0, 1, 0, 0)).text).toBe("05:30");
+    expect(offsetLabel(-240)).toBe("UTC−4");
+    expect(offsetLabel(330)).toBe("UTC+5:30");
+    expect(offsetLabel(540)).toBe("UTC+9");
+  });
+
+  test("before a place is chosen: the place nearest the Mac's offset (Tokyo in Japan)", () => {
+    const jan = Date.UTC(2026, 0, 15);
+    expect(defaultPlace(540, jan).id).toBe("tokyo"); // ソウルも同じ時差だが、一覧で先の東京
+    expect(defaultPlace(-300, jan).id).toBe("new-york");
+    expect(defaultPlace(-240, Date.UTC(2026, 6, 15)).id).toBe("new-york"); // 夏時間のニューヨーク
+    expect(defaultPlace(345, jan).id).toBe("delhi"); // ネパール（UTC+5:45）はいちばん近いデリー
+  });
+
+  test("the sun and the sky follow the place", () => {
+    const noonUtc = Date.UTC(2026, 10, 12, 3); // 東京は昼の 12 時、ロンドンは夜中の 3 時
+    expect(windowView(noonUtc, null, 0, TOKYO).phase).toBe("day");
+    expect(windowView(noonUtc, null, 0, place("london")).phase).toBe("night");
+    expect(windowTip(noonUtc, null, false, place("london"))).toBe("ロンドン 03:00 · 天気はまだ分かりません");
+    const ny = place("new-york");
+    const { time } = parseSkyCommand("sky-day", noonUtc, ny);
+    expect(skyPhase(sunAt(placeAt(ny, noonUtc, time), ny))).toBe("day");
   });
 });
 

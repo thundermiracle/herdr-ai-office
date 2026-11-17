@@ -1,9 +1,9 @@
 {
   "place": "none",
-  "title": "AI Office: theme",
+  "title": "AI Office: pick",
   "overlay": {
     "kind": "popup",
     "width": 320,
-    "height": 200
+    "height": 420
   }
 }
