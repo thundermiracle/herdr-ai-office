@@ -5,7 +5,7 @@ import {
   TALK_DEDUP_MS, TALK_MS, TALK_TURN_MS, WALL_H, Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride,
   drawables, dropTarget, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
-  FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, parseGitDocs,
+  FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, parseGitDocs, plateText,
 } from "../mods/ai-office/scene.js";
 
 // テーマは、オフィスと同じく mods/ai-office/themes/<名前>/ の theme.json と PNG から読む（確かめで落ちたら、ここで止まる）
@@ -520,6 +520,17 @@ describe("drawables", () => {
     expect(d.find((x) => x.id === "laptop-1")).toBeUndefined();
     expect(d.find((x) => x.id === "hire-1")?.img).toBe("hire-sign");
     expect(d.find((x) => x.id === "hire-0")).toBeUndefined();
+  });
+});
+
+describe("wall plates", () => {
+  test("a long space name keeps its head and tail around a … (about as long as herdr-ai-office)", () => {
+    expect(plateText("herdr-ai-office")).toBe("herdr-ai-office"); // 15 は入る
+    expect(plateText("webapp-v2-feature-fix-login")).toBe("webapp-v…x-login");
+    expect(plateText("webapp-v2-feature-add-docs")).toBe("webapp-v…dd-docs"); // 頭が同じでも、終わりで見分けられる
+    expect(plateText("office-test-3 名前がとても長いスペースで名札とホワイトボードの並びを確かめる部屋")).toBe("office-t…る部屋"); // 全角は 2
+    expect(plateText("日本語のスペース名です")).toBe("日本語の…名です");
+    expect(plateText("")).toBe("");
   });
 });
 

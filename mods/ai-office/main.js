@@ -11,6 +11,7 @@ import {
 import {
   SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, layoutFloor, drawables,
   floorDrawables, running, roomAt, dropTarget, useTheme, geometry, seatName, readTheme, addTheme, themeList, pngSize, parseGitDocs,
+  plateText,
   FOLDER_DOCS,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
   PLACES, WEATHER_MS, TRIAL_WEATHER, defaultPlace, offsetAt, offsetLabel, placeAt, placeClock, weatherOf, parseWeather,
@@ -346,13 +347,15 @@ export default class AiOffice extends View {
         const folder = placeOf(s, ps);
         if (s.machine || !folder) continue;
         try {
-          const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: folder, timeout: 5 });
+          // --no-optional-locks: 裏で調べるだけなので、git status が .git/index.lock を作って索引を書き直さないように
+          // （作っている途中で止まると印が残り、その人の git の操作が失敗する）。timeout はミリ秒
+          const top = await exec("git", ["rev-parse", "--show-toplevel"], { cwd: folder, timeout: 5000 });
           if (top.code !== 0) continue;
-          const st = await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "*.md", "*.markdown"],
-            { cwd: folder, timeout: 5 });
+          const st = await exec("git", ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--untracked-files=all", "--",
+            "*.md", "*.markdown"], { cwd: folder, timeout: 5000 });
           const files = st.code === 0 ? parseGitDocs(st.stdout, top.stdout.trim()).slice(0, 50) : [];
           if (!files.length) continue;
-          const ls = await exec("ls", ["-t", ...files], { timeout: 5 }); // 新しい順
+          const ls = await exec("ls", ["-t", ...files], { timeout: 5000 }); // 新しい順
           found.set(s.id, ls.stdout.split("\n").filter(Boolean).slice(0, FOLDER_DOCS));
         } catch {}
       }
@@ -645,12 +648,14 @@ export default class AiOffice extends View {
       props: { key: "ai-office.place", items, current: currentPlace().id, height: 420 } });
   }
 
-  // 壁の名札（スペースの名前）。左の仕切りの右から、窓（プランがあればホワイトボード）の手前まで伸ばせる。
+  // 壁の名札（スペースの名前。長ければ真ん中を「…」にして、だいたい herdr-ai-office ほどの長さまで）。左の仕切りの右から、
+  // 窓（書いたものがあればホワイトボード）の手前まで（それより長くなるときは、さらに終わりを「…」で切る）。
   // 左クリックでそのスペースを選び、herdr のスペースのメニュー（名前を変える・閉じる、git ならワークツリー）を出す。
   // 右クリックはメニューだけ。閉じるときは herdr が確かめる（部屋のエージェントも終わる）。
   // 名札の並ぶ壁と同じく、ほかの部屋へドラッグすると部屋の順番が変わる（名札の上で離せばクリック）
   plate(room) {
-    const text = room.machine ? `${room.machine}: ${room.name}` : room.name;
+    const full = room.machine ? `${room.machine}: ${room.name}` : room.name;
+    const text = plateText(full); // 長い名前は真ん中を「…」に（全部はツールチップ）
     const right = room.docs.length ? room.w - 116 : room.w - 76;
     const menu = () => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "space", target: { id: room.id } } });
     return div().id(`plate-${room.id}`).absolute().left(px(room.ox + 10)).top(px(room.oy + 5)).h(px(12)).max_w(px(right - 14))
@@ -663,7 +668,7 @@ export default class AiOffice extends View {
         menu();
       })
       .on_mouse_down("right", () => menu())
-      .tooltip("クリック: このスペースを選んで、メニュー（名前を変える・閉じる）。ドラッグ: 部屋の順番を変える")
+      .tooltip(`${full}\nクリック: このスペースを選んで、メニュー（名前を変える・閉じる）。ドラッグ: 部屋の順番を変える`)
       .px(8).flex().items_center().rounded(3).border(2).border_color("#5b3a2c").bg(room.active ? "#c58a55" : "#a8774c")
       .text_size(12).font_semibold().text_color("#fff4dc").whitespace_nowrap().text_ellipsis().overflow_hidden()
       .child(text);

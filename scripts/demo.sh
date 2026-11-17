@@ -1,5 +1,6 @@
 #!/bin/bash
-# オフィスの見本: 偽エージェントのスペース「office-test」（7 人）と「office-test-2」（3 人）を作る / 消す（AI は使わない）。
+# オフィスの見本: 偽エージェントのスペース「office-test」（7 人）・「office-test-2」（3 人）・名前のとても長い「office-test-3 …」
+# （2 人）を作る / 消す（AI は使わない）。
 # 使い方: scripts/demo.sh start | stop
 #   office-test: タイピング（opus・max で炎）・完了（✓、fable）・作業中に 20 秒ごとに herdr の skill を使い、資料室へ取りに行く（haiku）・
 #   質問（?、Codex。3 問を続けて聞き、最後に答えの確認）・うろうろ（タブ idle、sonnet）・全部を順に（cycle、ほかの AI）・
@@ -7,6 +8,8 @@
 #   office-test-2: 30 秒ごとに office-test の idle へ話しかけに行く（lead、opus）・プランを書いてタイピング（タブ reviewer、sonnet。
 #   壁にプランのホワイトボード、中身は scripts/sample-plan.md）・
 #   30 秒ごとに同じ部屋の reviewer へ話しかけに行く（タブ designer、haiku）の 3 人。
+#   office-test-3 …: 名前がとても長い部屋（名札が「…」で切れる）。プランの人（opus）と、.md を 2 本書いた人（タブ writer、sonnet。
+#   README と TODO）の 2 人で、ホワイトボードとダイアログの左の一覧を試す。
 #   質問や完了を報告するので、herdr-app の通知音とトーストが出る（cycle は 40 秒ごとに質問する）。
 # herdr-app は作ったスペースとタブをすぐ見せるので、start の間（1〜2 秒）は画面が見本へ動き、その間に打ったキーは見本の
 # ターミナルに入る。終わったら（途中で失敗しても）元のスペース・タブ・ペインに戻し、戻ったかを確かめる。
@@ -17,9 +20,11 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 fa="$repo/scripts/fake-agent.sh"
 name=office-test
 name2=office-test-2
+name3="office-test-3 名前がとても長いスペースで名札とホワイトボードの並びを確かめる部屋"
 
 spaces_named() {
-  herdr-app ls | jq -r --arg n "$name" --arg n2 "$name2" '.spaces[] | select(.name == $n or .name == $n2) | .id'
+  herdr-app ls | jq -r --arg n "$name" --arg n2 "$name2" --arg n3 "$name3" \
+    '.spaces[] | select(.name == $n or .name == $n2 or .name == $n3) | .id'
 }
 
 # start の前に見ていたスペース・タブ・ペイン（view）に戻す。戻ったかを確かめ、違っていればもう一度
@@ -42,7 +47,7 @@ restore() {
 case "${1:-}" in
   start)
     if [ -n "$(spaces_named)" ]; then
-      echo "demo.sh: もう「${name}」か「${name2}」があります（scripts/demo.sh stop で消せます）" >&2
+      echo "demo.sh: もう見本のスペース（${name} など）があります（scripts/demo.sh stop で消せます）" >&2
       exit 1
     fi
     # 今見ているところ。作り終えたら（途中で失敗しても）ここへ戻す（見本のタブを見たままだと、「見た」扱いで done がすぐ idle に戻る）
@@ -71,7 +76,12 @@ TABS
       --argv "$(argv "plan:$repo/scripts/sample-plan.md" fake-claude --model claude-sonnet-5-5 --effort medium)" >/dev/null
     herdr-app do tab.new --space "$sp2" --name designer \
       --argv "$(argv talks:reviewer:4 fake-claude --model claude-haiku-5-5 --effort low)" >/dev/null
-    echo "「${name}」（${sp}）と「${name2}」（${sp2}）を作りました"
+    # 3 つ目の部屋: 名前がとても長い（名札は「…」で切れる）。プランの人と .md を書いた人で、ホワイトボードと左の一覧を試す
+    sp3=$(herdr-app do space.new --name "$name3" --folder "$repo" \
+      --argv "$(argv "plan:$repo/scripts/sample-plan.md" fake-claude --model claude-opus-5-5 --effort high)" | jq -r .space)
+    herdr-app do tab.new --space "$sp3" --name writer \
+      --argv "$(argv "docs:$repo/README.md,$repo/TODO.md" fake-claude --model claude-sonnet-5-5 --effort medium)" >/dev/null
+    echo "「${name}」（${sp}）と「${name2}」（${sp2}）と「${name3}」（${sp3}）を作りました"
     ;;
   stop)
     for id in $(spaces_named); do

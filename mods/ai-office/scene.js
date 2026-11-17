@@ -328,6 +328,32 @@ export function shelfBooks(skills) {
   };
 }
 
+export const PLATE_MAX = 16; // 壁の名札に出す名前の長さ（半角 1・全角 2 で数える。herdr-ai-office が 15）
+
+/**
+ * 壁の名札に出す名前。長ければ、頭と終わりを残して真ん中を「…」にする（頭の同じ名前、たとえばワークツリーのスペース
+ * webapp-v2-fix-login と webapp-v2-add-docs も、終わりで見分けられる）。長さは半角 1・全角 2 で数え、max まで。
+ */
+export function plateText(name, max = PLATE_MAX) {
+  const wide = (ch) => /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u.test(ch);
+  const width = (ch) => (wide(ch) ? 2 : 1);
+  const chars = [...(name ?? "")];
+  if (chars.reduce((n, ch) => n + width(ch), 0) <= max) return name ?? "";
+  const take = (list, room) => {
+    const out = [];
+    let n = 0;
+    for (const ch of list) {
+      if (n + width(ch) > room) break;
+      out.push(ch);
+      n += width(ch);
+    }
+    return out;
+  };
+  const head = take(chars, Math.ceil((max - 1) / 2));
+  const tail = take([...chars].reverse(), Math.floor((max - 1) / 2)).reverse();
+  return `${head.join("")}…${tail.join("")}`;
+}
+
 /**
  * 机の名札に出す名前。タブバー（herdr の tabs mod の label）と同じ: 人が付けたタブ名はそのまま。名前のないタブや、
  * プログラムの名前のタブは、エージェントの今のタイトル（Claude Code なら会話の要約）。タイトルが役に立たない
