@@ -62,6 +62,11 @@ export const DEFAULT_COLORS = {
   partition: "#e3cfa6", partitionEdge: "#8a6040", partitionFace: "#b07a4c", partitionBase: "#5b3a2c",
   sideGlass: "#bee6fae6", sideGlassEdge: "#46536f",
 };
+// テーマの images で替えられる家具（img/ の絵と同じ名前で書く）。机は img/ と同じ大きさ（ノート PC・手・名札は机の行に
+// 合わせて置く）。椅子（chair と、空いた席の chair-free）は 2 つとも同じ大きさで、幅は席の幅まで、上の端は机の奥の通路
+// より下（席の真ん中に、下の端を机の奥の縁にそろえて置く）
+export const DESK_SIZES = { "desk-l": { w: DESK_END, h: DESK_H }, "desk-m": { w: SEAT_W, h: DESK_H }, "desk-r": { w: DESK_END, h: DESK_H } };
+export const CHAIR = { w: 14, h: 9 }; // img/chair.png と chair-free.png
 // テーマの window → 窓枠の絵: 十字の桟、2 枚の引き違い（アルミの枠）、2 枚の引き違い（木の枠と横の桟）
 export const WINDOW_FRAMES = { cross: "window", slide: "window-slide", wood: "window-wood" };
 const PNG_SCALE = 4; // テーマの PNG は、絵の 1 ピクセル = 4 ピクセル（オフィスは 2 論理 px で描くので、Retina で 1:1）
@@ -113,7 +118,10 @@ export function readTheme(name, json, sizes = {}, base = `mods/ai-office/themes/
   if (problems.length === 0) {
     const deskEnd = room.deskBack + DESK_H;
     const need = (ok, text) => { if (!ok) problems.push(text); };
-    need(room.wall < room.lane && room.lane < room.deskBack - 9, "room.lane（机の奥の通路）は、壁（room.wall）より下、椅子（room.deskBack − 9）より上に");
+    const chair = images.chair ?? CHAIR;
+    const free = images["chair-free"] ?? CHAIR;
+    need(room.wall < room.lane && room.lane < room.deskBack - chair.h,
+      `room.lane（机の奥の通路）は、壁（room.wall）より下、椅子（room.deskBack − 椅子の高さ ${chair.h}）より上に`);
     need(deskEnd <= room.box && room.box <= room.height, "机（room.deskBack + 21 まで）≦ 部屋の枠（room.box）≦ 1 列の高さ（room.height）に");
     need(room.partitionEnd <= room.box, "仕切り（room.partitionEnd）は部屋の枠（room.box）まで");
     need(room.shelfY >= 0 && room.shelfY + 76 < room.height, "資料室の本棚（room.shelfY）と読む所（+ 76）が 1 列に入らない");
@@ -131,6 +139,11 @@ export function readTheme(name, json, sizes = {}, base = `mods/ai-office/themes/
       need(deskEnd < room.corridorY && room.corridorY < room.height, "room.corridorY（手前の通路）は机の下、1 列の中に");
       need(front !== null && deskEnd < front[0] && front[1] < room.height, "手前が開いた部屋の room.wanderFront は、机の下から 1 列の中まで");
     }
+    for (const [key, size] of Object.entries(DESK_SIZES)) {
+      if (json.images?.[key]) need(images[key].w === size.w && images[key].h === size.h, `images.${key}（机）は ${size.w} x ${size.h}`);
+    }
+    need(chair.w <= SEAT_W && free.w === chair.w && free.h === chair.h,
+      `images.chair と images.chair-free（椅子と空いた席の椅子）は同じ大きさで、幅 ${SEAT_W} まで`);
   }
   const theme = {
     name, label: typeof json?.label === "string" ? json.label : name, description: typeof json?.description === "string" ? json.description : "",
@@ -1242,6 +1255,9 @@ export function drawables(room, office, skills = []) {
   const answering = new Set(); // 今が自分の番の、話しかけられている人
   for (const c of office.chars.values()) if (talking(c) && turnOf(c) === 1) answering.add(c.errand.to);
   const talkBubble = (c, x, y) => add({ id: `talk-${c.address}`, img: "bubble-talk", x, y, w: 13, h: 14, z: 1000 });
+  const art = (name) => (IMAGES[name] ? { src: IMAGES[name].src } : {}); // テーマが替えた家具の絵（DESK_SIZES と椅子）
+  const chair = IMAGES.chair ?? CHAIR; // 椅子は席の真ん中に、下の端を机の奥の縁にそろえる
+  const chairAt = (seat) => ({ x: seat.cx - Math.floor(chair.w / 2), y: BACK - chair.h, w: chair.w, h: chair.h });
   add({ id: "plant", img: "plant", x: room.w - 18, y: BACK + 4, w: 12, h: 17, z: 95 });
   // ガラスの部屋（テーマの glass）の手前のガラスの壁と扉: 机・植木・部屋の中の人より手前、横の廊下を歩く人より奥。
   // ガラスはテーマの images.glass を横に並べる（tile）。扉の枠（images.door）は、通り道 LEFT_PASS を真ん中に 16 開けた
@@ -1262,14 +1278,14 @@ export function drawables(room, office, skills = []) {
         z: z + 0.05 });
     }
   }
-  add({ id: "desk-l", img: "desk-l", x: DESK_X, y: BACK, w: 8, h: 21, z: BACK + 15 });
+  add({ id: "desk-l", img: "desk-l", ...art("desk-l"), x: DESK_X, y: BACK, w: 8, h: 21, z: BACK + 15 });
   for (const seat of room.seats) {
-    add({ id: `desk-${seat.i}`, img: "desk-m", x: seat.segX, y: BACK, w: 24, h: 21, z: BACK + 15 });
+    add({ id: `desk-${seat.i}`, img: "desk-m", ...art("desk-m"), x: seat.segX, y: BACK, w: 24, h: 21, z: BACK + 15 });
     if (seat.agent) {
       // 誰かの席: いつもの椅子とノート PC（本人が歩き回っていても置いたまま）。PC は名札と同じく、クリックでその人を
       // 表示してから、右クリックはそのまま、その人のタブのメニュー（名前を変える・閉じる。main.js の tabMenu）
-      add({ id: `chair-${seat.i}`, img: "chair", x: seat.cx - 7, y: BACK - 9, w: 14, h: 9, z: BACK - 2 });
-      add({ id: `laptop-${seat.i}`, img: "laptop", x: seat.segX + 7, y: BACK - 5, w: 10, h: 9, z: BACK + 15.5, owner: seat.agent,
+      add({ id: `chair-${seat.i}`, img: "chair", ...art("chair"), ...chairAt(seat), z: BACK - 2 });
+      add({ id: `laptop-${seat.i}`, img: "laptop", x: seat.segX + 5, y: BACK - 5, w: 14, h: 10, z: BACK + 15.5, owner: seat.agent,
         click: { type: "tab-menu", terminal: seat.agent, focus: true }, right: { type: "tab-menu", terminal: seat.agent },
         tip: "PC: クリックでこのエージェントのタブのメニュー（名前を変える・閉じる）。右クリックはメニューだけ", glow: true });
       // 机の前の板の名札（タブバーと同じ名前。長ければ切る）。本人が歩き回っていても席に残るので、誰の席か分かる。
@@ -1283,11 +1299,11 @@ export function drawables(room, office, skills = []) {
     // 空いた席（雇える席）: 緑の椅子、ノート PC なし、上に「＋」の札が揺れる
     const hire = { type: "hire", space: room.id, machine: room.machine };
     const tip = "空いた席: クリックでエージェントを雇う";
-    add({ id: `chair-${seat.i}`, img: "chair-free", x: seat.cx - 7, y: BACK - 9, w: 14, h: 9, z: BACK - 2, click: hire, tip, glow: true });
+    add({ id: `chair-${seat.i}`, img: "chair-free", ...art("chair-free"), ...chairAt(seat), z: BACK - 2, click: hire, tip, glow: true });
     add({ id: `hire-${seat.i}`, img: "hire-sign", x: seat.cx - 5, y: BACK - 24 - (Math.floor(office.t / 4) % 2), w: 11, h: 11,
       z: BACK - 1.5, click: hire, tip, glow: true });
   }
-  add({ id: "desk-r", img: "desk-r", x: room.deskEnd - DESK_END, y: BACK, w: 8, h: 21, z: BACK + 15 });
+  add({ id: "desk-r", img: "desk-r", ...art("desk-r"), x: room.deskEnd - DESK_END, y: BACK, w: 8, h: 21, z: BACK + 15 });
 
   for (const c of office.chars.values()) {
     if (c.room !== room.id) continue;

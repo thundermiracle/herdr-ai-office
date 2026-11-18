@@ -6,7 +6,7 @@ import {
   drawables, dropTarget, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
   FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, isNoiseDoc, plateText, openAgents,
-  DOOR_HOLD_MS, DOOR_MS, DOOR_SLIDE, doorsMoving, WINDOW_FRAMES,
+  DOOR_HOLD_MS, DOOR_MS, DOOR_SLIDE, doorsMoving, WINDOW_FRAMES, IMAGES,
 } from "../mods/ai-office/scene.js";
 
 // テーマは、オフィスと同じく mods/ai-office/themes/<名前>/ の theme.json と PNG から読む（確かめで落ちたら、ここで止まる）
@@ -549,6 +549,8 @@ describe("drawables", () => {
     expect(d.find((x) => x.id === "chair-0").img).toBe("chair");
     expect(d.find((x) => x.id === "laptop-0")).toMatchObject({ // PC: タブのメニュー（クリックは表示してから）
       click: { type: "tab-menu", terminal: "t1", focus: true }, right: { type: "tab-menu", terminal: "t1" } });
+    // PC は 14 x 10（座った人の胴と同じ幅）で席の真ん中、上の端は机の奥の縁の 5 上（口の下。顔にかからない）
+    expect(d.find((x) => x.id === "laptop-0")).toMatchObject({ x: w.rooms[0].seats[0].cx - 7, y: BACK - 5, w: 14, h: 10 });
     expect(d.find((x) => x.id === "chair-1").img).toBe("chair-free");
     expect(d.find((x) => x.id === "laptop-1")).toBeUndefined();
     expect(d.find((x) => x.id === "hire-1")?.img).toBe("hire-sign");
@@ -979,6 +981,17 @@ describe("themes from the themes/ folder", () => {
     const open = structuredClone(OPEN);
     open.room.wall = 30; // 既定の壁の絵は 36
     expect(readTheme("broken", open, {}).problems.join(" / ")).toContain("壁の絵の高さ");
+    // 家具: 机は img/ と同じ大きさ、椅子は空いた席の椅子と同じ大きさで、幅 24 まで、上の端は机の奥の通路より下
+    expect(problems((j) => { j.images["desk-m"] = "glass.png"; })).toContain("images.desk-m"); // 24 x 14
+    expect(problems((j) => { j.images.chair = "glass-door-panel.png"; j.images["chair-free"] = "glass-door-panel.png"; }))
+      .toContain("room.lane"); // 16 x 14 は、上の端が机の奥の通路（机の奥の縁の 14 上）にかかる
+    expect(problems((j) => { j.images.chair = "corridor.png"; j.images["chair-free"] = "corridor.png"; }))
+      .toContain("images.chair"); // 幅 512
+    const wa = themeJson("classic");
+    const waSizes = themeSizes("classic", wa);
+    expect(readTheme("wa", wa, waSizes).problems).toEqual([]);
+    delete wa.images["chair-free"]; // 座布団（20 x 9）と、img/ の空いた席の椅子（14 x 9）では大きさが違う
+    expect(readTheme("wa", wa, waSizes).problems.join(" / ")).toContain("images.chair-free");
   });
 
   test("a theme from the user's folder points its pictures there", () => {
@@ -1167,7 +1180,7 @@ describe("modern theme", () => {
     expect(seen.every((s) => s.open === 1)).toBe(true);
   });
 
-  test("classic (和風) has the same rooms, with shoji for the glass, and its shoji door slides open the same way", () => {
+  test("classic (和風) has the same rooms, with shoji for the glass, a shoji door that slides the same way, and low tables and cushions", () => {
     useTheme("classic");
     try {
       const { rooms, info } = world({ t1: "working" });
@@ -1179,6 +1192,15 @@ describe("modern theme", () => {
       expect(out.find((d) => d.id === "glass")).toMatchObject({ src: "mods/ai-office/themes/classic/shoji.png", y: GLASS.y });
       expect(out.find((d) => d.id === "glass-door-panel"))
         .toMatchObject({ src: "mods/ai-office/themes/classic/shoji-door-panel.png", x: DOOR_X });
+      // 机と椅子は座卓と座布団（机と同じ大きさ。座布団は 20 x 13 で、席の真ん中に、下の端を机の奥の縁にそろえる）
+      const wa = (file) => `mods/ai-office/themes/classic/${file}.png`;
+      const [mine, free] = room.seats;
+      expect(out.find((d) => d.id === "desk-l")).toMatchObject({ src: wa("zataku-l"), w: 8, h: 21 });
+      expect(out.find((d) => d.id === "desk-0")).toMatchObject({ src: wa("zataku-m"), w: 24, h: 21 });
+      expect(out.find((d) => d.id === "desk-r")).toMatchObject({ src: wa("zataku-r"), w: 8, h: 21 });
+      expect(out.find((d) => d.id === "chair-0")).toMatchObject({ src: wa("zabuton"), x: mine.cx - 10, y: BACK - 13, w: 20, h: 13 });
+      expect(BACK - 13).toBeGreaterThan(LANE_Y); // 座布団の奥の端は、机の奥の通路を歩く人の足より下
+      expect(out.find((d) => d.id === `chair-${free.i}`)).toMatchObject({ img: "chair-free", src: wa("zabuton-free"), x: free.cx - 10 });
       const c = office.chars.get("t1");
       Object.assign(c, { x: LEFT_PASS, y: LANE_Y });
       const { seen, moving } = walk(office, c, planPath(room, c, { x: room.w - 20, y: CORRIDOR_Y }));
@@ -1188,6 +1210,15 @@ describe("modern theme", () => {
     } finally {
       useTheme("modern");
     }
+    // modern は img/ の机と椅子のまま（src なし。椅子は幅 14）
+    const { rooms, info } = world({ t1: "working" });
+    const office = new Office(seeded(1));
+    office.sync(rooms, info);
+    const out = drawables(rooms[0], office);
+    expect(IMAGES.chair).toBeUndefined();
+    expect(out.find((d) => d.id === "desk-0").src).toBeUndefined();
+    expect(out.find((d) => d.id === "chair-0")).toMatchObject({ img: "chair", x: rooms[0].seats[0].cx - 7, y: BACK - 9, w: 14 });
+    expect(out.find((d) => d.id === "chair-0").src).toBeUndefined();
   });
 
   test("a glass theme without a door panel keeps the door picture as it is (open), and a panel must fit the doorway", () => {

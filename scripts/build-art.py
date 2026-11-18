@@ -446,17 +446,18 @@ FFFFFFFFFFFFFFFFFFFFFFFF
 DDDDDDDDDDDDDDDDDDDDDDDD
 oooooooooooooooooooooooo
 """)
-# ノート PC のふたの裏（幅 10）。座った人の胴の前に重ねる
+# ノート PC のふたの裏（14x10。幅は座った人の胴と同じ）。座った人の胴の前に重ねる。上の端は口の下（これより上だと顔にかかる）
 LAPTOP = grid("""
-.oooooooo.
-oGGGGGGGGo
-oGGGGGGGGo
-oGGGQQGGGo
-oGGGGGGGGo
-oGGGGGGGGo
-oqqqqqqqqo
-onnnnnnnno
-.oooooooo.
+.oooooooooooo.
+oGGGGGGGGGGGGo
+oGGGGGGGGGGGGo
+oGGGGGGGGGGGGo
+oGGGGGQQGGGGGo
+oGGGGGGGGGGGGo
+oGGGGGGGGGGGGo
+oqqqqqqqqqqqqo
+onnnnnnnnnnnno
+.oooooooooooo.
 """)
 
 
@@ -949,6 +950,67 @@ def shoji_door_panel():
     im = shoji(16)
     im.putpixel((2, 11), rgb(WOOD[3]))
     return im
+
+
+# 和風の家具（theme.json の images で、机と椅子の絵を替える）。座卓は机と同じ格子（天板・前の板の行はそのまま。座った人・
+# ノート PC・手・名札がその行に合わせて置かれる）を濃い木の色で描き、端の脚だけ短い。座布団は椅子の代わりで、座った人の
+# 両脇から見えるように幅 20（人の胴は 14）、ほぼ正方形に見える奥行き（高さ 13。机の奥の通路の下まで）で、四隅に房。
+# 空いた席の座布団は、椅子と同じく緑
+ZATAKU = {"L": "#b8784a", "W": "#8a4e2c", "g": "#74401f", "F": "#6a3a1e", "D": "#4e2a14"}
+ZABUTON = {"x": "#8c2f3c", "X": "#6a2230", "z": "#b04a58", "Y": "#e8b84a"}
+ZABUTON_FREE = {"x": "#5fbf8a", "X": "#3f9a6a", "z": "#9fe6bd", "Y": "#e8b84a"}
+
+
+def zataku_end(right):
+    """座卓の端（幅 8）: desk_end と同じ天板と前の板で、脚は 2 行（机は 4 行）。下の 2 行はあける。"""
+    rows = grid("""
+ooooooo.
+LLLLLLLo
+WWWWWWWo
+WWWWgWWo
+WWWWWWWo
+WWWWWWWo
+WWgWWWWo
+WWWWWWWo
+WWWWWWWo
+LLLLLLLo
+oooooooo
+FFFFFFFo
+FFFFFFFo
+FFFFFFFo
+DDDDDDDo
+oooooooo
+.oDDo...
+.oDDo...
+.oooo...
+........
+........
+""")
+    s = Sprite(8, len(rows)).blit(rows, 0, 0)
+    return s.flipped() if not right else s
+
+
+ZABUTON_GRID = grid("""
+....................
+.Y.xxxxxxxxxxxxxx.Y.
+..xzzzzzzzzzzzzzzx..
+.xzzzzzzzzzzzzzzzzx.
+.xzzzzzzzzzzzzzzzzx.
+.xzzzzzzzXXzzzzzzzx.
+.xzzzzzzzzzzzzzzzzx.
+.xzzzzzzzzzzzzzzzzx.
+.xxzzzzzzzzzzzzzzxx.
+..xxxxxxxxxxxxxxxx..
+.YXXXXXXXXXXXXXXXXY.
+..XXXXXXXXXXXXXXXX..
+....................
+""")
+
+
+def zabuton():
+    """座布団（20x13。椅子と同じく、席の真ん中で、下の端が机の奥の縁）: ふくらんだ上の面（縁は少し濃い）、真ん中のとじ、
+    手前の厚み、四隅の房。"""
+    return Sprite(20, 13).blit(ZABUTON_GRID, 0, 0).outline()
 
 
 # ---- 窓の外（scene.js の windowView）: 窓枠（window.png）の後ろに、空・雨や雪・稲光を重ねる。どれも 28x16 ----
@@ -1690,7 +1752,7 @@ def main():
     p = pal()
     furniture = {
         "desk-l": desk_end(False), "desk-m": desk_mid(), "desk-r": desk_end(True),
-        "laptop": Sprite(10, 9).blit(LAPTOP, 0, 0),
+        "laptop": Sprite(14, 10).blit(LAPTOP, 0, 0),
         "hands-a": hands("a"), "hands-b": hands("b"), "hands-rest": hands("rest"),
         "chair": Sprite(14, 9).blit(CHAIR, 0, 0).outline(),
         "hire-sign": Sprite(11, 11).blit(HIRE_SIGN, 0, 0),
@@ -1725,7 +1787,7 @@ def main():
     save(glass_door(), "glass-door", modern)
     save(glass_door_panel(), "glass-door-panel", modern)
     n += 5
-    # classic（和風）のテーマの絵（長押と土壁・畳・縁側・板の縦の廊下・障子の壁の 1 枚・障子戸の枠・障子戸）
+    # classic（和風）のテーマの絵（長押と土壁・畳・縁側・板の縦の廊下・障子の壁の 1 枚・障子戸の枠・障子戸・座卓・座布団）
     classic = THEMES / "classic"
     save(plaster_wall(), "wall", classic)
     save(tatami_texture(), "tatami", classic)
@@ -1734,7 +1796,12 @@ def main():
     save(shoji_tile(), "shoji", classic)
     save(shoji_door(), "shoji-door", classic)
     save(shoji_door_panel(), "shoji-door-panel", classic)
-    n += 7
+    save(zataku_end(False).image(pal(ZATAKU)), "zataku-l", classic)
+    save(desk_mid().image(pal(ZATAKU)), "zataku-m", classic)
+    save(zataku_end(True).image(pal(ZATAKU)), "zataku-r", classic)
+    save(zabuton().image(pal(ZABUTON)), "zabuton", classic)
+    save(zabuton().image(pal(ZABUTON_FREE)), "zabuton-free", classic)
+    n += 12
     # 窓: 枠（ガラスは透明）と、後ろに重ねる空（時間帯 x 空模様）・雨・雪・稲光
     save(window_frame(), "window")
     save(window_frame_slide(), "window-slide")
@@ -1821,7 +1888,7 @@ def preview(p, furniture):
     for i in range(seats):
         seg = desk_x + 8 + i * 24
         if i in who:  # 空いた席にはノート PC を置かない
-            room.alpha_composite(furniture["laptop"].image(p), (seg + 7, back - 5))
+            room.alpha_composite(furniture["laptop"].image(p), (seg + 5, back - 5))
             room.alpha_composite(furniture[who[i][3]].image(p), (seg, back))
     room.alpha_composite(furniture["bubble-done"].image(p), (desk_x + 8 + 24 + 6, back - 31))
     put(char("claude-sonnet", "raise-0", "white"), 150, 118)  # 手を挙げて待つ sonnet

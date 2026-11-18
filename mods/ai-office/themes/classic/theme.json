@@ -25,7 +25,12 @@
     "corridor": "engawa.png",
     "glass": "shoji.png",
     "door": "shoji-door.png",
-    "doorPanel": "shoji-door-panel.png"
+    "doorPanel": "shoji-door-panel.png",
+    "desk-l": "zataku-l.png",
+    "desk-m": "zataku-m.png",
+    "desk-r": "zataku-r.png",
+    "chair": "zabuton.png",
+    "chair-free": "zabuton-free.png"
   },
   "colors": {
     "partition": "#d9c79c",
