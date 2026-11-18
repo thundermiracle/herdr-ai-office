@@ -26,8 +26,13 @@ gh repo clone thundermiracle/herdr-ai-office ~/Code/herdr-ai-office
 cd ~/Code/herdr-ai-office
 scripts/sync.sh                                     # mod とレイアウトを ~/.config/herdr-app にコピー
 herdr-app do layout.switch --name main-dots-office  # いつもの main-dots に「Office」ボタン（右上）を足したもの
-hooks/register.sh add                               # 任意: 調べ物や skill で資料室へ行かせる Claude Code のフック
+hooks/register.sh add                               # Claude Code のフック（ホワイトボード・資料室・話しかけに要る）
+scripts/doctor.sh                                   # 用意がそろっているか調べる（NG の行があれば、そこを直す）
 ```
+
+更新するときは `git pull && scripts/sync.sh`。そのあとホワイトボードなどが出なければ `scripts/doctor.sh` を流す。
+ホワイトボードは、フックが効いている Claude が書いたプランと .md だけを出すので、フックを登録していない PC や、
+登録より前から動いている Claude（起動し直すまでフックが効かない）では出ない。
 
 - `main-dots-office` は dotfiles（chezmoi）の main-dots を元にしていて、`spaces-dots` mod を使う。dotfiles を入れていない
   PC では、`herdr-app do layout.switch --name ai-office` か、`herdr-app do mod.open --name ai-office`（浮いた窓）で開く。
@@ -338,6 +343,7 @@ hooks/register.sh remove   # このフックだけ外す（ほかのフックは
 | `scripts/fake-agent.sh`、`scripts/fake-question.py`、`scripts/demo.sh` | AI を使わずに状態を報告する偽エージェント、選択肢の画面で答えを受け取る偽の質問役、それを 6 人並べた見本（office-test-2 の reviewer のプランは `scripts/sample-plan.md`） |
 | `scripts/sync.sh` | mod とレイアウトを ~/.config/herdr-app にコピーして `herdr-app check` |
 | `scripts/check-theme.js` | テーマのフォルダを確かめる（`bun scripts/check-theme.js <フォルダ>`） |
+| `scripts/doctor.sh` | この PC の用意を調べる（道具・フックの登録と文法・フックを試す・mod がリポジトリと同じか・今ホワイトボードに載るもの）。何も変えない |
 | `scripts/sky.sh` | 窓の外を試す（天気と、選んだ場所の時刻を決める、1 日の早送り、本物に戻す） |
 | `spike/` | 描画方針を決めたときの確認用 mod（アニメ画像・にじみ・アニメの負荷） |
 | `test/` | `bun test`（scene.js）と `test/hook-test.sh`（フック。使い捨てのターミナルで試す） |
