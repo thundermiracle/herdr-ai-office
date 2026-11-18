@@ -395,10 +395,12 @@ export function isNoiseDoc(path) {
  * 1 つのスペースの部屋。席はエージェントの数 + 1（最後の 1 つは空席で、クリックで雇う）。
  * docs: address → その人が書いたもの [{ path, kind }]（kind: plan はフックが書く office.plan、doc は office.docs）。
  * 部屋にいる人の書いたものだけで（ほかの部屋の人のものは載らない）、明らかにノイズの .md は除く（isNoiseDoc）。
+ * present: 今読める（ダイアログで表示できる）ファイルの道の集まり（main.js が調べる）。渡されたら、読めないもの（消したもの・
+ * まだ書かれていないもの・Bash の書き込みの読み違い）は載せない。ほかのマシンの部屋（space.machine）は確かめない。
  * どれかがあれば、部屋の壁にホワイトボードを掛ける。room.docs: [{ path, kind, address }]（同じファイルは 1 つ。
  * プランが先、そのあと人ごとの .md）
  */
-export function roomOf(space, agentsHere, docs = new Map()) {
+export function roomOf(space, agentsHere, docs = new Map(), present = null) {
   const count = agentsHere.length + 1;
   const deskEnd = DESK_X + DESK_END * 2 + count * SEAT_W;
   const roomDocs = [];
@@ -412,6 +414,7 @@ export function roomOf(space, agentsHere, docs = new Map()) {
     for (const a of agentsHere) {
       for (const d of docs.get(a.address) ?? []) {
         if ((d.kind === "plan") !== plans || (d.kind !== "plan" && isNoiseDoc(d.path))) continue;
+        if (present && !space.machine && !present.has(d.path)) continue; // 今読めないファイル
         add({ path: d.path, kind: d.kind, address: a.address });
       }
     }
@@ -445,9 +448,9 @@ export function openAgents(spaces, agents) {
   return new Set(tab ? agents.filter((a) => a.tab === tab).map((a) => a.address) : []);
 }
 
-/** スペースごとに部屋を作る。agents は herdr の agents()（スペース・タブ・ペインの順）。docs は roomOf と同じ。 */
-export function roomsOf(spaces, agents, docs = new Map()) {
-  return spaces.map((s) => roomOf(s, agents.filter((a) => a.space === s.id), docs));
+/** スペースごとに部屋を作る。agents は herdr の agents()（スペース・タブ・ペインの順）。docs と present は roomOf と同じ。 */
+export function roomsOf(spaces, agents, docs = new Map(), present = null) {
+  return spaces.map((s) => roomOf(s, agents.filter((a) => a.space === s.id), docs, present));
 }
 
 

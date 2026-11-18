@@ -157,6 +157,21 @@ describe("rooms", () => {
       .toMatchObject({ docs: [], w: MIN_ROOM_W }); // ノイズだけなら、ホワイトボードは掛けない
   });
 
+  test("files that are gone (deleted, not yet written, or a misread Bash line) are not put on the whiteboard", () => {
+    const agents = [agent("t1", "a"), agent("t2", "r")];
+    const docs = new Map([
+      ["t1", [{ path: "/u/.claude/plans/fox.md", kind: "plan" }, { path: "/r/gone.md", kind: "doc" }, { path: "/r/here.md", kind: "doc" }]],
+      ["t2", [{ path: "/remote/spec.md", kind: "doc" }]],
+    ]);
+    const present = new Set(["/r/here.md"]); // プランもまだない（書く直前にラベルが付く）
+    const [a, remote] = roomsOf([space("a"), space("r", { machine: "mini" })], agents, docs, present);
+    expect(a.docs.map((d) => d.path)).toEqual(["/r/here.md"]);
+    expect(remote.docs.map((d) => d.path)).toEqual(["/remote/spec.md"]); // ほかのマシンの部屋は、この Mac から調べない
+    expect(roomsOf([space("a")], [agent("t1", "a")], new Map([["t1", [{ path: "/r/gone.md", kind: "doc" }]]]), new Set())[0])
+      .toMatchObject({ docs: [], w: MIN_ROOM_W }); // 全部ないなら、ホワイトボードは掛けない
+    expect(roomsOf([space("a")], agents, docs)[0].docs).toHaveLength(3); // present を渡さなければ、ラベルのまま
+  });
+
   test("obvious noise is not put on the whiteboard", () => {
     for (const path of ["/r/CLAUDE.md", "/r/claude.local.md", "/r/AGENTS.md", "/r/GEMINI.md", "/r/skills/x/SKILL.md", "/r/LICENSE.md",
       "/r/.github/PULL_REQUEST_TEMPLATE.md", "/r/node_modules/pkg/README.md", "/r/dist/a.md", "/r/.claude/notes.md"]) {

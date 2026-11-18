@@ -24,6 +24,7 @@ const DRAG_START = 4; // 部屋を押したまま、これだけ（絵の px）�
 const META_MS = 10000; // model と effort を読み直す間隔
 const HIDDEN_MS = 1000; // 隠れている間は、この間隔で見えるようになったかだけ見る
 const SKILLS_MS = 60000; // 使える skill を読み直す間隔（めったに変わらない）
+const DOCS_CHECK_MS = 3000; // ホワイトボードに載せる .md が今読めるかを調べ直す間隔
 // 窓の外の天気: 選んだ場所の今の天気（Open-Meteo。キーは要らず、送るのはその場所の緯度経度だけ）
 const weatherUrl = (place) => `https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}`
   + "&current=weather_code,temperature_2m&timezone=auto";
@@ -33,9 +34,10 @@ const WEATHER_STALE_MS = 3 * 3600000; // これより古い天気は使わない
 
 /**
  * herdr のデータを集める: スペースごとの部屋と、エージェントごとの状態・model・effort。
- * meta: Claude のセッション ID → { model, effort }（loadMeta が読む）、codexDefaults: ~/.codex/config.toml の既定。
+ * meta: Claude のセッション ID → { model, effort }（loadMeta が読む）、codexDefaults: ~/.codex/config.toml の既定、
+ * present: ホワイトボードに載せる .md のうち今読めるもの（checkDocs が調べる。読めないものは載せない）。
  */
-function gather(meta, codexDefaults) {
+function gather(meta, codexDefaults, present) {
   const ag = agents();
   const sp = spaces();
   const terms = new Map(terminals().map((t) => [t.address, t]));
@@ -75,7 +77,7 @@ function gather(meta, codexDefaults) {
   // その人が書いたもの（ホワイトボード）: プランと、書いた .md
   const docs = new Map([...info].map(([address, a]) => [address,
     [...(a.plan ? [{ path: a.plan, kind: "plan" }] : []), ...a.docs.map((path) => ({ path, kind: "doc" }))]]));
-  return { rooms: roomsOf(sp.map((s) => ({ ...s, folder: placeOf(s, ps) })), ag, docs), info, open: openAgents(sp, ag) };
+  return { rooms: roomsOf(sp.map((s) => ({ ...s, folder: placeOf(s, ps) })), ag, docs, present), info, open: openAgents(sp, ag) };
 }
 
 // レイアウトの根から id のブロックまでの道（見つからなければ null）
@@ -231,6 +233,10 @@ export default class AiOffice extends View {
     this.overRoom = false; // マウスが部屋の奥の壁の上にあるか（つかめる手のカーソル）
     this.hover = null; // マウスが乗っているもの（キャラ・PC・名札）の持ち主のエージェント。同じ持ち主のものを一緒に光らせる
     this.open = new Set(); // 今開いているタブのエージェント（いつも、マウスを乗せたときと同じように明るくする）
+    this.present = new Set(); // ホワイトボードに載せる .md のうち、今読めるもの（読めないものは載せない。checkDocs）
+    this.presentKey = "";
+    this.checkDocs(cx);
+    cx.timer.every(DOCS_CHECK_MS, (cx) => this.checkDocs(cx));
     this.width = 900; // on_size_change が来るまでの仮の幅（論理 px）
     this.last = Date.now();
     this.sig = "";
@@ -330,6 +336,34 @@ export default class AiOffice extends View {
     });
   }
 
+  // ホワイトボードに載せる .md（エージェントのラベルのプランと書いた .md）が、今読めるかを調べる。ダイアログと同じ readTextFile で
+  // 読むので、表示できるものだけが載る（fs/promises は、mod に許された場所の外の /tmp などを調べられない）。消したもの、まだ
+  // 書かれていないもの（フックは書く直前にラベルを付ける）、Bash の書き込みの読み違い（引用符の中の文字など）は載せない。
+  // 変わったときだけ描き直す
+  checkDocs(cx) {
+    if (this.hidden()) return;
+    const paths = new Set();
+    for (const t of terminals()) {
+      const labels = t.labels ?? {};
+      if (labels["office.plan"]) paths.add(labels["office.plan"]);
+      for (const path of (labels["office.docs"] || "").split("\n")) if (path) paths.add(path);
+    }
+    cx.spawn(async (cx) => {
+      const present = new Set();
+      for (const path of paths) {
+        try {
+          if ((await readTextFile(path)) !== null) present.add(path);
+        } catch {} // 読めない（大きすぎる・フォルダなど）: ダイアログでも表示できない
+      }
+      const key = [...present].sort().join("\n");
+      if (key !== this.presentKey) {
+        this.presentKey = key;
+        this.present = present;
+        cx.notify();
+      }
+    });
+  }
+
   // 資料室の本棚の skill: どこでも使えるものと、各スペース（この Mac）のプロジェクトの skill。同じものは 1 冊
   shelfSkills() {
     const seen = new Set();
@@ -354,7 +388,7 @@ export default class AiOffice extends View {
       this.office = new Office();
       this.sig = "";
     }
-    const { rooms, info, open } = gather(this.meta, this.codexDefaults);
+    const { rooms, info, open } = gather(this.meta, this.codexDefaults, this.present);
     this.open = open;
     const floor = layoutFloor(rooms, this.width / SCALE - 2 * MARGIN);
     const placed = floor.rooms.filter((r) => !r.newRoom);

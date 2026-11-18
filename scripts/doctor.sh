@@ -3,7 +3,7 @@
 # ほかの PC で更新したあとにホワイトボードが出ないときなどに流して、NG の行を見る。
 # 調べること: 道具（jq・hc・herdr-app）、フックの登録（このリポジトリのフックを指しているか、4 つのイベント）と文法、
 # フックを試す（herdr-app に出ない使い捨てのターミナルで .md を書いたことにして、ラベルが付くか）、mod がリポジトリと同じか、
-# herdr-app のエラー、今ホワイトボードに載るもの（エージェントごとのラベル）。
+# herdr-app のエラー、今ホワイトボードに載るもの（エージェントごとのラベル。読めないものには印）。
 # 使い方: scripts/doctor.sh
 set -uo pipefail
 
@@ -81,13 +81,17 @@ if herdr-app status >/dev/null 2>&1; then
   if [ "$errors" = "[]" ]; then ok "herdr-app のエラーなし"; else ng "herdr-app のエラー: $errors"; fi
 fi
 
-echo "今ホワイトボードに載るもの（エージェントごとのラベル。プランと書いた .md）"
+echo "今ホワイトボードに載るもの（エージェントごとのラベル。プランと書いた .md。読めないものは載らない）"
 found=0
 for t in $(hc ls --json 2>/dev/null | jq -r '.terminals[]?.address'); do
-  line=$(hc get "$t" --json 2>/dev/null | jq -r '[.labels["office.plan"] // empty, ((.labels["office.docs"] // "") | split("\n")[])]
-    | map(select(. != "")) | join(", ")')
+  line=""
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    [ -r "$f" ] || f="${f}（ない。載らない）"
+    line="${line:+$line, }$f"
+  done < <(hc get "$t" --json 2>/dev/null | jq -r '.labels["office.plan"] // empty, ((.labels["office.docs"] // "") | split("\n")[])')
   if [ -n "$line" ]; then
-    note "$t: $line"
+    note "${t}: $line"
     found=1
   fi
 done
