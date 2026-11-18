@@ -6,7 +6,7 @@ import {
   drawables, dropTarget, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
   FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, isNoiseDoc, plateText, openAgents,
-  DOOR_HOLD_MS, DOOR_MS, DOOR_SLIDE, doorsMoving,
+  DOOR_HOLD_MS, DOOR_MS, DOOR_SLIDE, doorsMoving, WINDOW_FRAMES,
 } from "../mods/ai-office/scene.js";
 
 // テーマは、オフィスと同じく mods/ai-office/themes/<名前>/ の theme.json と PNG から読む（確かめで落ちたら、ここで止まる）
@@ -21,8 +21,20 @@ for (const name of readdirSync(THEMES_DIR).filter((n) => existsSync(`${THEMES_DI
   addTheme(theme);
 }
 
-// これまでのテストは classic（仕切りが途中まで・手前の床がつながる部屋）の寸法で書いてある。modern は下の describe("modern")
-useTheme("classic");
+// これまでのテストは、手前の開いた部屋（仕切りが途中まで・手前の床が隣とつながる。テーマの glass が null）の寸法で書いてある。
+// 同梱のテーマはどちらも手前に壁があるので、その形のテーマ open をここで足す（和風になる前の classic と同じ寸法で、絵は既定）。
+// modern と classic（和風）は下の describe("modern theme")
+const OPEN = {
+  label: "手前の開いた部屋", glass: null, images: {},
+  room: { height: 140, wall: 36, lane: 54, deskBack: 74, box: 140, corridorY: 118, wanderFront: [104, 132], rightExit: true,
+    partitionEnd: 96, hallSide: "partition", shelfY: 14, decorDy: 0 },
+};
+{
+  const { theme, problems } = readTheme("open", OPEN);
+  if (problems.length) throw new Error(`open: ${problems.join(" / ")}`);
+  addTheme(theme);
+}
+useTheme("open");
 
 // 毎回同じになる乱数
 function seeded(seed = 1) {
@@ -928,12 +940,19 @@ describe("talking to another agent (hc send)", () => {
 
 describe("themes from the themes/ folder", () => {
   test("the bundled themes load in their order, with their own pictures where they differ", () => {
-    expect(themeList().map((t) => [t.name, t.label])).toEqual([["modern", "モダン"], ["classic", "クラシック"]]);
-    const modern = themeList()[0];
+    const bundled = themeList().filter((t) => t.name !== "open"); // open はこのファイルで足した、手前の開いた部屋
+    expect(bundled.map((t) => [t.name, t.label])).toEqual([["modern", "モダン"], ["classic", "和風"]]);
+    const [modern, classic] = bundled;
     expect(modern.IMAGES.wall).toEqual({ src: "mods/ai-office/themes/modern/wall.png", w: 512, h: 30 });
     expect(modern.IMAGES.glass).toMatchObject({ w: 24, h: 14 });
-    expect(themeList()[1].IMAGES.wall.src).toBe("mods/ai-office/img/wall.png"); // classic は既定の絵
-    expect(themeList().map((t) => t.WINDOW)).toEqual(["window-slide", "window"]); // 窓: modern は引き違い、classic は十字
+    expect(modern.IMAGES.floor.src).toBe("mods/ai-office/img/floor.png"); // modern の床は既定の絵
+    // classic（和風）は、机の位置も部屋の形も modern と同じで、絵はみな自分のもの（畳・縁側・板の廊下・障子の壁と障子戸）
+    for (const key of ["ROOM_H", "WALL_H", "LANE_Y", "BACK", "BOX_H", "GLASS"]) expect(classic[key]).toEqual(modern[key]);
+    expect(Object.values(classic.IMAGES).every((img) => img.src.startsWith("mods/ai-office/themes/classic/"))).toBe(true);
+    expect(classic.IMAGES.floor).toMatchObject({ w: 512, h: classic.ROOM_H }); // 畳の継ぎ目が、どの列でも同じ所に来る
+    expect(bundled.map((t) => t.WINDOW)).toEqual(["window-slide", "window-wood"]); // 窓: modern はアルミ、classic は木の枠
+    const img = new URL("../mods/ai-office/img/", import.meta.url).pathname;
+    for (const frame of Object.values(WINDOW_FRAMES)) expect(existsSync(`${img}${frame}.png`)).toBe(true);
   });
 
   test("pngSize reads the picture size (a quarter of the PNG) and refuses what is not a PNG", () => {
@@ -957,9 +976,9 @@ describe("themes from the themes/ folder", () => {
     expect(problems((j) => { j.window = "round"; })).toContain("window");
     expect(problems((j) => { j.room.lane = 60; })).toContain("room.lane");
     expect(problems((j) => { j.images.wall = "missing.png"; })).toContain("読めない");
-    const classic = themeJson("classic");
-    classic.room.wall = 30; // 既定の壁の絵は 36
-    expect(readTheme("broken", classic, {}).problems.join(" / ")).toContain("壁の絵の高さ");
+    const open = structuredClone(OPEN);
+    open.room.wall = 30; // 既定の壁の絵は 36
+    expect(readTheme("broken", open, {}).problems.join(" / ")).toContain("壁の絵の高さ");
   });
 
   test("a theme from the user's folder points its pictures there", () => {
@@ -972,13 +991,13 @@ describe("themes from the themes/ folder", () => {
 
 describe("modern theme", () => {
   beforeAll(() => useTheme("modern"));
-  afterAll(() => useTheme("classic"));
+  afterAll(() => useTheme("open"));
 
-  test("a row is lower (the room down to the glass, then the corridor), and classic comes back unchanged", () => {
+  test("a row is lower (the room down to the glass, then the corridor), and the open-front theme comes back unchanged", () => {
     expect(geometry().THEME).toBe("modern");
     expect({ ROOM_H, WALL_H, glassBottom: GLASS.y + GLASS.h }).toEqual({ ROOM_H: 116, WALL_H: 30, glassBottom: 100 });
     expect(SHELF.y).toBe(8);
-    useTheme("classic");
+    useTheme("open");
     expect({ ROOM_H, WALL_H, LANE_Y, BACK, CORRIDOR_Y, PART_END, FRONT_Y })
       .toEqual({ ROOM_H: 140, WALL_H: 36, LANE_Y: 54, BACK: 74, CORRIDOR_Y: 118, PART_END: 96, FRONT_Y: [104, 132] });
     expect(GLASS).toBeNull();
@@ -1047,7 +1066,7 @@ describe("modern theme", () => {
     expect(z("char-t2")).toBeLessThan(z("glass")); // 席で作業している
     expect(z("char-t1")).toBeGreaterThan(z("glass"));
     expect(out.find((d) => d.id === "glass")).toMatchObject({ tile: 24, x: LEFT_PASS + 8, y: GLASS.y, h: GLASS.h });
-    useTheme("classic");
+    useTheme("open");
     expect(drawables(rooms[0], office).some((d) => ["glass", "glass-door", "glass-door-panel"].includes(d.img))).toBe(false);
     useTheme("modern");
   });
@@ -1146,6 +1165,29 @@ describe("modern theme", () => {
     const { seen } = walk(office, c, office.route(c, office.local(c, { x: b.ox + 60, y: b.oy + LANE_Y })));
     expect([...new Set(seen.map((s) => s.room))]).toEqual(["a", "b"]);
     expect(seen.every((s) => s.open === 1)).toBe(true);
+  });
+
+  test("classic (和風) has the same rooms, with shoji for the glass, and its shoji door slides open the same way", () => {
+    useTheme("classic");
+    try {
+      const { rooms, info } = world({ t1: "working" });
+      const office = new Office(seeded(1));
+      office.sync(rooms, info);
+      settle(office);
+      const room = rooms[0];
+      const out = drawables(room, office);
+      expect(out.find((d) => d.id === "glass")).toMatchObject({ src: "mods/ai-office/themes/classic/shoji.png", y: GLASS.y });
+      expect(out.find((d) => d.id === "glass-door-panel"))
+        .toMatchObject({ src: "mods/ai-office/themes/classic/shoji-door-panel.png", x: DOOR_X });
+      const c = office.chars.get("t1");
+      Object.assign(c, { x: LEFT_PASS, y: LANE_Y });
+      const { seen, moving } = walk(office, c, planPath(room, c, { x: room.w - 20, y: CORRIDOR_Y }));
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.every((s) => s.open === 1)).toBe(true);
+      expect(moving).toBe(true);
+    } finally {
+      useTheme("modern");
+    }
   });
 
   test("a glass theme without a door panel keeps the door picture as it is (open), and a panel must fit the doorway", () => {

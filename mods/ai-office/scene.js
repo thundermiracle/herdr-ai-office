@@ -22,7 +22,9 @@ export const TALK_COLOR = "#e8b84a"; // 話しかけるときの札（送った�
 // 登録し、useTheme が下の寸法と絵を差し替える。同梱のテーマ:
 // - modern（初め）: 独立した部屋。部屋どうしの間は奥から手前まで壁でふさぎ、手前（廊下側）はガラスの壁で、左に扉が 1 つ。
 //   列ごとに部屋の手前を横の廊下が通り、左の縦の廊下につながる。部屋を出入りするのは扉（通り道 LEFT_PASS）だけ
-// - classic: 部屋の左端は仕切りの壁で、奥から PART_END までをふさぎ、手前は通路として開けておく（廊下や隣の部屋とつながる）
+// - classic（和風）: modern と同じ形で、手前は障子の壁と障子戸、床は畳、横の廊下は縁側
+// 手前に壁のあるテーマ（theme.json の glass。障子も）を、下では「ガラスの部屋」と呼ぶ。glass が null なら手前の開いた
+// 部屋になる: 部屋の左端は仕切りの壁で、奥から PART_END までをふさぎ、手前は通路として開けておく（廊下や隣の部屋とつながる）
 // 部屋の中の座標は部屋の左上から、フロア全体の座標はフロアの左上（廊下の左上）から。
 export const DESK_X = 26; // 机の左端（左の仕切りの内側）
 export const DESK_END = 8; // 机の端の板の幅
@@ -42,7 +44,7 @@ export const HALL_W = 44; // 左の廊下の幅
 // テーマを選ぶまで（main.js がテーマのフォルダを読み終えるまで）は undefined
 export let THEME = null;
 export let ROOM_H, WALL_H, LANE_Y, BACK, FRONT_Y, CORRIDOR_Y, PART_END, GLASS, BOX_H, RIGHT_EXIT, DECOR_DY, HALL_SIDE, IMAGES, COLORS;
-export let WINDOW; // 窓枠の絵（img/ の下の名前）: window（十字の桟）か window-slide（2 枚の引き違いの窓）
+export let WINDOW; // 窓枠の絵（img/ の下の名前。テーマの window ごとに WINDOW_FRAMES）
 // 資料室（廊下の一番上）で本を読む場所（フロア全体の座標）。本棚の前から、読む人が増えると順に並ぶ
 export let LIBRARY;
 // 本棚（bookshelf-empty.png、資料室＝フロアの (6, SHELF.y) に置く）の中で本を立てる場所。scripts/build-art.py の bookshelf と
@@ -60,6 +62,8 @@ export const DEFAULT_COLORS = {
   partition: "#e3cfa6", partitionEdge: "#8a6040", partitionFace: "#b07a4c", partitionBase: "#5b3a2c",
   sideGlass: "#bee6fae6", sideGlassEdge: "#46536f",
 };
+// テーマの window → 窓枠の絵: 十字の桟、2 枚の引き違い（アルミの枠）、2 枚の引き違い（木の枠と横の桟）
+export const WINDOW_FRAMES = { cross: "window", slide: "window-slide", wood: "window-wood" };
 const PNG_SCALE = 4; // テーマの PNG は、絵の 1 ピクセル = 4 ピクセル（オフィスは 2 論理 px で描くので、Retina で 1:1）
 
 /** PNG の大きさを絵の px で（先頭の IHDR から。PNG の px の 1/4）。PNG でなければ null。 */
@@ -95,7 +99,7 @@ export function readTheme(name, json, sizes = {}, base = `mods/ai-office/themes/
   const g = json?.glass ?? null;
   if (g !== null && !(Number.isInteger(g.y) && Number.isInteger(g.height))) problems.push("glass が null か { y, height } でない");
   const window = json?.window ?? "cross";
-  if (!["cross", "slide"].includes(window)) problems.push("window が cross（十字の桟）か slide（2 枚の引き違い）でない");
+  if (!Object.prototype.hasOwnProperty.call(WINDOW_FRAMES, window)) problems.push("window が cross（十字の桟）・slide（2 枚の引き違い）・wood（木の枠）でない");
   const images = { ...DEFAULT_IMAGES };
   for (const [key, file] of Object.entries(json?.images ?? {})) {
     const size = sizes[file];
@@ -134,7 +138,7 @@ export function readTheme(name, json, sizes = {}, base = `mods/ai-office/themes/
     ROOM_H: room.height, WALL_H: room.wall, LANE_Y: room.lane, BACK: room.deskBack, BOX_H: room.box, CORRIDOR_Y: room.corridorY,
     PART_END: room.partitionEnd, SHELF_Y: room.shelfY, DECOR_DY: room.decorDy, FRONT_Y: front,
     GLASS: g ? { y: g.y, h: g.height } : null, RIGHT_EXIT: r.rightExit, HALL_SIDE: r.hallSide,
-    IMAGES: images, COLORS: { ...DEFAULT_COLORS, ...(json?.colors ?? {}) }, WINDOW: window === "slide" ? "window-slide" : "window",
+    IMAGES: images, COLORS: { ...DEFAULT_COLORS, ...(json?.colors ?? {}) }, WINDOW: WINDOW_FRAMES[window] ?? "window",
   };
   return { theme, problems };
 }
@@ -505,7 +509,7 @@ function tidy(from, pts) {
 
 /**
  * from から to への道（曲がり角の列、from は含まない）。縦横にだけ動く。座標は room の中。
- * 机より奥（y < BACK）と手前を行き来するときは、机の左右の通り道を通る（modern は左だけ。手前は横の廊下で、扉は左にある）。
+ * 机より奥（y < BACK）と手前を行き来するときは、机の左右の通り道を通る（ガラスの部屋は左だけ。手前は横の廊下で、扉は左にある）。
  * 部屋の左の外（x < 0。廊下や、左の部屋の手前の通路）とは、手前の通路（CORRIDOR_Y）を通って行き来する。
  */
 export function planPath(room, from, to) {
@@ -516,7 +520,7 @@ export function planPath(room, from, to) {
     if (outside(to)) return tidy(from, [...planPath(room, from, door), { x: to.x, y: CORRIDOR_Y }, to]);
     return tidy(from, [{ x: from.x, y: CORRIDOR_Y }, door, ...planPath(room, door, to)]);
   }
-  // 机より奥。modern の机の右の床（ガラスの壁まで）も、机の奥の通路から縦に行けるので奥と同じに扱う
+  // 机より奥。ガラスの部屋の机の右の床（ガラスの壁まで）も、机の奥の通路から縦に行けるので奥と同じに扱う
   const back = (p) => p.y < BACK || (GLASS !== null && p.y < GLASS.y && p.x >= room.rightPass);
   const pts = [];
   const go = (x, y) => {
@@ -570,7 +574,7 @@ export function dropTarget(rooms, from, p) {
 
 /**
  * フロアの上の道（曲がり角の列、from は含まない）。座標はフロア全体で、from と to は部屋の中か廊下の点。
- * 同じ部屋の中は planPath。部屋を出るときは手前の通路へ（左の扉。classic で同じ列の右の部屋へ行くなら右の通り道から）。
+ * 同じ部屋の中は planPath。部屋を出るときは手前の通路へ（左の扉。手前の開いた部屋で、同じ列の右の部屋へ行くなら右の通り道から）。
  * 同じ列の部屋へは通路を横に、違う列の部屋や廊下へは、通路を廊下まで歩いて廊下を上下に。入るときは相手の部屋の左の扉から。
  */
 export function floorPath(rooms, from, to) {
@@ -756,7 +760,7 @@ export class Office {
     const x = Math.round(ox + end.x);
     const y = Math.round(oy + end.y);
     const here = roomAt(this.rooms, { x, y });
-    const side = GLASS && here && y - here.oy >= BACK && y - here.oy < GLASS.y; // modern の机の右の床（机の前には立たない）
+    const side = GLASS && here && y - here.oy >= BACK && y - here.oy < GLASS.y; // ガラスの部屋の机の右の床（机の前には立たない）
     const lo = here ? here.ox + (side ? here.rightPass : LEFT_PASS) : 6;
     const hi = here ? here.ox + here.w - (side ? 28 : 10) : HALL_W - 6;
     return { x: x - 14 >= lo ? x - 14 : Math.min(x + 14, hi), y };
@@ -822,8 +826,8 @@ export class Office {
     }
   }
 
-  // うろうろする行き先。modern は部屋の中だけ（横の廊下へ出ると、どの部屋の人か分かりにくい）: 机の奥の通路か、
-  // 机の右の床（植木の手前まで。机が部屋いっぱいなら通路だけ）。classic は手前の床か、机の奥の通路
+  // うろうろする行き先。ガラスの部屋は部屋の中だけ（横の廊下へ出ると、どの部屋の人か分かりにくい）: 机の奥の通路か、
+  // 机の右の床（植木の手前まで。机が部屋いっぱいなら通路だけ）。手前の開いた部屋は、手前の床か、机の奥の通路
   wanderTarget(room) {
     if (GLASS) {
       const right = room.w - 28;
@@ -1150,7 +1154,7 @@ export function parseWeather(json, fetchedAt) {
 
 /**
  * 窓の外の絵（img/ の下の名前を奥から順に: 空、その場所の街並みと名物（view/<場所>-<時間帯>）、雨や雪、窓枠 frame
- * （テーマの WINDOW: window は十字の桟、window-slide は 2 枚の引き違い）。
+ * （テーマの WINDOW。WINDOW_FRAMES）。
  * ms は空の時刻、weather は weatherOf か null（晴れ）、
  * t はコマ送りの数。雨と雪は 2 コマに 1 回進む（雨のためだけに毎コマ描き直さない）。雷は 24 コマごとに 2 回光る。
  * key は絵が変わったかを見るため（同じなら描き直さない）。

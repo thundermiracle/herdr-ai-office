@@ -1,22 +1,38 @@
 {
-  "label": "クラシック",
-  "description": "左の仕切りだけ（奥から途中まで）。手前の床が隣の部屋とつながる",
+  "label": "和風",
+  "description": "畳の部屋。隣とは壁、廊下側は障子の壁と障子戸で、列ごとに縁側",
   "order": 2,
-  "window": "cross",
+  "window": "wood",
   "room": {
-    "height": 140,
-    "wall": 36,
-    "lane": 54,
-    "deskBack": 74,
-    "box": 140,
-    "corridorY": 118,
-    "wanderFront": [104, 132],
-    "rightExit": true,
-    "partitionEnd": 96,
-    "hallSide": "partition",
-    "shelfY": 14,
-    "decorDy": 0
+    "height": 116,
+    "wall": 30,
+    "lane": 48,
+    "deskBack": 62,
+    "box": 100,
+    "corridorY": 112,
+    "wanderFront": null,
+    "rightExit": false,
+    "partitionEnd": 100,
+    "hallSide": "glass",
+    "shelfY": 8,
+    "decorDy": -2
   },
-  "glass": null,
-  "images": {}
+  "glass": { "y": 86, "height": 14 },
+  "images": {
+    "wall": "wall.png",
+    "floor": "tatami.png",
+    "hall": "hall.png",
+    "corridor": "engawa.png",
+    "glass": "shoji.png",
+    "door": "shoji-door.png",
+    "doorPanel": "shoji-door-panel.png"
+  },
+  "colors": {
+    "partition": "#d9c79c",
+    "partitionEdge": "#5a3a20",
+    "partitionFace": "#7a5030",
+    "partitionBase": "#3e2614",
+    "sideGlass": "#f6f0e0",
+    "sideGlassEdge": "#c29c68"
+  }
 }

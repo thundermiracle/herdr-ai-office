@@ -1,7 +1,7 @@
 # ドット絵を作る: uv run --with pillow scripts/build-art.py
 # 絵は文字の格子で描き、外側の輪郭は自動で付ける。書き出すときに 4 倍に拡大する
 # （mod では絵の 1 ピクセル = 2 論理 px で描くので、Retina では物理 1:1 になり、にじまない）。
-# 出力: mods/ai-office/img/（mod が使う PNG）、mods/ai-office/themes/modern/（modern のテーマの絵）、
+# 出力: mods/ai-office/img/（mod が使う PNG）、mods/ai-office/themes/modern/ と classic/（テーマの絵）、
 #       tmp/art-preview.png（確認用の一覧と部屋の見本）
 import random
 from pathlib import Path
@@ -831,6 +831,126 @@ def corridor_texture(w=512, h=16):
     return im
 
 
+# ---- classic（和風）のテーマの絵（themes/classic/theme.json。部屋の寸法は modern と同じで、障子の壁も高さ 14） ----
+WOOD = ["#9a6a40", "#7a5030", "#5a3a20", "#3e2614"]  # 柱・長押・敷居の濃い木（明るい面から影へ）
+SHIRAKI = ["#f0dcb4", "#dcbd8a", "#c29c68", "#9a7446"]  # 障子の枠と組子の白木
+BOARD = {"base": "#a8743f", "edge": "#bf8a52", "gap": "#86582f", "grain": "#9a6838"}  # 縁側と廊下の板
+PAPER = (248, 243, 230, 235)  # 障子紙（少しだけ透ける）
+
+
+def plaster_wall(w=512, h=30):
+    """和室の奥の壁: 上に長押（濃い木）、土壁（砂色に細かな粒）、下に畳寄せ（下の 4 行）。"""
+    im = Image.new("RGBA", (w, h), rgb("#e0cfa6"))
+    rng = random.Random(11)
+    for _ in range(w * h // 12):  # 土壁の粒
+        im.putpixel((rng.randrange(w), rng.randrange(4, h - 4)), rgb(rng.choice(["#d5c398", "#e9dab8", "#d9c79e"])))
+    for x in range(w):
+        for y, c in ((0, WOOD[2]), (1, WOOD[0]), (2, WOOD[1]), (3, "#c9b588"),
+                     (h - 4, "#c9b588"), (h - 3, WOOD[0]), (h - 2, WOOD[1]), (h - 1, WOOD[3])):
+            im.putpixel((x, y), rgb(c))
+    return im
+
+
+def tatami_texture(w=512, h=116, top=30):
+    """畳の床。高さは 1 列（116）と同じにして、どの列でも畳の継ぎ目が同じ所に来る（奥の壁の下 top から敷く）。
+    畳は横向きの 32x16 で、段ごとに半分ずらす。長い辺に畳縁、短い辺は継ぎ目。い草の目は横の筋で、畳ごとに少し色が違う。"""
+    shades = [("#cdc78c", "#c2bc80"), ("#c6c184", "#bbb678"), ("#d2cc93", "#c7c187")]
+    im = Image.new("RGBA", (w, h))
+    for y in range(h):
+        row, dy = divmod(y - top, 16)
+        for x in range(w):
+            col, dx = divmod(x + (16 if row % 2 else 0), 32)
+            if dy == 0:
+                c = "#4a4f3a"  # 畳縁（上下の畳の縁が並んだもの）
+            elif dx == 0:
+                c = "#9d9958"  # 短い辺の継ぎ目
+            else:
+                c = shades[(col * 2 + row) % 3][dy % 2]
+            im.putpixel((x, y), rgb(c))
+    return im
+
+
+def boards(w, h, along_x, width, length, seed):
+    """板張りの床: along_x なら横に長い板（高さ width）、でなければ縦に長い板（幅 width）。板の継ぎ目は length ごとに、
+    板ごとにずらす。length は板の向きの長さ（w か h）を割り切ること（並べたときに継ぎ目がそろう）。"""
+    im = Image.new("RGBA", (w, h), rgb(BOARD["base"]))
+    rng = random.Random(seed)
+    for y in range(h):
+        for x in range(w):
+            across, along = (y, x) if along_x else (x, y)
+            plank, d = divmod(across, width)
+            if d == 0:
+                c = BOARD["edge"]
+            elif d == width - 1 or (along + plank * 37) % length == 0:
+                c = BOARD["gap"]
+            else:
+                continue
+            im.putpixel((x, y), rgb(c))
+    for _ in range((w * h) // 40):  # 木目
+        a, b = rng.randrange(w if along_x else h), rng.randrange(h if along_x else w)
+        if 0 < b % width < width - 1:
+            for k in range(rng.choice([3, 4, 6])):
+                im.putpixel(((a + k) % w, b) if along_x else (b, (a + k) % h), rgb(BOARD["grain"]))
+    return im
+
+
+def engawa_texture(w=512, h=16):
+    """縁側（列ごとの横の廊下）: 横に長い板。いちばん上の行は障子の影で暗い。"""
+    im = boards(w, h, True, 4, 128, 7)
+    for x in range(w):
+        im.putpixel((x, 0), rgb(WOOD[2]))
+    return im
+
+
+def wood_hall_texture(w=48, h=560):
+    """和風の縦の廊下: 縦に長い板（幅 8）。"""
+    return boards(w, h, False, 8, 140, 9)
+
+
+def shoji(w):
+    """障子 1 枚（幅 w、高さ 14）: 上の面と上の框、少し透ける障子紙と組子（縦は 6 ごと、横は 3 段）、腰板、敷居。
+    左右の縦の框は白木（右は影で少し濃い）。"""
+    im = Image.new("RGBA", (w, GLASS_H), (0, 0, 0, 0))
+    for x in range(w):
+        for y in range(2, 10):
+            im.putpixel((x, y), PAPER)
+        for y, c in ((0, SHIRAKI[0]), (1, SHIRAKI[2]), (4, SHIRAKI[1]), (7, SHIRAKI[1]),
+                     (10, SHIRAKI[2]), (11, "#b08a58"), (12, "#9e784a"), (13, WOOD[3])):
+            im.putpixel((x, y), rgb(c))
+    for x in range(6, w - 1, 6):  # 縦の組子
+        for y in range(2, 10):
+            im.putpixel((x, y), rgb(SHIRAKI[1]))
+    for y in range(1, GLASS_H - 1):
+        im.putpixel((0, y), rgb(SHIRAKI[1]))
+        im.putpixel((w - 1, y), rgb(SHIRAKI[3]))
+    return im
+
+
+def shoji_tile():
+    """障子の壁の 1 枚（幅 24、横に並べる）。"""
+    return shoji(24)
+
+
+def shoji_door():
+    """障子戸の枠（幅 20、高さ 16。障子の壁より 2 上に出る）: 両側の柱（濃い木）と、戸口の下の敷居（障子の壁の敷居と
+    続く）。戸は shoji_door_panel で、閉まっていると柱のあいだ、人が通るときは右の障子の手前へ滑る（modern の自動ドアと同じ）。"""
+    im = Image.new("RGBA", (20, GLASS_H + 2), (0, 0, 0, 0))
+    for x in range(2, 18):
+        im.putpixel((x, GLASS_H + 1), rgb(WOOD[3]))
+    for px in (0, 18):
+        for y in range(GLASS_H + 2):
+            im.putpixel((px, y), rgb(WOOD[0] if y == 0 else WOOD[1]))
+            im.putpixel((px + 1, y), rgb(WOOD[0] if y == 0 else WOOD[2]))
+    return im
+
+
+def shoji_door_panel():
+    """障子戸（幅 16 = 戸口、高さ 14 = 障子の壁）: 障子の壁と同じ作りで、腰板に引手。"""
+    im = shoji(16)
+    im.putpixel((2, 11), rgb(WOOD[3]))
+    return im
+
+
 # ---- 窓の外（scene.js の windowView）: 窓枠（window.png）の後ろに、空・雨や雪・稲光を重ねる。どれも 28x16 ----
 # 窓は 2x2 枚のガラス（左上・右上・左下・右下。どれも 12x6）。枠は外周と、まんなかの縦横 2 ドットの桟
 WIN_W, WIN_H = 28, 16
@@ -876,6 +996,26 @@ def window_frame_slide():
     for x0 in (2, mid + 3):  # 光の筋（左右の 1 枚ずつ）
         for i in range(6):
             im.putpixel((x0 + i, 1 + i), (255, 255, 255, 45))
+    return im
+
+
+def window_frame_wood():
+    """木の枠の引き違いの窓（classic の和風）: 濃い木の枠（下の辺は敷居で少し濃い）、真ん中に 2 枚の窓が重なる縦の桟、
+    左右の窓の上のほうに横の桟。左右のガラスに光の筋を薄く重ねる。"""
+    im = Image.new("RGBA", (WIN_W, WIN_H), (0, 0, 0, 0))
+    for y in range(WIN_H):
+        for x in range(WIN_W):
+            if not in_view(x, y):
+                im.putpixel((x, y), rgb(WOOD[3] if y == WIN_H - 1 else WOOD[1]))
+    mid = WIN_W // 2 - 1
+    for x in range(1, WIN_W - 1):  # 横の桟
+        im.putpixel((x, 5), rgb(WOOD[1]))
+    for y in range(1, WIN_H - 1):
+        im.putpixel((mid, y), rgb(WOOD[0]))
+        im.putpixel((mid + 1, y), rgb(WOOD[2]))
+    for x0 in (2, mid + 3):  # 光の筋（左右の 1 枚ずつ、横の桟の下）
+        for i in range(6):
+            im.putpixel((x0 + i, 7 + i), (255, 255, 255, 45))
     return im
 
 
@@ -1585,9 +1725,20 @@ def main():
     save(glass_door(), "glass-door", modern)
     save(glass_door_panel(), "glass-door-panel", modern)
     n += 5
+    # classic（和風）のテーマの絵（長押と土壁・畳・縁側・板の縦の廊下・障子の壁の 1 枚・障子戸の枠・障子戸）
+    classic = THEMES / "classic"
+    save(plaster_wall(), "wall", classic)
+    save(tatami_texture(), "tatami", classic)
+    save(engawa_texture(), "engawa", classic)
+    save(wood_hall_texture(), "hall", classic)
+    save(shoji_tile(), "shoji", classic)
+    save(shoji_door(), "shoji-door", classic)
+    save(shoji_door_panel(), "shoji-door-panel", classic)
+    n += 7
     # 窓: 枠（ガラスは透明）と、後ろに重ねる空（時間帯 x 空模様）・雨・雪・稲光
     save(window_frame(), "window")
     save(window_frame_slide(), "window-slide")
+    save(window_frame_wood(), "window-wood")
     for phase in SKY:
         for cover in COVERS:
             save(sky(phase, cover), f"sky/{phase}-{cover}")
@@ -1596,7 +1747,7 @@ def main():
     for i in range(8):
         save(snow(i), f"sky/snow-{i}")
     save(flash(), "sky/flash")
-    n += 2 + len(SKY) * len(COVERS) + 4 + 8 + 1
+    n += 3 + len(SKY) * len(COVERS) + 4 + 8 + 1
     for place in LANDMARKS:  # 場所ごとの街並みと名物（時間帯ごと）
         for phase in SKY:
             save(city_view(place, phase), f"view/{place}-{phase}")
@@ -1638,7 +1789,7 @@ def preview(p, furniture):
         sheet.alpha_composite(im, (x, 62))
         x += im.width + 4
 
-    # 部屋の見本（scene.js の寸法の下書き）: 幅 200、高さ 140。
+    # 部屋の見本（既定の床と壁の絵で、手前の開いた部屋。テーマの glass が null のとき）: 幅 200、高さ 140。
     # 壁は高さ 36、奥の通路は足が y=54、机の奥の縁が y=74、手前の床は足が y=104..132
     room = Image.new("RGBA", (200, 140), (0, 0, 0, 0))
     room.alpha_composite(floor_texture().crop((0, 0, 200, 104)), (0, 36))

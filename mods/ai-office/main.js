@@ -604,7 +604,7 @@ export default class AiOffice extends View {
     return d.click ? this.button(d.id, d, () => this.act(d.click), d.tip) : this.sprite(d);
   }
 
-  // 幅 tile の絵を、w の幅まで横に並べる（はみ出した分は切る。modern のガラスの壁）
+  // 幅 tile の絵を、w の幅まで横に並べる（はみ出した分は切る。ガラスや障子の壁）
   tiled(d) {
     const tiles = [];
     for (let dx = 0; dx < d.w; dx += d.tile) tiles.push(image(this.src(d)).absolute().left(px(dx)).top(0).w(px(d.tile)).h(px(d.h)));
@@ -747,7 +747,7 @@ export default class AiOffice extends View {
     return this.button(`board-${room.id}`, d, () => this.act({ type: "docs", room: room.name, docs }), `ホワイトボード: ${count}（クリックで読む）`);
   }
 
-  // 部屋の後ろのもの: 奥の壁、左の仕切り（modern: 隣とは壁、縦の廊下に面していればガラス）、壁の飾り（ホワイトボード・
+  // 部屋の後ろのもの: 奥の壁、左の仕切り（ガラスの部屋: 隣とは壁、縦の廊下に面していればガラス）、壁の飾り（ホワイトボード・
   // 窓・時計）と名札
   roomBack(room, view) {
     const { ox, oy, w } = room;
@@ -765,7 +765,7 @@ export default class AiOffice extends View {
   }
 
   // 空き部屋: クリックでフォルダを選んで、そこにスペース（部屋）を作る（pickFolder はこの Mac だけ）。
-  // 暗くするのは部屋の中（奥の壁の下から、classic は列の下まで、modern はガラスの壁まで）
+  // 暗くするのは部屋の中（奥の壁の下から、手前の開いた部屋は列の下まで、ガラスの部屋はガラスの壁まで）
   newRoom(lot) {
     const { WALL_H, GLASS } = geometry();
     const h = (GLASS ? GLASS.y : lot.h) - WALL_H;
@@ -879,7 +879,7 @@ export default class AiOffice extends View {
   // （濃さで見分ける）して、入る側に縦の線
   dragMarks(floor, t) {
     if (!this.drag?.moved) return [];
-    const { BOX_H } = geometry(); // 部屋の枠（modern は横の廊下を含めない）
+    const { BOX_H } = geometry(); // 部屋の枠（ガラスの部屋は横の廊下を含めない）
     const shade = (room, color) => div().absolute().left(px(room.ox)).top(px(room.oy)).w(px(room.w)).h(px(BOX_H)).bg(color);
     const over = this.drag.over;
     const source = floor.rooms.find((r) => r.id === this.drag.from);
@@ -894,7 +894,7 @@ export default class AiOffice extends View {
     ];
   }
 
-  // 1 枚のフロア: 部屋の床と廊下の床（modern は列ごとの横の廊下も）、資料室の奥の壁、各部屋の後ろのもの、描くもの、
+  // 1 枚のフロア: 部屋の床と廊下の床（ガラスの部屋は列ごとの横の廊下も）、資料室の奥の壁、各部屋の後ろのもの、描くもの、
   // 選んでいる部屋の枠、ドラッグ中の印、外枠
   building(floor, items, t, view) {
     const { ROOM_H, BOX_H, IMAGES } = geometry();
