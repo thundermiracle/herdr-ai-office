@@ -5,7 +5,7 @@ import {
   TALK_DEDUP_MS, TALK_MS, TALK_TURN_MS, WALL_H, Office, agentModel, argvValue, bandOf, behaviorOf, clockHands, codexOverride,
   drawables, dropTarget, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
-  FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, isNoiseDoc, plateText,
+  FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, isNoiseDoc, plateText, openAgents,
 } from "../mods/ai-office/scene.js";
 
 // テーマは、オフィスと同じく mods/ai-office/themes/<名前>/ の theme.json と PNG から読む（確かめで落ちたら、ここで止まる）
@@ -548,6 +548,22 @@ describe("who sits where", () => {
     expect(seatName({ tabName: "1", named: null, program: claude, title: "~/Code/x", address: "t1" })).toBe("Claude Code");
     expect(seatName({ tabName: "1", named: null, program: claude, title: "t1", address: "t1" })).toBe("Claude Code");
     expect(seatName({ tabName: "1", named: null, program: claude, title: "", address: "t1" })).toBe("Claude Code");
+  });
+
+  test("the open tab's agents are the ones in the shown space's active tab (all of them when it is split)", () => {
+    const spaces = [
+      { id: "a", active: false, tabs: [{ id: "a1", active: true }] },
+      { id: "b", active: true, tabs: [{ id: "b1", active: false }, { id: "b2", active: true }] },
+    ];
+    const agents = [
+      { address: "t1", tab: "a1" }, // 見ていないスペースの、そこで開いているタブ
+      { address: "t2", tab: "b1" },
+      { address: "t3", tab: "b2" },
+      { address: "t4", tab: "b2" }, // 同じタブを分けている
+    ];
+    expect([...openAgents(spaces, agents)]).toEqual(["t3", "t4"]);
+    expect(openAgents([{ id: "a", active: true, tabs: [] }], agents).size).toBe(0);
+    expect(openAgents([], agents).size).toBe(0);
   });
 
   test("each taken seat has a name plate on the desk; the plate, the laptop and the person share the owner", () => {

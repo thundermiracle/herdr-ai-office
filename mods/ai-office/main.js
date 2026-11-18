@@ -11,6 +11,7 @@ import {
 import {
   SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, layoutFloor, drawables,
   floorDrawables, running, roomAt, dropTarget, useTheme, geometry, seatName, readTheme, addTheme, themeList, pngSize, plateText,
+  openAgents,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
   PLACES, WEATHER_MS, TRIAL_WEATHER, defaultPlace, offsetAt, offsetLabel, placeAt, placeClock, weatherOf, parseWeather,
   windowView, windowTip, parseSkyCommand,
@@ -74,7 +75,7 @@ function gather(meta, codexDefaults) {
   // その人が書いたもの（ホワイトボード）: プランと、書いた .md
   const docs = new Map([...info].map(([address, a]) => [address,
     [...(a.plan ? [{ path: a.plan, kind: "plan" }] : []), ...a.docs.map((path) => ({ path, kind: "doc" }))]]));
-  return { rooms: roomsOf(sp.map((s) => ({ ...s, folder: placeOf(s, ps) })), ag, docs), info };
+  return { rooms: roomsOf(sp.map((s) => ({ ...s, folder: placeOf(s, ps) })), ag, docs), info, open: openAgents(sp, ag) };
 }
 
 // レイアウトの根から id のブロックまでの道（見つからなければ null）
@@ -229,6 +230,7 @@ export default class AiOffice extends View {
     this.drag = null; // 部屋をドラッグしている間: { from: スペースの id, over: dropTarget の答えか null }
     this.overRoom = false; // マウスが部屋の奥の壁の上にあるか（つかめる手のカーソル）
     this.hover = null; // マウスが乗っているもの（キャラ・PC・名札）の持ち主のエージェント。同じ持ち主のものを一緒に光らせる
+    this.open = new Set(); // 今開いているタブのエージェント（いつも、マウスを乗せたときと同じように明るくする）
     this.width = 900; // on_size_change が来るまでの仮の幅（論理 px）
     this.last = Date.now();
     this.sig = "";
@@ -352,7 +354,8 @@ export default class AiOffice extends View {
       this.office = new Office();
       this.sig = "";
     }
-    const { rooms, info } = gather(this.meta, this.codexDefaults);
+    const { rooms, info, open } = gather(this.meta, this.codexDefaults);
+    this.open = open;
     const floor = layoutFloor(rooms, this.width / SCALE - 2 * MARGIN);
     const placed = floor.rooms.filter((r) => !r.newRoom);
     this.office.sync(placed, info);
@@ -432,7 +435,8 @@ export default class AiOffice extends View {
       }
       const clock = placeClock(place, now);
       const { h, m } = clockHands(clock.min);
-      const docs = placed.map((r) => r.docs.map((d) => d.path).join(",")).join("/"); // 壁のホワイトボード（items にない）
+      const docs = placed.map((r) => r.docs.map((d) => d.path).join(",")).join("/") // 壁のホワイトボード（items にない）
+        + `|${[...this.open].join(",")}`; // 開いているタブの人（明るくする。items の位置には出ない）
       const sig = `${place.id}|${h}:${m}|${this.view().key}|${clock.text}|${docs}|` + this.items(placed)
         .map((d) => `${d.img ?? d.text}+${d.over}+${d.books?.length ?? ""}@${d.x},${d.y}`).join(";");
       if (sig !== this.sig) {
@@ -468,12 +472,12 @@ export default class AiOffice extends View {
     cx.stop_propagation();
   }
 
-  // クリックできる絵。持ち主（owner）があれば、その持ち主のどれかにマウスが乗っている間は一緒に明るくする
+  // クリックできる絵。持ち主（owner）があれば、その持ち主のどれかにマウスが乗っている間と、その人のタブを開いている間は明るくする
   button(id, d, onClick, tip) {
     return div().id(id).absolute().left(px(d.x)).top(px(d.y)).w(px(d.w)).h(px(d.h)).cursor_pointer()
       .when(Boolean(d.glow), (el) => el.rounded(6).hover((s) => s.bg("#ffffff59"))) // 絵はほぼ透明なので後ろを明るくする
       .when(Boolean(d.owner), (el) => el.on_hover((hovered, cx) => this.hoverOn(d.owner, hovered, cx)))
-      .when(Boolean(d.owner) && d.owner === this.hover, (el) => el.rounded(6).bg("#ffffff73"))
+      .when(this.lit(d.owner), (el) => el.rounded(6).bg("#ffffff73"))
       .on_mouse_down("left", (_e, cx) => this.hold(cx))
       .on_click((_e, cx) => onClick(cx))
       .when(Boolean(d.right), (el) => el.on_mouse_down("right", (_e, cx) => {
@@ -522,6 +526,11 @@ export default class AiOffice extends View {
   }
 
   // キャラ・PC・名札にマウスが乗った・離れた: 持ち主を覚えて描き直す（同じ持ち主のものを一緒に光らせる）
+  // 明るくする持ち主か: マウスが乗っている人と、今開いているタブの人
+  lit(owner) {
+    return Boolean(owner) && (owner === this.hover || this.open.has(owner));
+  }
+
   hoverOn(owner, hovered, cx) {
     if (hovered) this.hover = owner;
     else if (this.hover === owner) this.hover = null;
@@ -529,9 +538,9 @@ export default class AiOffice extends View {
     cx.notify();
   }
 
-  // 机の前の板の名札（タブバーと同じ名前。入らなければ「…」で切る）。持ち主にマウスが乗っている間は黄色
+  // 机の前の板の名札（タブバーと同じ名前。入らなければ「…」で切る）。持ち主にマウスが乗っている間と、その人のタブを開いている間は黄色
   nameplate(d) {
-    const lit = d.owner === this.hover;
+    const lit = this.lit(d.owner);
     return div().id(d.id).absolute().left(px(d.x)).top(px(d.y)).w(px(d.w)).h(px(d.h)).px(3).flex().items_center()
       .rounded(3).border(1).border_color("#5b3a2c").bg(lit ? "#ffe08a" : "#fffaf0").cursor_pointer()
       .on_mouse_down("left", (_e, cx) => this.hold(cx))

@@ -435,6 +435,16 @@ export function roomOf(space, agentsHere, docs = new Map()) {
   };
 }
 
+/**
+ * 今開いているタブのエージェント（表示中のスペースの、開いているタブにいる人。タブを分けていれば全員）の address の集まり。
+ * spaces は herdr の spaces()（active と tabs[].active）、agents は agents()（tab）。オフィスはこの人たちを、マウスを
+ * 乗せたときと同じように、いつも明るくする。
+ */
+export function openAgents(spaces, agents) {
+  const tab = spaces.find((s) => s.active)?.tabs?.find((t) => t.active)?.id;
+  return new Set(tab ? agents.filter((a) => a.tab === tab).map((a) => a.address) : []);
+}
+
 /** スペースごとに部屋を作る。agents は herdr の agents()（スペース・タブ・ペインの順）。docs は roomOf と同じ。 */
 export function roomsOf(spaces, agents, docs = new Map()) {
   return spaces.map((s) => roomOf(s, agents.filter((a) => a.space === s.id), docs));
