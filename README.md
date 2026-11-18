@@ -24,27 +24,27 @@ herdr-app のワークスペースを部屋に、AI エージェントをキャ�
 ```sh
 gh repo clone thundermiracle/herdr-ai-office ~/Code/herdr-ai-office
 cd ~/Code/herdr-ai-office
-scripts/sync.sh                                     # mod とレイアウトを ~/.config/herdr-app にコピー
+scripts/install.sh                                  # 入れる（mod とレイアウトのコピー・Claude Code のフックの登録・確かめ）
 herdr-app do layout.switch --name main-dots-office  # いつもの main-dots に「Office」ボタン（右上）を足したもの
-hooks/register.sh add                               # Claude Code のフック（ホワイトボード・資料室・話しかけに要る）
-scripts/doctor.sh                                   # 用意がそろっているか調べる（NG の行があれば、そこを直す）
 ```
 
-更新するときは `git pull && scripts/sync.sh`。そのあとホワイトボードなどが出なければ `scripts/doctor.sh` を流す。
-ホワイトボードは、フックが効いている Claude が書いたプランと .md だけを出すので、フックを登録していない PC や、
-登録より前から動いている Claude（起動し直すまでフックが効かない）では出ない。
+更新するときは `git pull && scripts/install.sh`。`install.sh` は、mod をコピーし、レイアウトはないか中身が違うときだけ
+コピーし（Office の列の開け閉めは消えない）、Claude Code のフックを登録し（もう登録してあれば何もしない）、最後に
+`scripts/doctor.sh` で用意がそろっているかを調べる（NG の行があれば、そこに直し方が出る）。フックを新しく登録したときは、
+動いている Claude を起動し直す（Claude は起動したときのフックを使う）。フックが要らなければ `scripts/install.sh --no-hook`
+（ホワイトボード・資料室・話しかけは動かない。部屋・キャラ・タイピング・挙手・完了は動く）。
 
 - `main-dots-office` は dotfiles（chezmoi）の main-dots を元にしていて、`spaces-dots` mod を使う。dotfiles を入れていない
   PC では、`herdr-app do layout.switch --name ai-office` か、`herdr-app do mod.open --name ai-office`（浮いた窓）で開く。
 - Claude の model と effort は、dotfiles の effort-recorder（statusLine）と agent-resume（ターミナルの `resume.id` ラベル）が
   あれば分かる。ない PC では起動引数（`--model`・`--effort`）だけで、それもなければ sonnet の見た目で鉢巻きなし。
-- フックはリポジトリの場所を指すので、clone した場所で `hooks/register.sh add` する。効くのはそのあとに起動した Claude から。
-  やめるときは `hooks/register.sh remove`。
+- フックはリポジトリの場所を指すので、clone した場所で `scripts/install.sh` を流す（リポジトリを動かしたら、もう一度）。
+  効くのはそのあとに起動した Claude から。フックだけやめるときは `hooks/register.sh remove`。
 
 ## 使い方
 
 ```sh
-scripts/sync.sh                                  # mods/ と layouts/ を ~/.config/herdr-app にコピー
+scripts/install.sh                               # 入れる・更新する（mod とレイアウトのコピー・フックの登録・確かめ）
 herdr-app do layout.switch --name ai-office      # オフィスのレイアウトにする（ctrl-shift-l でも切り替わる）
 herdr-app do layout.switch --name main-dots      # 元に戻す
 herdr-app do mod.open --name ai-office           # 今のレイアウトの上に、浮いた窓で開く（もう一度で閉じる）
@@ -101,8 +101,8 @@ Files・Changes のボタンは同梱の `tabs` mod に直接書かれていて�
 
 テーマは 1 つのフォルダ（`theme.json` と PNG）。フォルダの名前がテーマの名前になる。置き場所は 2 つで、同じ名前なら人のほうが勝つ:
 
-- `mods/ai-office/themes/<名前>/`: 同梱（このリポジトリ）。`scripts/sync.sh` でコピーされる
-- `~/.config/herdr-app/ai-office-themes/<名前>/`: 自分で足す所。`scripts/sync.sh` で消えない
+- `mods/ai-office/themes/<名前>/`: 同梱（このリポジトリ）。`scripts/install.sh`（と `scripts/sync.sh`）でコピーされる
+- `~/.config/herdr-app/ai-office-themes/<名前>/`: 自分で足す所。`scripts/install.sh` や `scripts/sync.sh` で消えない
 
 テーマはオフィスが起動したときに読むので、足したら mod を読み直す（`scripts/sync.sh ai-office` か Herdr を開き直す）。
 使えるかは `bun scripts/check-theme.js <フォルダ>` で確かめられる（オフィスと同じ確かめ。使えないなら理由が出る）。
@@ -341,8 +341,9 @@ hooks/register.sh remove   # このフックだけ外す（ほかのフックは
 | `scripts/build-art.py` | ドット絵（文字の格子で描き、4 倍の PNG に書き出す）。modern のテーマの絵は `themes/modern/` へ。窓の外は、空（`img/sky/`）と、町ごとの街並みと名物（`img/view/<町>-<時間帯>`）を重ねる。`tmp/art-preview.png` に一覧と部屋の見本、`tmp/landmarks-preview.png` に町ごとの窓 |
 | `hooks/` | Claude Code のフックと、その登録・削除 |
 | `scripts/fake-agent.sh`、`scripts/fake-question.py`、`scripts/demo.sh` | AI を使わずに状態を報告する偽エージェント、選択肢の画面で答えを受け取る偽の質問役、それを 6 人並べた見本（office-test-2 の reviewer のプランは `scripts/sample-plan.md`） |
-| `scripts/sync.sh` | mod とレイアウトを ~/.config/herdr-app にコピーして `herdr-app check` |
+| `scripts/sync.sh` | mod とレイアウトを ~/.config/herdr-app にコピーして `herdr-app check`（開発用。mod の名前を渡すとその mod だけ。入れる・更新するのは `install.sh`） |
 | `scripts/check-theme.js` | テーマのフォルダを確かめる（`bun scripts/check-theme.js <フォルダ>`） |
+| `scripts/install.sh` | 入れる・更新する（mod のコピー、レイアウトはないか違うときだけコピー、フックの登録、`doctor.sh`）。`--no-hook` でフックなし |
 | `scripts/doctor.sh` | この PC の用意を調べる（道具・フックの登録と文法・フックを試す・mod がリポジトリと同じか・今ホワイトボードに載るもの）。何も変えない |
 | `scripts/sky.sh` | 窓の外を試す（天気と、選んだ場所の時刻を決める、1 日の早送り、本物に戻す） |
 | `spike/` | 描画方針を決めたときの確認用 mod（アニメ画像・にじみ・アニメの負荷） |
