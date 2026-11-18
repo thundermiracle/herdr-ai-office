@@ -6,6 +6,7 @@ import {
   drawables, dropTarget, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
   FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, isNoiseDoc, plateText, openAgents,
+  DOOR_HOLD_MS, DOOR_MS, DOOR_SLIDE, doorsMoving,
 } from "../mods/ai-office/scene.js";
 
 // テーマは、オフィスと同じく mods/ai-office/themes/<名前>/ の theme.json と PNG から読む（確かめで落ちたら、ここで止まる）
@@ -936,7 +937,8 @@ describe("themes from the themes/ folder", () => {
   });
 
   test("pngSize reads the picture size (a quarter of the PNG) and refuses what is not a PNG", () => {
-    expect(pngSize(readFileSync(`${THEMES_DIR}modern/glass-door.png`))).toEqual({ w: 34, h: 16 });
+    expect(pngSize(readFileSync(`${THEMES_DIR}modern/glass-door.png`))).toEqual({ w: 20, h: 16 });
+    expect(pngSize(readFileSync(`${THEMES_DIR}modern/glass-door-panel.png`))).toEqual({ w: 16, h: 14 });
     expect(pngSize(new TextEncoder().encode("not a png at all, really"))).toBeNull();
   });
 
@@ -1046,7 +1048,129 @@ describe("modern theme", () => {
     expect(z("char-t1")).toBeGreaterThan(z("glass"));
     expect(out.find((d) => d.id === "glass")).toMatchObject({ tile: 24, x: LEFT_PASS + 8, y: GLASS.y, h: GLASS.h });
     useTheme("classic");
-    expect(drawables(rooms[0], office).some((d) => d.img === "glass" || d.img === "glass-door")).toBe(false);
+    expect(drawables(rooms[0], office).some((d) => ["glass", "glass-door", "glass-door-panel"].includes(d.img))).toBe(false);
     useTheme("modern");
+  });
+
+  // 自動ドアの戸の x: 閉まっていると柱のあいだ（扉の左の柱 + 2）、開ききると DOOR_SLIDE 右
+  const DOOR_X = LEFT_PASS - 10 + 2;
+  const panelX = (room, office) => drawables(room, office).find((d) => d.id === "glass-door-panel").x;
+
+  // c を道に沿って歩かせる（160ms ごとに tick）。コマごとに、足元が戸口のガラスの段（柱のあいだ、ガラスの上から下）に
+  // あったら、その部屋の戸の開き具合を集める。moving: 戸が開け閉めの途中だったコマがあったか
+  function walk(office, c, path, { run = false } = {}) {
+    Object.assign(c, { path, run, seated: false });
+    const seen = [];
+    let moving = false;
+    for (let t = 0; t < 60000 && c.path.length; t += 160) {
+      office.tick(160);
+      moving ||= doorsMoving(office);
+      const p = office.global(c);
+      for (const r of office.rooms) {
+        const { ox = HALL_W, oy = 0 } = r;
+        if (Math.abs(p.x - (ox + LEFT_PASS)) <= 8 && p.y >= oy + GLASS.y && p.y <= oy + GLASS.y + GLASS.h) {
+          seen.push({ room: r.id, open: office.doors.get(r.id)?.open ?? 0 });
+        }
+      }
+    }
+    return { seen, moving };
+  }
+
+  test("the glass door is an automatic door: closed, fully open while someone goes through (walking or running), then closed", () => {
+    const { rooms, info } = world({ t1: "working" });
+    const office = new Office(seeded(1));
+    office.sync(rooms, info);
+    settle(office);
+    const room = rooms[0];
+    expect(panelX(room, office)).toBe(DOOR_X);
+    expect(doorsMoving(office)).toBe(false);
+    const out = drawables(room, office);
+    const z = (id) => out.find((d) => d.id === id).z;
+    expect(z("glass")).toBeLessThan(z("glass-door-panel")); // 戸はガラスの手前、柱の奥（開くと柱の後ろを通る）
+    expect(z("glass-door-panel")).toBeLessThan(z("glass-door"));
+    const c = office.chars.get("t1");
+    for (const run of [false, true]) {
+      Object.assign(c, { x: LEFT_PASS, y: LANE_Y });
+      const leaving = walk(office, c, planPath(room, c, { x: room.w - 20, y: CORRIDOR_Y }), { run }); // 左の扉から横の廊下へ
+      expect(leaving.seen.length).toBeGreaterThan(0);
+      expect(leaving.seen.every((s) => s.open === 1)).toBe(true);
+      expect(leaving.moving).toBe(true);
+      expect(panelX(room, office)).toBe(DOOR_X); // 廊下を歩いているうちに閉まった
+      const coming = walk(office, c, planPath(room, c, { x: LEFT_PASS + 30, y: LANE_Y }), { run }); // 廊下から扉を通って中へ
+      expect(coming.seen.length).toBeGreaterThan(0);
+      expect(coming.seen.every((s) => s.open === 1)).toBe(true);
+      for (let t = 0; t < DOOR_HOLD_MS + DOOR_MS + 320; t += 160) office.tick(160);
+      expect(panelX(room, office)).toBe(DOOR_X);
+      expect(doorsMoving(office)).toBe(false);
+    }
+    // 開いている途中の戸は、開き具合に合わせて右へ（開ききると右の柱の向こう）
+    office.doors.set(room.id, { open: 1, hold: DOOR_HOLD_MS });
+    expect(panelX(room, office)).toBe(DOOR_X + DOOR_SLIDE);
+    office.doors.set(room.id, { open: 0.5, hold: DOOR_HOLD_MS });
+    expect(panelX(room, office)).toBe(DOOR_X + DOOR_SLIDE / 2);
+    expect(doorsMoving(office)).toBe(true);
+  });
+
+  test("walking along the corridor past the door, or standing at the top of the aisle, does not open it", () => {
+    const { rooms, info } = world({ t1: "working" });
+    const office = new Office(seeded(1));
+    office.sync(rooms, info);
+    settle(office);
+    const room = rooms[0];
+    const c = office.chars.get("t1");
+    Object.assign(c, { x: room.w - 20, y: CORRIDOR_Y });
+    Object.assign(c, { path: planPath(room, c, { x: -30, y: CORRIDOR_Y }), seated: false }); // 廊下をまっすぐ資料室の方へ
+    let opened = 0;
+    for (let t = 0; t < 30000 && c.path.length; t += 160) {
+      office.tick(160);
+      opened = Math.max(opened, office.doors.get(room.id)?.open ?? 0);
+    }
+    expect(c.x).toBe(-30);
+    expect(opened).toBe(0);
+    Object.assign(c, { x: LEFT_PASS, y: LANE_Y, path: [] }); // 机の奥の通路の左端（扉へ下りる通り道の上）に立っている
+    for (let t = 0; t < 3000; t += 160) office.tick(160);
+    expect(office.doors.get(room.id).open).toBe(0);
+  });
+
+  test("someone visiting the next room opens their own door on the way out and that room's door on the way in", () => {
+    const rooms = layoutFloor(roomsOf([space("a"), space("b")], [agent("t1", "a", "working"), agent("t2", "b", "working")]), 1000)
+      .rooms.filter((r) => !r.newRoom);
+    const info = new Map(["t1", "t2"].map((a) => [a, { status: "working", app: "claude-code" }]));
+    const office = new Office(seeded(1));
+    office.sync(rooms, info);
+    settle(office);
+    const [a, b] = rooms;
+    expect(b.oy).toBe(a.oy);
+    const c = office.chars.get("t1");
+    Object.assign(c, { x: 60, y: LANE_Y });
+    const { seen } = walk(office, c, office.route(c, office.local(c, { x: b.ox + 60, y: b.oy + LANE_Y })));
+    expect([...new Set(seen.map((s) => s.room))]).toEqual(["a", "b"]);
+    expect(seen.every((s) => s.open === 1)).toBe(true);
+  });
+
+  test("a glass theme without a door panel keeps the door picture as it is (open), and a panel must fit the doorway", () => {
+    const json = themeJson("modern");
+    const sizes = themeSizes("modern", json);
+    const tall = { ...json, images: { ...json.images, doorPanel: "wall.png" } }; // 高さ 30（ガラスは 14）
+    expect(readTheme("tall-door", tall, sizes).problems.join(" / ")).toContain("images.doorPanel");
+    delete json.images.doorPanel;
+    const { theme, problems } = readTheme("modern-open-door", json, sizes);
+    expect(problems).toEqual([]);
+    addTheme(theme);
+    useTheme("modern-open-door");
+    try {
+      const { rooms, info } = world({ t1: "working" });
+      const office = new Office(seeded(1));
+      office.sync(rooms, info);
+      const c = office.chars.get("t1");
+      Object.assign(c, { x: LEFT_PASS, y: LANE_Y });
+      walk(office, c, planPath(rooms[0], c, { x: 60, y: CORRIDOR_Y }));
+      expect(office.doors.size).toBe(0); // 戸がないので、扉は動かさない
+      const out = drawables(rooms[0], office);
+      expect(out.some((d) => d.id === "glass-door")).toBe(true);
+      expect(out.some((d) => d.id === "glass-door-panel")).toBe(false);
+    } finally {
+      useTheme("modern");
+    }
   });
 });

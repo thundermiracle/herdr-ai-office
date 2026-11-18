@@ -792,19 +792,34 @@ def glass_tile():
 
 
 def glass_door():
-    """扉（幅 34、高さ 16。ガラスの壁より 2 上に出る）: 両側の柱（あいだの 16 が開いている）と、開けて右に寄せたガラスの戸。"""
-    im = Image.new("RGBA", (34, GLASS_H + 2), (0, 0, 0, 0))
+    """扉の枠（幅 20、高さ 16。ガラスの壁より 2 上に出る）: 両側の柱だけ（あいだの 16 が戸口）。戸は glass_door_panel で、
+    閉まっていると柱のあいだ、人が通るときは右のガラスの手前へ滑る（scene.js の drawables と Office の doors）。"""
+    im = Image.new("RGBA", (20, GLASS_H + 2), (0, 0, 0, 0))
     for px in (0, 18):
         for y in range(GLASS_H + 2):
             im.putpixel((px, y), rgb("#7686a8"))
             im.putpixel((px + 1, y), rgb("#46536f"))
-    for x in range(20, 33):
-        for y in range(4, GLASS_H):
-            im.putpixel((x, y), (120, 185, 225, 110))
-    for y in range(4, GLASS_H):
-        im.putpixel((33, y), rgb("#8592a6"))
-    for y in range(8, 11):  # 取っ手
-        im.putpixel((30, y), rgb("#46536f"))
+    return im
+
+
+def glass_door_panel():
+    """自動ドアの戸（幅 16 = 戸口、高さ 14 = ガラスの壁）: 上下の枠はガラスの壁とそろえ、左右の縦の框、少し濃いガラス、
+    ぶつからないための白い帯、左の取っ手。"""
+    im = Image.new("RGBA", (16, GLASS_H), (0, 0, 0, 0))
+    for x in range(16):
+        im.putpixel((x, 0), rgb("#eef3f8"))
+        im.putpixel((x, 1), rgb("#8592a6"))
+        for y in range(2, GLASS_H - 2):
+            im.putpixel((x, y), (150, 205, 238, 120))
+        im.putpixel((x, GLASS_H - 2), rgb("#6e7a8c"))
+        im.putpixel((x, GLASS_H - 1), rgb("#46536f"))
+    for x in range(1, 15):  # 白い帯
+        im.putpixel((x, 6), (255, 255, 255, 170))
+    for y in range(2, GLASS_H - 2):  # 縦の框
+        im.putpixel((0, y), rgb("#8592a6"))
+        im.putpixel((15, y), rgb("#8592a6"))
+    for y in range(5, 9):  # 取っ手
+        im.putpixel((2, y), rgb("#46536f"))
     return im
 
 
@@ -1562,13 +1577,14 @@ def main():
     save(wall_texture(), "wall")
     save(hall_texture(), "hall")
     n += 3
-    # modern のテーマの絵（低い壁・横の廊下の床・ガラスの壁の 1 枚・扉）
+    # modern のテーマの絵（低い壁・横の廊下の床・ガラスの壁の 1 枚・扉の枠・自動ドアの戸）
     modern = THEMES / "modern"
     save(wall_texture(h=30), "wall", modern)
     save(corridor_texture(), "corridor", modern)
     save(glass_tile(), "glass", modern)
     save(glass_door(), "glass-door", modern)
-    n += 4
+    save(glass_door_panel(), "glass-door-panel", modern)
+    n += 5
     # 窓: 枠（ガラスは透明）と、後ろに重ねる空（時間帯 x 空模様）・雨・雪・稲光
     save(window_frame(), "window")
     save(window_frame_slide(), "window-slide")

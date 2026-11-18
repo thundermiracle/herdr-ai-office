@@ -10,7 +10,7 @@ import {
 } from "herdr";
 import {
   SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, layoutFloor, drawables,
-  floorDrawables, running, roomAt, dropTarget, useTheme, geometry, seatName, readTheme, addTheme, themeList, pngSize, plateText,
+  floorDrawables, running, doorsMoving, roomAt, dropTarget, useTheme, geometry, seatName, readTheme, addTheme, themeList, pngSize, plateText,
   openAgents,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
   PLACES, WEATHER_MS, TRIAL_WEATHER, defaultPlace, offsetAt, offsetLabel, placeAt, placeClock, weatherOf, parseWeather,
@@ -439,7 +439,8 @@ export default class AiOffice extends View {
   schedule(cx) {
     const hidden = this.hidden();
     const active = window()?.active;
-    const ms = hidden ? HIDDEN_MS : !active ? TICK_INACTIVE : running(this.office) ? TICK_RUN : TICK_ACTIVE;
+    const fast = running(this.office) || doorsMoving(this.office); // 小走りか、自動ドアの開け閉め
+    const ms = hidden ? HIDDEN_MS : !active ? TICK_INACTIVE : fast ? TICK_RUN : TICK_ACTIVE;
     cx.timer.after(ms, (cx) => {
       if (this.hidden()) {
         this.shown = false;
@@ -713,12 +714,15 @@ export default class AiOffice extends View {
     ];
   }
 
-  // ガラスの部屋の手前のガラスの壁と扉（空き部屋の。人のいる部屋は scene.js の drawables が人と前後させて描く）
+  // ガラスの部屋の手前のガラスの壁と扉（空き部屋の。人のいる部屋は scene.js の drawables が人と前後させて描く）。
+  // 自動ドアの戸（テーマにあれば）は、誰も通らないので閉めたまま（柱のあいだ。柱が手前）
   frontGlass(lot) {
     const { GLASS, IMAGES } = geometry();
     const door = LEFT_PASS - 10;
+    const panel = IMAGES.doorPanel;
     return [
       this.tiled({ src: IMAGES.glass.src, tile: IMAGES.glass.w, x: lot.ox + door + 18, y: lot.oy + GLASS.y, w: lot.w - door - 18, h: GLASS.h }),
+      ...(panel ? [this.sprite({ src: panel.src, x: lot.ox + door + 2, y: lot.oy + GLASS.y + GLASS.h - panel.h, w: panel.w, h: panel.h })] : []),
       this.sprite({ src: IMAGES.door.src, x: lot.ox + door, y: lot.oy + GLASS.y - 2, w: IMAGES.door.w, h: IMAGES.door.h }),
     ];
   }

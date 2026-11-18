@@ -22,6 +22,7 @@
     "wall": "wall.png",
     "corridor": "corridor.png",
     "glass": "glass.png",
-    "door": "glass-door.png"
+    "door": "glass-door.png",
+    "doorPanel": "glass-door-panel.png"
   }
 }

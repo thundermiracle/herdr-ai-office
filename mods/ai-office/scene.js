@@ -31,6 +31,11 @@ export const SEAT_W = 24;
 export const PART_W = 4; // 部屋の左の仕切り（壁）の厚さ
 export const MIN_ROOM_W = 160;
 export const LEFT_PASS = 14; // 机の左の通り道（x）。右は部屋ごと（room.rightPass）。ガラスの部屋の扉はこの x が真ん中
+// ガラスの部屋の自動ドア（テーマの images.doorPanel があるとき）: 通る人がいるときだけ開く（Office の moveDoors）
+export const DOOR_MS = 300; // 開ききる・閉まりきるまで
+export const DOOR_HOLD_MS = 500; // 通る人がいなくなってから、閉まり始めるまで
+export const DOOR_AHEAD = 24; // この道のり（絵の px）のうちに戸口を通る人がいれば、開け始める（小走りでも開ききってから通る）
+export const DOOR_SLIDE = 18; // 戸が開くと右へ滑る量（柱のあいだから、右の柱の向こうのガラスの手前へ）
 export const HALL_W = 44; // 左の廊下の幅
 
 // テーマで変わる寸法と絵。このファイルの中と bun test は、そのまま読む（ほかのモジュールからは geometry() で読む）。
@@ -116,7 +121,8 @@ export function readTheme(name, json, sizes = {}, base = `mods/ai-office/themes/
       need(room.box < room.corridorY && room.corridorY < room.height, "room.corridorY（横の廊下）は部屋の枠の下、1 列の中に");
       need(front === null, "ガラスの部屋の room.wanderFront は null（うろうろは部屋の中だけ）");
       need(images.glass?.h === g.height, "images.glass（ガラスの壁の 1 枚）が要る。高さは glass.height");
-      need(images.door?.h === g.height + 2 && images.door.w >= 20, "images.door（扉。柱 2・開いた所 16・柱 2・寄せた戸）が要る。高さは glass.height + 2");
+      need(images.door?.h === g.height + 2 && images.door.w >= 20, "images.door（扉の枠。柱 2・戸口 16・柱 2）が要る。高さは glass.height + 2");
+      if (images.doorPanel) need(images.doorPanel.w >= 16 && images.doorPanel.h <= g.height, "images.doorPanel（自動ドアの戸）は幅 16 以上、高さは glass.height まで");
     } else {
       need(deskEnd < room.corridorY && room.corridorY < room.height, "room.corridorY（手前の通路）は机の下、1 列の中に");
       need(front !== null && deskEnd < front[0] && front[1] < room.height, "手前が開いた部屋の room.wanderFront は、机の下から 1 列の中まで");
@@ -599,6 +605,7 @@ export class Office {
     this.rooms = []; // 今の部屋の並び（sync のたびに）。ほかの部屋へ行く道に使う
     this.t = 0; // tick の数（コマ送りに使う）
     this.clock = 0; // tick で進んだ時間（ms）
+    this.doors = new Map(); // 部屋の id → { open: 0〜1, hold: ms }（ガラスの部屋の自動ドア。moveDoors が動かす）
   }
 
   /**
@@ -883,8 +890,71 @@ export class Office {
         }
       }
     }
+    if (GLASS && IMAGES.doorPanel && this.moveDoors(dt)) changed = true;
     return changed;
   }
+
+  /**
+   * ガラスの部屋の自動ドア: 戸口を通っている人か、道のり DOOR_AHEAD のうちに通る人がいれば開け、いなくなって
+   * DOOR_HOLD_MS たったら閉める。開け閉めは DOOR_MS かけて。横の廊下を通り過ぎるだけの人では開かない。戸が動いたら true
+   */
+  moveDoors(dt) {
+    let moved = false;
+    const ids = new Set();
+    for (const room of this.rooms) {
+      ids.add(room.id);
+      const door = this.doors.get(room.id) ?? { open: 0, hold: 0 };
+      door.hold = this.doorUsed(room) ? DOOR_HOLD_MS : Math.max(0, door.hold - dt);
+      const step = dt / DOOR_MS;
+      const open = door.hold > 0 ? Math.min(1, door.open + step) : Math.max(0, door.open - step);
+      if (open !== door.open) moved = true;
+      door.open = open;
+      this.doors.set(room.id, door);
+    }
+    for (const id of this.doors.keys()) if (!ids.has(id)) this.doors.delete(id);
+    return moved;
+  }
+
+  // room の戸口（フロアの座標。柱のあいだで、ガラスの上下に少し広く）に、今いる人か、道のり DOOR_AHEAD のうちに入る人が
+  // いるか。ほかの部屋から来る人もいるので、キャラごとの部屋の座標はフロアの座標に直して比べる
+  doorUsed(room) {
+    const { ox = HALL_W, oy = 0 } = room;
+    const box = { x0: ox + LEFT_PASS - 8, x1: ox + LEFT_PASS + 8, y0: oy + GLASS.y - 4, y1: oy + GLASS.y + GLASS.h + 4 };
+    for (const c of this.chars.values()) {
+      let p = this.global(c);
+      let left = DOOR_AHEAD;
+      if (reachBox(p, p, box) === 0) return true;
+      for (const point of c.path) {
+        const q = this.global(c, point);
+        const d = reachBox(p, q, box);
+        if (d !== null && d <= left) return true;
+        left -= Math.abs(q.x - p.x) + Math.abs(q.y - p.y);
+        if (left < 0) break;
+        p = q;
+      }
+    }
+    return false;
+  }
+}
+
+// p から q へ歩くとき（tick と同じく横が先、そのあと縦）、box（{ x0, x1, y0, y1 }）に入るまでの道のり。入らなければ null
+function reachBox(p, q, box) {
+  const corner = { x: q.x, y: p.y };
+  const a = reachLine(p, corner, box);
+  if (a !== null) return a;
+  const b = reachLine(corner, q, box);
+  return b === null ? null : Math.abs(corner.x - p.x) + b;
+}
+
+// 縦か横の線 p → q で、box に入るまでの道のり。入らなければ null
+function reachLine(p, q, box) {
+  if (p.x >= box.x0 && p.x <= box.x1 && p.y >= box.y0 && p.y <= box.y1) return 0;
+  const [k, other, lo, hi, otherLo, otherHi] = p.y === q.y
+    ? ["x", "y", box.x0, box.x1, box.y0, box.y1]
+    : ["y", "x", box.y0, box.y1, box.x0, box.x1];
+  if (p[other] < otherLo || p[other] > otherHi) return null;
+  const edge = q[k] > p[k] ? lo : hi; // 入るときに越える辺
+  return edge >= Math.min(p[k], q[k]) && edge <= Math.max(p[k], q[k]) ? Math.abs(edge - p[k]) : null;
 }
 
 /**
@@ -1133,6 +1203,12 @@ export function running(office) {
   return false;
 }
 
+/** 自動ドアが開け閉めの途中か（その間は、小走りと同じく細かくコマを送る）。 */
+export function doorsMoving(office) {
+  for (const d of office.doors.values()) if (d.hold > 0 ? d.open < 1 : d.open > 0) return true;
+  return false;
+}
+
 /** 今のコマが動きを含むか（含まなければ tick しても絵は変わらない）。 */
 export function animating(office) {
   for (const c of office.chars.values()) {
@@ -1164,8 +1240,10 @@ export function drawables(room, office, skills = []) {
   const talkBubble = (c, x, y) => add({ id: `talk-${c.address}`, img: "bubble-talk", x, y, w: 13, h: 14, z: 1000 });
   add({ id: "plant", img: "plant", x: room.w - 18, y: BACK + 4, w: 12, h: 17, z: 95 });
   // ガラスの部屋（テーマの glass）の手前のガラスの壁と扉: 机・植木・部屋の中の人より手前、横の廊下を歩く人より奥。
-  // ガラスはテーマの images.glass を横に並べる（tile）。扉（images.door）は通り道 LEFT_PASS を真ん中に 16 開いていて、
-  // 両側に柱、開けた戸は右のガラスの手前に寄せてある。src はテーマのフォルダの絵（main.js は img より src を使う）
+  // ガラスはテーマの images.glass を横に並べる（tile）。扉の枠（images.door）は、通り道 LEFT_PASS を真ん中に 16 開けた
+  // 両側の柱。自動ドアの戸（images.doorPanel。テーマにあれば）は、閉まっていると柱のあいだ、人が通るときは右のガラスの
+  // 手前へ滑る（柱の後ろを通る。開き具合は Office の doors）。戸の絵がないテーマは、扉の絵（開けて右に寄せた戸も描いて
+  // ある）をそのまま出す。src はテーマのフォルダの絵（main.js は img より src を使う）
   if (GLASS) {
     const door = LEFT_PASS - 10; // 扉の左の柱
     const z = GLASS.y + GLASS.h;
@@ -1173,6 +1251,12 @@ export function drawables(room, office, skills = []) {
       h: GLASS.h, z });
     add({ id: "glass-door", img: "glass-door", src: IMAGES.door.src, x: door, y: GLASS.y - 2, w: IMAGES.door.w, h: IMAGES.door.h,
       z: z + 0.1 });
+    if (IMAGES.doorPanel) {
+      const { src, w, h } = IMAGES.doorPanel;
+      const open = office.doors.get(room.id)?.open ?? 0;
+      add({ id: "glass-door-panel", img: "glass-door-panel", src, x: door + 2 + Math.round(open * DOOR_SLIDE), y: z - h, w, h,
+        z: z + 0.05 });
+    }
   }
   add({ id: "desk-l", img: "desk-l", x: DESK_X, y: BACK, w: 8, h: 21, z: BACK + 15 });
   for (const seat of room.seats) {
