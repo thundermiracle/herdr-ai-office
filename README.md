@@ -205,8 +205,9 @@ skill を使うと（Claude の Skill ツール、または `/名前` で始ま�
 
 明らかにノイズの .md は載せない（プランは除かない）: エージェントへの指示や設定（`CLAUDE.md`・`AGENTS.md`・`GEMINI.md`・
 `SKILL.md`・`MEMORY.md` と、`.claude/`・`.codex/` などの中）、依存や作ったものの中（`node_modules/`・`vendor/`・`dist/`・`build/`
-など）、`.git/` と `.github/`、決まり文句のファイル（`LICENSE`・`CODE_OF_CONDUCT`・`SECURITY`）、一時フォルダ（`/tmp`・
-`/var/folders`）の作業メモ（`scene.js` の `isNoiseDoc`）。
+など）、`.git/` と `.github/`、決まり文句のファイル（`LICENSE`・`CODE_OF_CONDUCT`・`SECURITY`）（`scene.js` の `isNoiseDoc`）。
+一時フォルダ（`/tmp`）の .md は載せる。Claude Code は、プロジェクトに入れないファイルをセッション用の作業フォルダ
+（`/private/tmp/claude-<番号>/…/scratchpad`）に置くので、頼んだ調査メモや報告ほどそこにある。
 
 - どれかがあると、部屋の壁に橙の見出しとチェックボックスのホワイトボードが掛かる（マウスを乗せると、プランと .md の数）。
   どれもない部屋には掛けない。狭い部屋は名札が細くならないよう幅 200 まで広げる
@@ -299,7 +300,7 @@ office-test-2 の lead が office-test の idle（うろうろ）へ、office-te
 プランは `office.plan` に書き、セッションの終わり（SessionEnd。`/clear` も）まで残す: プランモードで書く .md
 （プランモードで書けるのはプランのファイルだけ）、`~/.claude/plans/` の .md への Write / Edit / MultiEdit と、
 ExitPlanMode の `planFilePath`。ほかの .md への Write / Edit / MultiEdit と、.md へ書き込む Bash（`> x.md`・`>> x.md`・
-`tee x.md`。式は `hooks/md-writes.jq`）は `office.docs`（新しい順に 8 本、改行で区切る。`~/.claude/` の中と一時フォルダは除く）に
+`tee x.md`。式は `hooks/md-writes.jq`）は `office.docs`（新しい順に 8 本、改行で区切る。`~/.claude/` の中は除く）に
 書き、これもセッションの終わりまで残す（一覧はセッションごとに `$TMPDIR` に覚え、変わったときだけ書く）。
 Bash のコマンドに `hc send <相手> <文>` があれば、`office.talk`（相手）・`office.talk_at`（毎回変わる値）・
 `office.talk_text`（文の始め 40 文字）を書く（最初の 1 つ。相手が `$変数` なら書かない）。届いた依頼が

@@ -155,17 +155,17 @@ doc_check "editing an older one moves it up" "$(write Edit /repo/README.md)" "/r
 doc_check "Claude's memory is not a doc" "$(write Write /u/.claude/projects/x/memory/m.md)" "/repo/README.md$nl/repo/docs/a.md"
 doc_check "a plan-mode .md is a plan, not a doc" "$(write Write /repo/docs/plans/p2.md "$in_plan")" "/repo/README.md$nl/repo/docs/a.md"
 doc_check "sub-agent writes are ignored" "$(write Write /repo/sub.md ',"agent_id":"a1"')" "/repo/README.md$nl/repo/docs/a.md"
-# Bash の書き込み（> x.md・>> x.md・tee x.md）。相対の道はセッションのフォルダ（cwd）から。一時フォルダは入れない
+# Bash の書き込み（> x.md・>> x.md・tee x.md）。相対の道はセッションのフォルダ（cwd）から。一時フォルダの .md も入れる
 bash_in() { pre Bash ',"cwd":"/repo"' "$(jq -cn --arg c "$1" '{command: $c}')"; }
 doc_check "Bash heredoc > .md -> docs" "$(bash_in "cat > docs/report.md <<'EOF'
 # Report
 EOF")" "/repo/docs/report.md$nl/repo/README.md$nl/repo/docs/a.md"
-doc_check "Bash tee -a and a /tmp note" "$(bash_in 'echo x > /tmp/scratch.md && date | tee -a notes.md')" \
-  "/repo/notes.md$nl/repo/docs/report.md$nl/repo/README.md$nl/repo/docs/a.md"
+doc_check "Bash tee -a and a /tmp note -> both" "$(bash_in 'echo x > /tmp/scratch.md && date | tee -a notes.md')" \
+  "/repo/notes.md$nl/tmp/scratch.md$nl/repo/docs/report.md$nl/repo/README.md$nl/repo/docs/a.md"
 doc_check "reading a .md in Bash is not writing" "$(bash_in 'grep -n foo README.md > /dev/null')" \
-  "/repo/notes.md$nl/repo/docs/report.md$nl/repo/README.md$nl/repo/docs/a.md"
-doc_check "a Write under /tmp is a scratch note" "$(write Write /private/tmp/claude-1/scratchpad/plan.md)" \
-  "/repo/notes.md$nl/repo/docs/report.md$nl/repo/README.md$nl/repo/docs/a.md"
+  "/repo/notes.md$nl/tmp/scratch.md$nl/repo/docs/report.md$nl/repo/README.md$nl/repo/docs/a.md"
+doc_check "a Write in the scratchpad (/tmp) is a doc" "$(write Write /private/tmp/claude-1/scratchpad/report.md)" \
+  "/private/tmp/claude-1/scratchpad/report.md$nl/repo/notes.md$nl/tmp/scratch.md$nl/repo/docs/report.md$nl/repo/README.md$nl/repo/docs/a.md"
 for i in 1 2 3 4 5 6 7 8 9; do
   printf '%s' "$(write Write "/repo/n$i.md")" | HC_TERMINAL_ID="$term" TMPDIR="$tmp" sh -c "$hook"
 done

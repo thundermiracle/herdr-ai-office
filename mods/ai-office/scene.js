@@ -381,14 +381,14 @@ export function behaviorOf(status, act) {
 
 // ホワイトボードに出さない .md（明らかにノイズ）: エージェントへの指示や設定（CLAUDE.md・AGENTS.md・GEMINI.md・SKILL.md・
 // MEMORY.md と、.claude/・.codex/ などの中）、依存や作ったものの中（node_modules/・vendor/・dist/・build/ など）、.git/ と
-// .github/（テンプレート）、決まり文句のファイル（LICENSE・CODE_OF_CONDUCT・SECURITY）、一時フォルダ（/tmp・/var/folders）の作業メモ
+// .github/（テンプレート）、決まり文句のファイル（LICENSE・CODE_OF_CONDUCT・SECURITY）。一時フォルダの .md はノイズにしない
+// （Claude Code はプロジェクトに入れないファイルを /private/tmp/claude-… の作業フォルダに置くので、頼んだ報告ほどそこにある）
 const NOISE_NAMES = /^(claude(\.local)?|agents|gemini|skill|memory|license|code_of_conduct|security)\.(md|markdown)$/i;
 const NOISE_DIRS = /\/(\.claude|\.codex|\.cursor|\.gemini|\.git|\.github|node_modules|vendor|dist|build|target|\.venv|venv|\.next|\.cache|coverage)\//;
-const NOISE_TEMP = /^(\/private)?\/(tmp|var\/folders)\//;
 
 /** 明らかにノイズの .md か（ホワイトボードに出さない。プランには使わない）。 */
 export function isNoiseDoc(path) {
-  return NOISE_NAMES.test(path.split("/").pop()) || NOISE_DIRS.test(path) || NOISE_TEMP.test(path);
+  return NOISE_NAMES.test(path.split("/").pop()) || NOISE_DIRS.test(path);
 }
 
 /**

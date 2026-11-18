@@ -12,7 +12,8 @@
 #                そこ）。AI Office は、その部屋の壁にホワイトボードを掛け、クリックで中身を出す。セッションの終わりまで残す
 #   office.docs: このセッションで書いた .md（プラン以外。新しい順に 8 本まで、改行で区切る）。ホワイトボードで読める。
 #                Write / Edit / MultiEdit と、Bash の `> x.md`・`>> x.md`・`tee x.md`（hooks/md-writes.jq で読む）。
-#                ~/.claude/ の中（メモリや設定）と一時フォルダ（/tmp・/var/folders）は入れない。セッションの終わりまで残す
+#                ~/.claude/ の中（メモリや設定）は入れない。一時フォルダ（Claude Code の作業フォルダ /private/tmp/claude-…）の
+#                .md は入れる（頼んだ調査メモや報告が置かれやすい）。セッションの終わりまで残す
 # イベントごとに:
 #   PreToolUse: Skill → read と、その skill。Read / Grep / Glob / LS / WebSearch / WebFetch / NotebookRead → read、
 #               Edit / Write / MultiEdit / NotebookEdit → edit、Bash → run（コマンドに hc send があれば話しかけ）、
@@ -87,7 +88,6 @@ case "$(field .hook_event_name)" in
               case "$file" in
                 */.claude/plans/*) plan=$file ;;
                 */.claude/*) ;; # Claude のメモリや設定
-                /tmp/* | /private/tmp/* | /var/folders/* | /private/var/folders/*) ;; # 一時フォルダの作業メモ
                 *) doc=$file ;;
               esac
             fi

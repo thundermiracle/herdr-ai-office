@@ -142,7 +142,7 @@ describe("rooms", () => {
     const agents = [agent("t1", "a"), agent("t2", "a"), agent("t9", "b")];
     const docs = new Map([
       ["t1", [{ path: "/r/notes.md", kind: "doc" }, { path: "/r/CLAUDE.md", kind: "doc" }, { path: "/r/README.md", kind: "doc" }]],
-      ["t2", [{ path: "/u/.claude/plans/fox.md", kind: "plan" }, { path: "/r/README.md", kind: "doc" }, { path: "/private/tmp/x/plan.md", kind: "doc" }]],
+      ["t2", [{ path: "/u/.claude/plans/fox.md", kind: "plan" }, { path: "/r/README.md", kind: "doc" }, { path: "/private/tmp/x/report.md", kind: "doc" }]],
       ["t9", [{ path: "/other/spec.md", kind: "doc" }]], // ほかの部屋（b）の人
     ]);
     const [a, b] = roomsOf([space("a"), space("b")], agents, docs);
@@ -150,6 +150,7 @@ describe("rooms", () => {
       ["plan", "/u/.claude/plans/fox.md", "t2"], // プランは ~/.claude/ の中でも出す
       ["doc", "/r/notes.md", "t1"],
       ["doc", "/r/README.md", "t1"], // t2 も書いたが、1 つ
+      ["doc", "/private/tmp/x/report.md", "t2"], // 一時フォルダ（Claude Code の作業フォルダ）の報告も載る
     ]);
     expect(b.docs.map((d) => d.path)).toEqual(["/other/spec.md"]); // ほかの部屋のものは混ざらない
     expect(roomsOf([space("c")], [agent("t5", "c")], new Map([["t5", [{ path: "/r/AGENTS.md", kind: "doc" }]]]))[0])
@@ -158,11 +159,11 @@ describe("rooms", () => {
 
   test("obvious noise is not put on the whiteboard", () => {
     for (const path of ["/r/CLAUDE.md", "/r/claude.local.md", "/r/AGENTS.md", "/r/GEMINI.md", "/r/skills/x/SKILL.md", "/r/LICENSE.md",
-      "/r/.github/PULL_REQUEST_TEMPLATE.md", "/r/node_modules/pkg/README.md", "/r/dist/a.md", "/r/.claude/notes.md",
-      "/tmp/a.md", "/private/tmp/claude-1/scratchpad/plan.md", "/var/folders/xy/T/b.md"]) {
+      "/r/.github/PULL_REQUEST_TEMPLATE.md", "/r/node_modules/pkg/README.md", "/r/dist/a.md", "/r/.claude/notes.md"]) {
       expect([path, isNoiseDoc(path)]).toEqual([path, true]);
     }
-    for (const path of ["/r/README.md", "/r/docs/report.md", "/r/TODO.md", "/r/CHANGELOG.md", "/Users/me/Desktop/memo.md"]) {
+    for (const path of ["/r/README.md", "/r/docs/report.md", "/r/TODO.md", "/r/CHANGELOG.md", "/Users/me/Desktop/memo.md",
+      "/tmp/a.md", "/private/tmp/claude-1/scratchpad/report.md", "/var/folders/xy/T/b.md"]) { // 一時フォルダはノイズにしない
       expect([path, isNoiseDoc(path)]).toEqual([path, false]);
     }
   });
