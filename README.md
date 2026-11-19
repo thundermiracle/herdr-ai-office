@@ -227,6 +227,8 @@ skill を使うと（Claude の Skill ツール、または `/名前` で始ま�
 明らかにノイズの .md は載せない（プランは除かない）: エージェントへの指示や設定（`CLAUDE.md`・`AGENTS.md`・`GEMINI.md`・
 `SKILL.md`・`MEMORY.md` と、`.claude/`・`.codex/` などの中）、依存や作ったものの中（`node_modules/`・`vendor/`・`dist/`・`build/`
 など）、`.git/` と `.github/`、決まり文句のファイル（`LICENSE`・`CODE_OF_CONDUCT`・`SECURITY`）（`scene.js` の `isNoiseDoc`）。
+Claude Code のワークツリー（`claude -w` や EnterWorktree で作る `<リポジトリ>/.claude/worktrees/<名前>/`）の中は、`.claude/` の
+中でもプロジェクトそのものなので載せる（その中の `.claude/` や `CLAUDE.md` は載せない）。
 一時フォルダ（`/tmp`）の .md は載せる。Claude Code は、プロジェクトに入れないファイルをセッション用の作業フォルダ
 （`/private/tmp/claude-<番号>/…/scratchpad`）に置くので、頼んだ調査メモや報告ほどそこにある。
 
@@ -324,7 +326,8 @@ office-test-2 の lead が office-test の idle（うろうろ）へ、office-te
 プランは `office.plan` に書き、セッションの終わり（SessionEnd。`/clear` も）まで残す: プランモードで書く .md
 （プランモードで書けるのはプランのファイルだけ）、`~/.claude/plans/` の .md への Write / Edit / MultiEdit と、
 ExitPlanMode の `planFilePath`。ほかの .md への Write / Edit / MultiEdit と、.md へ書き込む Bash（`> x.md`・`>> x.md`・
-`tee x.md`。式は `hooks/md-writes.jq`）は `office.docs`（新しい順に 8 本、改行で区切る。`~/.claude/` の中は除く）に
+`tee x.md`。式は `hooks/md-writes.jq`。jq 1.6 でも動く）は `office.docs`（新しい順に 8 本、改行で区切る。`.claude/` の中は
+除くが、Claude Code のワークツリー `.claude/worktrees/<名前>/` の中は入れる）に
 書き、これもセッションの終わりまで残す（一覧はセッションごとに `$TMPDIR` に覚え、変わったときだけ書く）。
 Bash のコマンドに `hc send <相手> <文>` があれば、`office.talk`（相手）・`office.talk_at`（毎回変わる値）・
 `office.talk_text`（文の始め 40 文字）を書く（最初の 1 つ。相手が `$変数` なら書かない）。届いた依頼が
@@ -363,7 +366,7 @@ hooks/register.sh remove   # このフックだけ外す（ほかのフックは
 | `scripts/sync.sh` | mod とレイアウトを ~/.config/herdr-app にコピーして `herdr-app check`（開発用。mod の名前を渡すとその mod だけ。入れる・更新するのは `install.sh`） |
 | `scripts/check-theme.js` | テーマのフォルダを確かめる（`bun scripts/check-theme.js <フォルダ>`） |
 | `scripts/install.sh` | 入れる・更新する（mod のコピー、レイアウトはないか違うときだけコピー、フックの登録、`doctor.sh`）。`--no-hook` でフックなし |
-| `scripts/doctor.sh` | この PC の用意を調べる（道具・フックの登録と文法・フックを試す・mod がリポジトリと同じか・今ホワイトボードに載るもの）。何も変えない |
+| `scripts/doctor.sh` | この PC の用意を調べる（道具と jq の版・フックの登録と文法・Bash の書き込みの式がこの jq で動くか・フックを試す（Write と Bash の .md）・mod がリポジトリと同じか・今ホワイトボードに載るもの（ないものとノイズ扱いのものに印））。何も変えない |
 | `scripts/sky.sh` | 窓の外を試す（天気と、選んだ場所の時刻を決める、1 日の早送り、本物に戻す） |
 | `spike/` | 描画方針を決めたときの確認用 mod（アニメ画像・にじみ・アニメの負荷） |
 | `test/` | `bun test`（scene.js）と `test/hook-test.sh`（フック。使い捨てのターミナルで試す） |
@@ -402,6 +405,7 @@ AI（Claude Code など）がここで確かめるときは、使っている人
 - ドラッグしても、細い列で横・縦にスクロールしているフロアは動かない（見えている部屋の間でだけ動かせる）
 - ホワイトボードのプランと書いた .md は、フックを登録したあとに起動した Claude だけ（Codex などフックのないエージェントのものは
   出ない）。Bash で書いた .md は、`>`・`>>`・`tee` で書いたものだけ（`python` などのスクリプトで書いたものは見えない）。
+  サブエージェントが書いた .md と、同じコマンドの中で `cd` してから相対の道で書いた .md（`cd docs && cat > x.md`）も出ない。
   `claude --resume` で戻ったセッションは、もう一度書く（直す）まで出ない。ほかのマシンの部屋は、読めるかを確かめずに載せる。
   ダイアログのクリックは手で確かめる
   （フックは本物の Claude Code 2.1.302 で確かめた）

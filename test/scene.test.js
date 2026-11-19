@@ -168,6 +168,11 @@ describe("rooms", () => {
     expect(b.docs.map((d) => d.path)).toEqual(["/other/spec.md"]); // ほかの部屋のものは混ざらない
     expect(roomsOf([space("c")], [agent("t5", "c")], new Map([["t5", [{ path: "/r/AGENTS.md", kind: "doc" }]]]))[0])
       .toMatchObject({ docs: [], w: MIN_ROOM_W }); // ノイズだけなら、ホワイトボードは掛けない
+    // Claude Code のワークツリー（claude -w・EnterWorktree）で書いた .md も載る
+    const wt = "/r/.claude/worktrees/feat";
+    const [w] = roomsOf([space("w")], [agent("t6", "w")], new Map([["t6", [{ path: `${wt}/docs/design.md`, kind: "doc" },
+      { path: `${wt}/.claude/skills/x/SKILL.md`, kind: "doc" }]]]), new Set([`${wt}/docs/design.md`, `${wt}/.claude/skills/x/SKILL.md`]));
+    expect(w.docs.map((d) => d.path)).toEqual([`${wt}/docs/design.md`]);
   });
 
   test("files that are gone (deleted, not yet written, or a misread Bash line) are not put on the whiteboard", () => {
@@ -187,11 +192,17 @@ describe("rooms", () => {
 
   test("obvious noise is not put on the whiteboard", () => {
     for (const path of ["/r/CLAUDE.md", "/r/claude.local.md", "/r/AGENTS.md", "/r/GEMINI.md", "/r/skills/x/SKILL.md", "/r/LICENSE.md",
-      "/r/.github/PULL_REQUEST_TEMPLATE.md", "/r/node_modules/pkg/README.md", "/r/dist/a.md", "/r/.claude/notes.md"]) {
+      "/r/.github/PULL_REQUEST_TEMPLATE.md", "/r/node_modules/pkg/README.md", "/r/dist/a.md", "/r/.claude/notes.md",
+      "/u/.claude/projects/x/memory/m.md", "/r/.claude/worktrees.md", // ワークツリーの外の .claude/
+      // ワークツリーの中でも、その .claude/ やエージェントへの指示はノイズ
+      "/r/.claude/worktrees/feat/.claude/skills/x/SKILL.md", "/r/.claude/worktrees/feat/.claude/agents/x.md",
+      "/r/.claude/worktrees/feat/CLAUDE.md", "/r/.claude/worktrees/feat/node_modules/pkg/README.md"]) {
       expect([path, isNoiseDoc(path)]).toEqual([path, true]);
     }
     for (const path of ["/r/README.md", "/r/docs/report.md", "/r/TODO.md", "/r/CHANGELOG.md", "/Users/me/Desktop/memo.md",
-      "/tmp/a.md", "/private/tmp/claude-1/scratchpad/report.md", "/var/folders/xy/T/b.md"]) { // 一時フォルダはノイズにしない
+      "/tmp/a.md", "/private/tmp/claude-1/scratchpad/report.md", "/var/folders/xy/T/b.md", // 一時フォルダはノイズにしない
+      // Claude Code のワークツリー（<リポジトリ>/.claude/worktrees/<名前>/）はプロジェクトそのもの
+      "/r/.claude/worktrees/feat/README.md", "/r/.claude/worktrees/feat/docs/report.md"]) {
       expect([path, isNoiseDoc(path)]).toEqual([path, false]);
     }
   });

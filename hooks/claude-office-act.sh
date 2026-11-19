@@ -12,8 +12,10 @@
 #                そこ）。AI Office は、その部屋の壁にホワイトボードを掛け、クリックで中身を出す。セッションの終わりまで残す
 #   office.docs: このセッションで書いた .md（プラン以外。新しい順に 8 本まで、改行で区切る）。ホワイトボードで読める。
 #                Write / Edit / MultiEdit と、Bash の `> x.md`・`>> x.md`・`tee x.md`（hooks/md-writes.jq で読む）。
-#                ~/.claude/ の中（メモリや設定）は入れない。一時フォルダ（Claude Code の作業フォルダ /private/tmp/claude-…）の
-#                .md は入れる（頼んだ調査メモや報告が置かれやすい）。セッションの終わりまで残す
+#                .claude/ の中（~/.claude/ のメモリや設定、プロジェクトの .claude/ の skill など）は入れない。ただし Claude Code の
+#                ワークツリー（<リポジトリ>/.claude/worktrees/<名前>/）はプロジェクトそのものなので入れる（その中の .claude/ は
+#                入れない）。一時フォルダ（Claude Code の作業フォルダ /private/tmp/claude-…）の .md は入れる（頼んだ調査メモや
+#                報告が置かれやすい）。セッションの終わりまで残す
 # イベントごとに:
 #   PreToolUse: Skill → read と、その skill。Read / Grep / Glob / LS / WebSearch / WebFetch / NotebookRead → read、
 #               Edit / Write / MultiEdit / NotebookEdit → edit、Bash → run（コマンドに hc send があれば話しかけ）、
@@ -87,6 +89,8 @@ case "$(field .hook_event_name)" in
             else
               case "$file" in
                 */.claude/plans/*) plan=$file ;;
+                */.claude/worktrees/*/.claude/*) ;; # ワークツリーの中の .claude（skill や設定）
+                */.claude/worktrees/*) doc=$file ;; # Claude Code のワークツリー（プロジェクトそのもの）
                 */.claude/*) ;; # Claude のメモリや設定
                 *) doc=$file ;;
               esac

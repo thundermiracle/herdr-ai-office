@@ -1,9 +1,10 @@
 #!/bin/bash
 # この PC で、オフィスが動く用意がそろっているかを調べる（何も変えない。画面も動かさない）。
 # ほかの PC で更新したあとにホワイトボードが出ないときなどに流して、NG の行を見る。
-# 調べること: 道具（jq・hc・herdr-app）、フックの登録（このリポジトリのフックを指しているか、4 つのイベント）と文法、
-# フックを試す（herdr-app に出ない使い捨てのターミナルで .md を書いたことにして、ラベルが付くか）、mod がリポジトリと同じか、
-# herdr-app のエラー、今ホワイトボードに載るもの（エージェントごとのラベル。読めないものには印）。
+# 調べること: 道具（jq・hc・herdr-app と jq の版）、フックの登録（このリポジトリのフックを指しているか、4 つのイベント）と文法、
+# Bash の書き込みの式（hooks/md-writes.jq）がこの jq で動くか、フックを試す（herdr-app に出ない使い捨てのターミナルで、Write と
+# Bash で .md を書いたことにして、ラベルが付くか）、mod がリポジトリと同じか、herdr-app のエラー、今ホワイトボードに載るもの
+# （エージェントごとのラベル。読めないものと、ノイズ扱いで載らない .md には印）。
 # 使い方: scripts/doctor.sh
 set -uo pipefail
 
@@ -20,10 +21,19 @@ for c in jq hc herdr-app; do
   if command -v "$c" >/dev/null 2>&1; then ok "$c: $(command -v "$c")"; else ng "$c がない（フックは jq と hc がないと何もしない）"; fi
 done
 command -v herdr-app >/dev/null 2>&1 && note "herdr-app $(herdr-app --version 2>/dev/null | head -n 1)"
+command -v jq >/dev/null 2>&1 && note "$(jq --version 2>/dev/null)（フックは PATH の最初の jq を使う）"
 
 echo "フックの登録（ホワイトボード・本棚・話しかけは、このフックが書くラベルで動く）"
 if sh -n "$hook" 2>/dev/null; then ok "フックの文法（${hook}）"; else ng "フックに文法エラー（Claude のツールが止まる）: $hook"; fi
-if [ -f "$repo/hooks/md-writes.jq" ]; then ok "hooks/md-writes.jq がある"; else ng "hooks/md-writes.jq がない（Bash で書いた .md を拾えない）"; fi
+if [ ! -f "$repo/hooks/md-writes.jq" ]; then
+  ng "hooks/md-writes.jq がない（Bash で書いた .md を拾えない）"
+else
+  # 式がこの jq で読めるか（前は jq 1.6 で式ごと読めず、Bash で書いた .md を 1 つも拾えなかった。フックは黙って続ける）
+  got=$(printf '%s' "cat > docs/a.md <<'EOF'" | jq -Rrs -f "$repo/hooks/md-writes.jq" --arg cwd /p --arg home /h 2>&1)
+  if [ "$got" = /p/docs/a.md ]; then ok "hooks/md-writes.jq がこの jq で動く（Bash で書いた .md を拾える）"
+  else ng "hooks/md-writes.jq がこの jq（$(jq --version 2>/dev/null)）で動かない。Bash で書いた .md を拾えない: $(printf '%s' "$got" | head -n 1)"
+  fi
+fi
 settings="$HOME/.claude/settings.json"
 if [ ! -f "$settings" ]; then
   ng "$settings がない（Claude Code の設定）"
@@ -57,6 +67,11 @@ else
   sleep 0.6
   got=$(hc get "$term" --json 2>/dev/null | jq -r '.labels["office.docs"] // ""')
   if [ "$got" = /doctor/check.md ]; then ok "Write の .md で office.docs が付いた"; else ng "office.docs が付かない（付いたもの: '$got'）"; fi
+  printf '%s' '{"session_id":"doctor","cwd":"/doctor","permission_mode":"default","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo x > notes.md"}}' \
+    | HC_TERMINAL_ID="$term" TMPDIR="$tmp" sh -c "$hook" >/dev/null 2>&1
+  sleep 0.6
+  got=$(hc get "$term" --json 2>/dev/null | jq -r '.labels["office.docs"] // ""' | head -n 1)
+  if [ "$got" = /doctor/notes.md ]; then ok "Bash の > x.md で office.docs が付いた"; else ng "Bash で書いた .md が office.docs に付かない（先頭: '$got'）"; fi
   hc label "$term" "office.docs=$(printf 'a.md\nb.md')" >/dev/null 2>&1
   got=$(hc get "$term" --json 2>/dev/null | jq -r '.labels["office.docs"] // ""')
   if [ "$got" = "$(printf 'a.md\nb.md')" ]; then ok "改行の入ったラベルが使える"; else ng "改行の入ったラベルが使えない（herdr-core が古い？ 付いたもの: '$got'）"; fi
@@ -81,15 +96,25 @@ if herdr-app status >/dev/null 2>&1; then
   if [ "$errors" = "[]" ]; then ok "herdr-app のエラーなし"; else ng "herdr-app のエラー: $errors"; fi
 fi
 
-echo "今ホワイトボードに載るもの（エージェントごとのラベル。プランと書いた .md。読めないものは載らない）"
+echo "今ホワイトボードに載るもの（エージェントごとのラベル。プランと書いた .md。読めないものと、ノイズ扱いの .md は載らない）"
+# ノイズ扱い（CLAUDE.md や node_modules/ の中など）は、オフィスと同じ scene.js の isNoiseDoc で調べる（node がなければ調べない）
+noise() {
+  command -v node >/dev/null 2>&1 || return 1
+  node --input-type=module -e 'const { isNoiseDoc } = await import(process.argv[1]); process.exit(isNoiseDoc(process.argv[2]) ? 0 : 1)' \
+    "$repo/mods/ai-office/scene.js" "$1" 2>/dev/null
+}
+command -v node >/dev/null 2>&1 || note "node がないので、ノイズ扱いかは調べない"
 found=0
 for t in $(hc ls --json 2>/dev/null | jq -r '.terminals[]?.address'); do
   line=""
-  while IFS= read -r f; do
+  while IFS=$'\t' read -r kind f; do
     [ -n "$f" ] || continue
-    [ -r "$f" ] || f="${f}（ない。載らない）"
+    if [ ! -r "$f" ]; then f="${f}（ない。載らない）"
+    elif [ "$kind" = doc ] && noise "$f"; then f="${f}（ノイズ扱い。載らない）" # プランはノイズにしない
+    fi
     line="${line:+$line, }$f"
-  done < <(hc get "$t" --json 2>/dev/null | jq -r '.labels["office.plan"] // empty, ((.labels["office.docs"] // "") | split("\n")[])')
+  done < <(hc get "$t" --json 2>/dev/null \
+    | jq -r '(.labels["office.plan"] // empty | "plan\t\(.)"), ((.labels["office.docs"] // "") | split("\n")[] | select(. != "") | "doc\t\(.)")')
   if [ -n "$line" ]; then
     note "${t}: $line"
     found=1

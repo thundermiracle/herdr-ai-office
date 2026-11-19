@@ -179,8 +179,24 @@ else
   fails=$((fails + 1))
 fi
 doc_check "a new session starts a new list" "$(write Write /repo/fresh.md ',"session_id":"s2"')" /repo/fresh.md
+# Claude Code のワークツリー（<リポジトリ>/.claude/worktrees/<名前>/）はプロジェクトなので入れる。その中の .claude/ は入れない
+wt=/repo/.claude/worktrees/feat
+doc_check "a .md in a Claude Code worktree is a doc" "$(write Write "$wt/docs/wt.md" ',"session_id":"s2"')" "$wt/docs/wt.md$nl/repo/fresh.md"
+doc_check "a worktree's own .claude/ is not a doc" "$(write Write "$wt/.claude/agents/x.md" ',"session_id":"s2"')" \
+  "$wt/docs/wt.md$nl/repo/fresh.md"
+doc_check "Bash in a worktree -> docs" "$(pre Bash ",\"session_id\":\"s2\",\"cwd\":\"$wt\"" \
+  "$(jq -cn --arg c "cat > notes/wt2.md <<'EOF'" '{command: $c}')")" "$wt/notes/wt2.md$nl$wt/docs/wt.md$nl/repo/fresh.md"
 doc_check "SessionEnd clears the docs" "$(event SessionEnd)" ""
 plan_check "SessionEnd clears a plan made meanwhile" "$(pre Read)" ""
+
+# Bash の書き込みの式（hooks/md-writes.jq）は、この PC のどの jq でも同じ答え（jq 1.6 には flags を渡す scan がなく、
+# 前は式ごと読めずに Bash の .md を 1 つも拾えなかった。フックは PATH の最初の jq を使う）
+want_md=$(printf '%s\n' /repo/docs/r.md /tmp/s.md)
+for j in $(which -a jq | awk '!seen[$0]++'); do
+  got=$(printf '%s' "cat > docs/r.md <<'EOF' && echo x | tee -a /tmp/s.md" | "$j" -Rrs -f "$repo/hooks/md-writes.jq" --arg cwd /repo --arg home /u 2>&1)
+  if [ "$got" = "$want_md" ]; then ok=yes; else ok=no; fails=$((fails + 1)); fi
+  printf '%-4s %-40s %s\n' "$ok" "md-writes.jq with $("$j" --version 2>&1)" "'$(printf '%s' "$got" | tr '\n' ',')'"
+done
 
 echo "fails: $fails"
 [ "$fails" -eq 0 ]
