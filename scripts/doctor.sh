@@ -2,8 +2,9 @@
 # この PC で、オフィスが動く用意がそろっているかを調べる（何も変えない。画面も動かさない）。
 # ほかの PC で更新したあとにホワイトボードが出ないときなどに流して、NG の行を見る。
 # 調べること: 道具（jq・hc・herdr-app と jq の版）、フックの登録（このリポジトリのフックを指しているか、4 つのイベント）と文法、
-# Bash の書き込みの式（hooks/md-writes.jq）がこの jq で動くか、フックを試す（herdr-app に出ない使い捨てのターミナルで、Write と
-# Bash で .md を書いたことにして、ラベルが付くか）、mod がリポジトリと同じか、herdr-app のエラー、今ホワイトボードに載るもの
+# Bash の .md の式（hooks/md-writes.jq）がこの jq で動くか、フックを試す（herdr-app に出ない使い捨てのターミナルで、Write は
+# .md を書いたことにし、Bash は一時フォルダに本当に書いて（> x.md と cp）、ラベルが付くか）、mod がリポジトリと同じか、
+# herdr-app のエラー、今ホワイトボードに載るもの
 # （エージェントごとのラベル。読めないものと、ノイズ扱いで載らない .md には印）。
 # 使い方: scripts/doctor.sh
 set -uo pipefail
@@ -28,7 +29,8 @@ if sh -n "$hook" 2>/dev/null; then ok "フックの文法（${hook}）"; else ng
 if [ ! -f "$repo/hooks/md-writes.jq" ]; then
   ng "hooks/md-writes.jq がない（Bash で書いた .md を拾えない）"
 else
-  # 式がこの jq で読めるか（前は jq 1.6 で式ごと読めず、Bash で書いた .md を 1 つも拾えなかった。フックは黙って続ける）
+  # 式がこの jq で読めるか（前は jq 1.6 で式ごと読めず、Bash で書いた .md を 1 つも拾えなかった。フックは黙って続ける）。
+  # 式は、コマンドに出てくる .md の道（書いたかもしれないもの）を出す
   got=$(printf '%s' "cat > docs/a.md <<'EOF'" | jq -Rrs -f "$repo/hooks/md-writes.jq" --arg cwd /p --arg home /h 2>&1)
   if [ "$got" = /p/docs/a.md ]; then ok "hooks/md-writes.jq がこの jq で動く（Bash で書いた .md を拾える）"
   else ng "hooks/md-writes.jq がこの jq（$(jq --version 2>/dev/null)）で動かない。Bash で書いた .md を拾えない: $(printf '%s' "$got" | head -n 1)"
@@ -56,7 +58,7 @@ else
   note "Claude は起動したときのフックを使う。登録より前から動いている Claude は、起動し直すまでラベルを書かない"
 fi
 
-echo "フックを試す（herdr-app に出ない使い捨てのターミナルで、.md を書いたことにする）"
+echo "フックを試す（herdr-app に出ない使い捨てのターミナルで。Write は .md を書いたことにし、Bash は一時フォルダに本当に書く）"
 term=$(hc run --bg --json -- sleep 60 2>/dev/null | jq -r '.address // empty' 2>/dev/null)
 if [ -z "$term" ]; then
   ng "hc run --bg で使い捨てのターミナルを作れない（herdr-core が動いているか）"
@@ -67,11 +69,21 @@ else
   sleep 0.6
   got=$(hc get "$term" --json 2>/dev/null | jq -r '.labels["office.docs"] // ""')
   if [ "$got" = /doctor/check.md ]; then ok "Write の .md で office.docs が付いた"; else ng "office.docs が付かない（付いたもの: '$got'）"; fi
-  printf '%s' '{"session_id":"doctor","cwd":"/doctor","permission_mode":"default","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo x > notes.md"}}' \
-    | HC_TERMINAL_ID="$term" TMPDIR="$tmp" sh -c "$hook" >/dev/null 2>&1
-  sleep 0.6
-  got=$(hc get "$term" --json 2>/dev/null | jq -r '.labels["office.docs"] // ""' | head -n 1)
-  if [ "$got" = /doctor/notes.md ]; then ok "Bash の > x.md で office.docs が付いた"; else ng "Bash で書いた .md が office.docs に付かない（先頭: '$got'）"; fi
+  # Bash で書いた .md は、コマンドの前の状態を覚え、あとのフック（ここでは Stop）で変わっていたら付く。本物のファイルで試す
+  # bash_md <コマンド> <書く道>: フックの PreToolUse → コマンドを流す → Stop のあと、office.docs の先頭
+  bash_md() {
+    printf '%s' "$(jq -cn --arg cwd "$tmp/proj" --arg c "$1" '{session_id: "doctor", cwd: $cwd, permission_mode: "default",
+      hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: {command: $c}}')" | HC_TERMINAL_ID="$term" TMPDIR="$tmp" sh -c "$hook" >/dev/null 2>&1
+    (cd "$tmp/proj" && sh -c "$1") >/dev/null 2>&1
+    printf '%s' '{"session_id":"doctor","hook_event_name":"Stop"}' | HC_TERMINAL_ID="$term" TMPDIR="$tmp" sh -c "$hook" >/dev/null 2>&1
+    sleep 0.6
+    hc get "$term" --json 2>/dev/null | jq -r '.labels["office.docs"] // ""' | head -n 1
+  }
+  mkdir -p "$tmp/proj"
+  got=$(bash_md "echo x > notes.md")
+  if [ "$got" = "$tmp/proj/notes.md" ]; then ok "Bash の > x.md で office.docs が付いた"; else ng "Bash で書いた .md が office.docs に付かない（先頭: '$got'）"; fi
+  got=$(bash_md "cp notes.md copied.md")
+  if [ "$got" = "$tmp/proj/copied.md" ]; then ok "cp で入れた .md で office.docs が付いた"; else ng "cp で入れた .md が office.docs に付かない（先頭: '$got'）"; fi
   hc label "$term" "office.docs=$(printf 'a.md\nb.md')" >/dev/null 2>&1
   got=$(hc get "$term" --json 2>/dev/null | jq -r '.labels["office.docs"] // ""')
   if [ "$got" = "$(printf 'a.md\nb.md')" ]; then ok "改行の入ったラベルが使える"; else ng "改行の入ったラベルが使えない（herdr-core が古い？ 付いたもの: '$got'）"; fi

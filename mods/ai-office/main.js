@@ -356,9 +356,8 @@ export default class AiOffice extends View {
   }
 
   // ホワイトボードに載せる .md（エージェントのラベルのプランと書いた .md）が、今読めるかを調べる。ダイアログと同じ readTextFile で
-  // 読むので、表示できるものだけが載る（fs/promises は、mod に許された場所の外の /tmp などを調べられない）。消したもの、まだ
-  // 書かれていないもの（フックは書く直前にラベルを付ける）、Bash の書き込みの読み違い（引用符の中の文字など）は載せない。
-  // 変わったときだけ描き直す
+  // 読むので、表示できるものだけが載る（fs/promises は、mod に許された場所の外の /tmp などを調べられない）。消したものと、まだ
+  // 書かれていないもの（Write・Edit は、フックが書く直前にラベルを付ける）は載せない。変わったときだけ描き直す
   checkDocs(cx) {
     if (this.hidden()) return;
     const paths = new Set();

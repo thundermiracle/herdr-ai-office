@@ -10,19 +10,28 @@
 #                    送った人にフックがない（Codex など）ときも、AI Office は送った人を行かせる
 #   office.plan: プランのファイル（Claude Code のプランモードで書く ~/.claude/plans/<名前>.md。設定 plansDirectory なら
 #                そこ）。AI Office は、その部屋の壁にホワイトボードを掛け、クリックで中身を出す。セッションの終わりまで残す
-#   office.docs: このセッションで書いた .md（プラン以外。新しい順に 8 本まで、改行で区切る）。ホワイトボードで読める。
-#                Write / Edit / MultiEdit と、Bash の `> x.md`・`>> x.md`・`tee x.md`（hooks/md-writes.jq で読む）。
-#                .claude/ の中（~/.claude/ のメモリや設定、プロジェクトの .claude/ の skill など）は入れない。ただし Claude Code の
-#                ワークツリー（<リポジトリ>/.claude/worktrees/<名前>/）はプロジェクトそのものなので入れる（その中の .claude/ は
-#                入れない）。一時フォルダ（Claude Code の作業フォルダ /private/tmp/claude-…）の .md は入れる（頼んだ調査メモや
-#                報告が置かれやすい）。セッションの終わりまで残す
+#   office.docs: このセッションで書いた .md（プラン以外。改行で区切り、新しい順。プロジェクトの .md は 8 本まで、一時フォルダの
+#                .md は別に 4 本まで。作業フォルダの .md をいくら書いても、プロジェクトの .md は押し出されない）。ホワイトボードで読める。
+#                Write / Edit / MultiEdit の .md と、Bash で書いた .md: コマンドに出てくる .md の道（hooks/md-writes.jq）の、
+#                コマンドの前の状態（inode と ctime）を覚え、あとのフック（次の Bash・.md を書くツール・ターンの終わり）で変わって
+#                いたら書いた .md にする（コマンドが始まってから 60 秒までに変わったものだけ。同じフォルダのほかのエージェントが
+#                あとで直したものを、自分の書いた .md にしない）。
+#                cp・mv・python などでプロジェクトに入れた .md も拾い、読むだけの .md は入らない。変数の入った道（"$W/x.md"）は
+#                分からないので入れない。.claude/ の中（~/.claude/ のメモリや設定、プロジェクトの .claude/ の skill など）は入れない。
+#                ただし Claude Code のワークツリー（<リポジトリ>/.claude/worktrees/<名前>/）はプロジェクトそのものなので入れる（その中の
+#                .claude/ は入れない）。一時フォルダ（Claude Code の作業フォルダ /private/tmp/claude-…）の .md は入れる（頼んだ調査
+#                メモや報告が置かれやすい）。セッションの終わりまで残す
 # イベントごとに:
 #   PreToolUse: Skill → read と、その skill。Read / Grep / Glob / LS / WebSearch / WebFetch / NotebookRead → read、
 #               Edit / Write / MultiEdit / NotebookEdit → edit、Bash → run（コマンドに hc send があれば話しかけ）、
 #               ほかのツール → act を消す（skill はそのまま）。
 #               プランモードで書く .md（プランモードで書けるのはプランのファイルだけ）と、~/.claude/plans/ の .md を書く
 #               Edit / Write / MultiEdit、ExitPlanMode の planFilePath → プラン。ほかの .md を書く Edit / Write / MultiEdit →
-#               書いた .md の一覧の先頭に（一覧はセッションごとに $TMPDIR に覚え、変わったときだけ書く）
+#               書いた .md の一覧の先頭に（一覧はセッションごとに $TMPDIR に覚え、変わったときだけ書く）。Bash → コマンドに
+#               出てくる .md と、その今の状態を「書いたかもしれない .md」として覚える
+#   Bash と .md を書くツールの前と、ターンの終わり（Stop・UserPromptSubmit・SessionEnd）: 覚えた「書いたかもしれない .md」の
+#               状態が変わっていたら、書いた .md の一覧の先頭に。変わっていないものは、ターンの終わりか、コマンドが始まってから
+#               60 秒まで待つ（並んで動いている Bash がまだ書いていないことがある）。読むだけのツールの前では確かめない（待たせないため）
 #   UserPromptSubmit: hc から届いた `<hc from="t3 名前">文</hc>` は話しかけられた出来事。/名前 で始まる依頼は、
 #               その skill を読む（read と skill）。ほかの依頼は act と skill を消す
 #   Stop: act と skill を消す。SessionEnd（終了・/clear）: act と skill とプランと書いた .md の一覧を消す
@@ -69,6 +78,9 @@ talk=  # 話しかけた（相手<TAB>文）
 heard= # 話しかけられた（送った人<TAB>文）
 plan=  # プランのファイル（office.plan）
 doc=   # 書いた .md（office.docs の一覧の先頭に足す）
+cands= # Bash のコマンドに出てくる .md（書いたかもしれないもの。あとのフックで、変わっていたら書いた .md にする）
+bash=  # Bash の前（書いたかもしれない .md を確かめる）
+turn_end= # ターンの終わり（書いたかもしれない .md のうち、変わっていないものを捨てる）
 ended= # セッションが終わった（プランと書いた .md も消す）
 case "$(field .hook_event_name)" in
   PreToolUse)
@@ -104,12 +116,13 @@ case "$(field .hook_event_name)" in
         ;;
       Bash)
         act=run
+        bash=1
         cmd=$(field .tool_input.command)
         case "$cmd" in *"hc send"*) talk=$(printf '%s' "$cmd" | jq -Rrs "$SEND_JQ" 2>/dev/null) ;; esac
-        # .md へ書き込む Bash（> x.md・>> x.md・tee x.md）は、書いた .md（式は hooks/md-writes.jq。読めなくても止まらない）
+        # コマンドに出てくる .md は、書いたかもしれないもの（式は hooks/md-writes.jq。読めなくても止まらない）
         case "$cmd" in
-          *.md* | *.markdown* | *.MD*)
-            doc=$(printf '%s' "$cmd" | jq -Rrs -f "$(dirname "$0")/md-writes.jq" --arg cwd "$(field .cwd)" --arg home "$HOME" 2>/dev/null)
+          *.[mM][dD]* | *.[mM][aA][rR][kK][dD][oO][wW][nN]*)
+            cands=$(printf '%s' "$cmd" | jq -Rrs -f "$(dirname "$0")/md-writes.jq" --arg cwd "$(field .cwd)" --arg home "$HOME" 2>/dev/null)
             ;;
         esac
         ;;
@@ -120,6 +133,7 @@ case "$(field .hook_event_name)" in
     prompt=$(field .prompt)
     act=
     skill=
+    turn_end=1
     case "$prompt" in
       /*)
         skill=$(printf '%s' "$prompt" | sed -n '1s#^/\([A-Za-z0-9:_.-][A-Za-z0-9:_.-]*\).*#\1#p')
@@ -134,31 +148,113 @@ case "$(field .hook_event_name)" in
   Stop)
     act=
     skill=
+    turn_end=1
     ;;
   SessionEnd)
     act=
     skill=
+    turn_end=1
     ended=1
     ;;
   *) exit 0 ;;
 esac
 
-# 書いた .md の一覧（$memo.docs の 1 行目はセッション、そのあと新しい順）。前のセッションの一覧は捨てる
-# （落ちて SessionEnd が来なかったとき）。先頭に足して（Bash なら何本も）重なりを除き、8 本まで。変わったときだけ office.docs に書く
+# 書いた .md の一覧（$memo.docs の 1 行目はセッション、そのあと新しい順）と、書いたかもしれない .md（$memo.pending の行:
+# セッション<TAB>道<TAB>コマンドの前の状態（inode:ctime。なかったら -）<TAB>コマンドの始まり（秒））。並んで動くフック（並んだ
+# ツール）があるので、読み書きはロック（mkdir）の中で。ロックを取れなければ（1 秒待っても）何もしない（書いたかもしれない .md は
+# 次のフックで）。
+# 同じフォルダにほかのエージェントもいるので、書いたとみなすのは、コマンドが始まってから $window 秒（ふだん 60 秒）までに
+# 変わったものだけ（ctime で見る）。読むだけのコマンドに出てきた .md を、あとでほかの人が直しても、自分の書いた .md にしない。
+# 変わらないまま $window 秒を過ぎたものは捨てる（そのあとで変わっても、もう書いたとはみなさないので）
 docs_memo="$memo.docs"
+pending="$memo.pending"
+lock_dir="$memo.lock"
+sep=$(printf '\001--\001') # awk に渡す区切りの行（道にはない）
+window=${OFFICE_MD_WINDOW:-60}
 docs=
-if [ -n "$doc" ]; then
-  session=$(field .session_id)
-  old=$(cat "$docs_memo" 2>/dev/null)
-  [ "$(printf '%s\n' "$old" | sed -n 1p)" = "$session" ] || old=
-  old_list=$(printf '%s\n' "$old" | sed 1d)
-  new_list=$(printf '%s\n%s\n' "$doc" "$old_list" | awk 'NF && !seen[$0]++' | head -n 8)
-  if [ "$new_list" != "$old_list" ]; then
-    printf '%s\n%s\n' "$session" "$new_list" >"$docs_memo"
-    docs=$new_list
+# 道（引数）ごとに「状態<TAB>道」の行を出す。状態は inode:ctime（mv や cp -p は日時が古いまま入るが、inode か ctime が変わる）。
+# ないファイルは出さない。macOS（BSD）と GNU の stat の両方で
+stat_kind=
+states() {
+  [ $# -gt 0 ] || return 0
+  if [ -z "$stat_kind" ]; then
+    if stat -c %i / >/dev/null 2>&1; then stat_kind=gnu; else stat_kind=bsd; fi
+  fi
+  if [ "$stat_kind" = gnu ]; then stat -c "%i:%Z$tab%n" -- "$@" 2>/dev/null
+  else stat -f "%i:%c$tab%N" -- "$@" 2>/dev/null
+  fi
+}
+take_lock() {
+  n=0
+  until mkdir "$lock_dir" 2>/dev/null; do
+    n=$((n + 1))
+    if [ "$n" -ge 100 ]; then # 落ちたフックが残したロック（ふつうは数十ミリ秒で外れる）なら外して、もう一度だけ
+      rmdir "$lock_dir" 2>/dev/null
+      mkdir "$lock_dir" 2>/dev/null
+      return
+    fi
+    sleep 0.01
+  done
+}
+# 書いたかもしれない .md を確かめるのは、Bash と .md を書くツールの前と、ターンの終わりだけ（読むだけのツールが続くあいだは
+# 待たせない。一覧に入るのが少し遅れるだけ）
+if [ -n "$doc$cands$ended" ] || { [ -n "$bash$turn_end" ] && [ -s "$pending" ]; }; then
+  if take_lock; then
+    trap 'rmdir "$lock_dir" 2>/dev/null' EXIT
+    # セッション（UUID）。jq を起こすより速いので sed で取る
+    session=$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+    [ -n "$session" ] || session=$(field .session_id)
+    confirmed= # 書いたと分かった .md（新しい順）
+    if [ -s "$pending" ]; then
+      # 覚えた道の今の状態と比べる。変わった（今あって、前と違う）ものは書いた .md。変わっていないものはターンの終わりまで待つ。
+      # ほかのセッションの行は捨てる
+      set --
+      while IFS="$tab" read -r s p _; do [ "$s" = "$session" ] && set -- "$@" "$p"; done <"$pending"
+      keep=1
+      [ -n "$turn_end" ] && keep=0
+      # awk には「今の状態<TAB>道」の行、区切りの行、覚えた行の順に 1 本で渡す。書いたと分かった道を新しい順に出し、
+      # まだ待つ行は $pending.new に。前の版の行（コマンドの始まりがない）は、始まりを 0 として捨てる
+      : >"$pending.new"
+      confirmed=$({ states "$@"; echo "$sep"; cat "$pending"; } \
+        | awk -F "$tab" -v s="$session" -v keep="$keep" -v sep="$sep" -v out="$pending.new" \
+            -v t="$(date +%s)" -v win="$window" '
+          !past { if ($0 == sep) past = 1; else now[$2] = $1; next }
+          $1 != s { next }
+          ($2 in now) && now[$2] != $3 && substr(now[$2], index(now[$2], ":") + 1) + 0 <= $4 + win { hit[++n] = $2; next }
+          keep == 1 && t - $4 <= win && !kept[$2 FS $3]++ { print > out }
+          END { for (i = n; i > 0; i--) print hit[i] }')
+      mv -f "$pending.new" "$pending"
+    fi
+    if [ -n "$cands" ] && [ -z "$turn_end" ]; then
+      # このコマンドの .md の、今（コマンドの前）の状態を覚える
+      set --
+      while IFS= read -r p; do [ -n "$p" ] && set -- "$@" "$p"; done <<EOF
+$cands
+EOF
+      { states "$@"; echo "$sep"; printf '%s\n' "$cands"; } | awk -F "$tab" -v s="$session" -v sep="$sep" -v t="$(date +%s)" '
+        !past { if ($0 == sep) past = 1; else now[$2] = $1; next }
+        NF { print s FS $0 FS (($0 in now) ? now[$0] : "-") FS t }' >>"$pending"
+    fi
+    if [ -n "$doc$confirmed" ]; then
+      # 先頭に足して重なりを除き、プロジェクトの .md は 8 本、一時フォルダの .md は 4 本まで。前の版のフックが入れた、変数の
+      # 入った道（ない道）は消す。前のセッションの一覧は捨てる（落ちて SessionEnd が来なかったとき）。変わったときだけ書く
+      old=$(cat "$docs_memo" 2>/dev/null)
+      [ "$(printf '%s\n' "$old" | sed -n 1p)" = "$session" ] || old=
+      old_list=$(printf '%s\n' "$old" | sed 1d)
+      new_list=$(printf '%s\n%s\n%s\n' "$doc" "$confirmed" "$old_list" | awk '
+        NF && index($0, "$") == 0 && !seen[$0]++ {
+          if ($0 ~ /^\/(private\/)?(tmp|var\/folders)\//) { if (t++ < 4) print } else if (p++ < 8) print
+        }')
+      if [ "$new_list" != "$old_list" ]; then
+        printf '%s\n%s\n' "$session" "$new_list" >"$docs_memo"
+        docs=$new_list
+      fi
+    fi
+    [ -n "$ended" ] && rm -f "$docs_memo" "$pending"
+    rmdir "$lock_dir" 2>/dev/null
+    trap - EXIT
   fi
 fi
-[ -n "$ended" ] && rm -f "$docs_memo"
 
 next="$act|$skill"
 if [ -z "$event$talk$heard$plan$docs$ended" ] && [ -f "$memo" ] && [ "$prev" = "$next" ]; then
