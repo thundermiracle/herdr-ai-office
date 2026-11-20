@@ -11,7 +11,7 @@ import {
 import {
   SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, layoutFloor, drawables,
   floorDrawables, running, doorsMoving, roomAt, dropTarget, useTheme, geometry, seatName, readTheme, addTheme, themeList, pngSize, plateText,
-  openAgents,
+  openAgents, withSilent,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
   PLACES, WEATHER_MS, TRIAL_WEATHER, defaultPlace, offsetAt, offsetLabel, placeAt, placeClock, weatherOf, parseWeather,
   windowView, windowTip, parseSkyCommand,
@@ -38,8 +38,10 @@ const WEATHER_STALE_MS = 3 * 3600000; // これより古い天気は使わない
  * present: ホワイトボードに載せる .md のうち今読めるもの（checkDocs が調べる。読めないものは載せない）。
  */
 function gather(meta, codexDefaults, present) {
-  const ag = agents();
   const sp = spaces();
+  const ps = panes();
+  // 報告している人と、まだ状態を報告していない人（雇った直後や、起動の前の確認で止まっている人。withSilent）
+  const ag = withSilent(agents(), ps, sp);
   const terms = new Map(terminals().map((t) => [t.address, t]));
   const tabs = new Map(sp.flatMap((s) => (s.tabs ?? []).map((tab) => [tab.id, tab])));
   const info = new Map(ag.map((a) => {
@@ -49,6 +51,7 @@ function gather(meta, codexDefaults, present) {
     const { model, effort } = agentModel({ app, argv: t?.foreground?.argv, cached: sid ? meta.get(sid) : null, codexDefaults });
     return [a.address, {
       status: a.status,
+      silent: Boolean(a.silent), // まだ状態を報告していない（status は null。しばらくして手を挙げる）
       app,
       model,
       effort,
@@ -73,7 +76,6 @@ function gather(meta, codexDefaults, present) {
       where: `${a.space_name} / ${a.tab_name}`,
     }];
   }));
-  const ps = panes();
   // その人が書いたもの（ホワイトボード）: プランと、書いた .md
   const docs = new Map([...info].map(([address, a]) => [address,
     [...(a.plan ? [{ path: a.plan, kind: "plan" }] : []), ...a.docs.map((path) => ({ path, kind: "doc" }))]]));
@@ -554,10 +556,11 @@ export default class AiOffice extends View {
   // 机の PC: そのエージェントのタブのメニュー（ai-office-tab: 名前を変える・閉じる。New tab は出さない）。名札と同じく、
   // 左クリックはその人を表示してから（focus）、右クリックはメニューだけ。閉じる前に確かめるかは Herdr の tab.close に任せる
   tabMenu({ terminal, focus }) {
-    const a = agents().find((x) => x.address === terminal);
-    if (!a) return;
+    // まだ状態を報告していない人（withSilent）は agents() にいないので、ペインからタブを探す
+    const tab = agents().find((x) => x.address === terminal)?.tab ?? panes().find((p) => p.terminal === terminal)?.tab;
+    if (!tab) return;
     if (focus) run("agent.focus", { terminal });
-    openOverlay({ mod: "ai-office-tab", kind: "popup", width: 200, height: 90, props: { tab: a.tab } });
+    openOverlay({ mod: "ai-office-tab", kind: "popup", width: 200, height: 90, props: { tab } });
   }
 
   // キャラ・PC・名札にマウスが乗った・離れた: 持ち主を覚えて描き直す（同じ持ち主のものを一緒に光らせる）
@@ -945,7 +948,11 @@ export default class AiOffice extends View {
     const themes = themeList();
     const current = themes.find((x) => x.name === this.theme);
     const counts = { working: 0, blocked: 0, done: 0, idle: 0 };
-    for (const a of info.values()) counts[a.status] = (counts[a.status] ?? 0) + 1;
+    for (const [address, a] of info) {
+      // まだ状態を報告していない人は、手を挙げたら「待ち」に数える（それまでは数えない）
+      const status = a.silent ? (this.office.chars.get(address)?.behavior === "raise" ? "blocked" : null) : a.status;
+      if (status) counts[status] = (counts[status] ?? 0) + 1;
+    }
     const dragging = this.dragText(floor);
     return v_flex().id("root").size_full().bg(t.canvas).text_color(t.foreground)
       .on_mouse_up("left", (_e, cx) => { // フロアの外（上の帯など）で離した: 部屋のドラッグをやめる

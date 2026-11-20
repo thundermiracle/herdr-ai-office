@@ -6,7 +6,7 @@ import {
   drawables, dropTarget, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
   FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, isNoiseDoc, plateText, openAgents,
-  DOOR_HOLD_MS, DOOR_MS, DOOR_SLIDE, doorsMoving, WINDOW_FRAMES, IMAGES,
+  DOOR_HOLD_MS, DOOR_MS, DOOR_SLIDE, doorsMoving, WINDOW_FRAMES, IMAGES, SILENT_MS, withSilent,
 } from "../mods/ai-office/scene.js";
 
 // テーマは、オフィスと同じく mods/ai-office/themes/<名前>/ の theme.json と PNG から読む（確かめで落ちたら、ここで止まる）
@@ -622,6 +622,96 @@ describe("who sits where", () => {
     expect(d.find((x) => x.id === "name-1").owner).toBe("t2"); // 席を立っている人の名札も席に残る
     expect(d.find((x) => x.id === "name-2")).toBeUndefined(); // 空いた席には名札がない
     expect(plate.z).toBeGreaterThan(d.find((x) => x.id === "hands-t1").z);
+  });
+});
+
+// 状態はプログラムが自分で報告するので、雇った直後や、起動の前の確認（Codex のアップデートの確認など）で止まっている人は
+// agents() に出てこない。オフィスにはタブの一覧がないので、足さないと見えず、確認にも答えられない
+describe("agents that have not reported yet", () => {
+  const codex = { key: "codex", name: "Codex", agent: true };
+  const shell = { key: "shell", name: "zsh", agent: false };
+  const spaces = [
+    { id: "a", name: "a", tabs: [{ id: "a1", index: 1, name: "1" }, { id: "a2", index: 2, name: "Codex" }, { id: "a3", index: 3, name: "3" }] },
+    { id: "b", name: "b", tabs: [{ id: "b1", index: 1, name: "1" }] },
+  ];
+
+  test("a tab's pane running an agent with no status is added where agents() would list it", () => {
+    const agents = [
+      { address: "t1", pane: "p1", space: "a", tab: "a1", status: "idle" },
+      { address: "t3", pane: "p3", space: "a", tab: "a3", status: "working" },
+      { address: "t4", pane: "p4", space: "b", tab: "b1", status: "idle" },
+    ];
+    const panes = [
+      { pane: "p1", terminal: "t1", tab: "a1", status: "idle", program: codex },
+      { pane: "p2", terminal: "t2", tab: "a2", status: null, app: null, program: codex, title: "" }, // 確認で止まっている
+      { pane: "p3", terminal: "t3", tab: "a3", status: "working", program: codex },
+      { pane: "p4", terminal: "t4", tab: "b1", status: "idle", program: codex },
+    ];
+    const all = withSilent(agents, panes, spaces);
+    expect(all.map((a) => a.address)).toEqual(["t1", "t2", "t3", "t4"]);
+    expect(all[1]).toMatchObject({ address: "t2", pane: "p2", space: "a", space_name: "a", tab: "a2", tab_index: 2, tab_name: "Codex",
+      status: null, program: codex, silent: true });
+    expect(all.filter((a) => a.silent).length).toBe(1); // 報告している人には付けない
+    // 部屋では、報告している人と同じく席に着く（空いた席はいつもいちばん後ろ）
+    expect(roomsOf([space("a"), space("b")], all)[0].seats.map((s) => s.agent)).toEqual(["t1", "t2", "t3", null]);
+  });
+
+  test("not added: shells and other programs, mod panes, terminals already in agents(), tabs not in any space", () => {
+    const agents = [{ address: "t1", pane: "p1", space: "a", tab: "a1", status: "idle" }];
+    const panes = [
+      { pane: "p1", terminal: "t1", tab: "a1", status: null, program: codex },
+      { pane: "p2", terminal: "t2", tab: "a2", status: null, program: shell },
+      { pane: "p3", terminal: null, mod: "files", tab: "a3", status: null, program: codex },
+      { pane: "p9", terminal: "t9", tab: "gone", status: null, program: codex },
+    ];
+    expect(withSilent(agents, panes, spaces)).toBe(agents);
+  });
+
+  // 雇った人。info は main.js の gather と同じ形（silent のときは status が null）
+  const hired = () => {
+    const rooms = roomsOf([space("sp1")], [{ address: "t1", space: "sp1", status: null, silent: true }]);
+    return { rooms, info: new Map([["t1", { status: null, app: "codex", name: "Codex", silent: true }]]) };
+  };
+  // main.js と同じく、コマごとに進めてから合わせる
+  const step = (office, w, ms) => {
+    for (let t = 0; t < ms; t += 250) {
+      office.tick(250);
+      office.sync(w.rooms, w.info);
+    }
+  };
+
+  test("stuck before it reports: waits behind its seat, then raises a hand with a ! that shows its terminal", () => {
+    const office = new Office(seeded(13));
+    const w = hired();
+    office.sync(w.rooms, w.info);
+    const c = office.chars.get("t1");
+    step(office, w, SILENT_MS - 250);
+    expect(c.behavior).toBe("wait");
+    expect([c.seated, c.x, c.y, c.path.length]).toEqual([false, w.rooms[0].seats[0].cx, LANE_Y, 0]); // 席の後ろに立ったまま
+    let d = drawables(w.rooms[0], office);
+    expect(d.find((x) => x.id === "char-t1").img).toMatch(/-(stand|blink)$/);
+    expect(d.find((x) => x.id === "bubble-t1")).toBeUndefined();
+    step(office, w, 250);
+    expect(c.behavior).toBe("raise");
+    d = drawables(w.rooms[0], office);
+    expect(d.find((x) => x.id === "char-t1").img).toMatch(/-raise-[01]$/);
+    expect(d.find((x) => x.id === "bubble-t1")).toMatchObject({ img: "bubble-alert", click: { type: "focus", terminal: "t1" } });
+    expect(d.find((x) => x.id === "char-t1").click).toEqual({ type: "focus", terminal: "t1" });
+    // 確認に答えて報告を始めたら（idle）、ふつうの人と同じくうろうろ
+    w.info.set("t1", { status: "idle", app: "codex", name: "Codex" });
+    office.sync(w.rooms, w.info);
+    expect(c.behavior).toBe("wander");
+    expect(c.silentSince).toBeUndefined();
+  });
+
+  test("a normal start reports before SILENT_MS: no hand goes up", () => {
+    const office = new Office(seeded(14));
+    const w = hired();
+    office.sync(w.rooms, w.info);
+    step(office, w, 1000);
+    w.info.set("t1", { status: "idle", app: "codex", name: "Codex" });
+    step(office, w, SILENT_MS * 2);
+    expect(office.chars.get("t1").behavior).toBe("wander");
   });
 });
 

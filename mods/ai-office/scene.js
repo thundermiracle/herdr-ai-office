@@ -15,6 +15,8 @@ export const TALK_MS = 4800; // 話しかけに行って話す時間（話しか
 export const TALK_TURN_MS = 1200;
 export const TALK_DEDUP_MS = 20000; // 受け取った側の出来事は、同じ 2 人でこの間に話しに行っていたら数えない（送った側と重なるので）
 export const TALK_COLOR = "#e8b84a"; // 話しかけるときの札（送った文）の色
+// まだ状態を報告していない人（withSilent）が、席の後ろで待ってから手を挙げるまで。ふつうの起動は 1 秒もかからずに報告する
+export const SILENT_MS = 3000;
 
 // オフィスは 1 枚のフロア: 左に縦の廊下（一番上が資料室で、本棚はここに 1 つ）、その右に部屋をすき間なく並べる。
 // 部屋の形と、床・壁・ガラスなどの絵は、テーマで選ぶ。テーマは themes/<名前>/theme.json と PNG（人が足すものは
@@ -473,6 +475,42 @@ export function openAgents(spaces, agents) {
   return new Set(tab ? agents.filter((a) => a.tab === tab).map((a) => a.address) : []);
 }
 
+/**
+ * agents() に、まだ状態を報告していないエージェントを足す（silent: true を付ける）。状態はプログラムが自分で報告する
+ * （OSC 7501）ので、報告を始めるまでは agents() に出てこない。雇った直後（ふつうは 1 秒もかからない）のほか、起動の前の
+ * 確認（Codex のアップデートの確認や、まだ信頼していない git のフォルダの確認など）で止まっている間は、ずっと出てこない。
+ * オフィスのレイアウトにはタブの一覧がないので、足さないと、その人は見えず、確認にも答えられない。
+ * panes は herdr の panes()、spaces は spaces()。足すのは、どこかのタブのペインで、エージェントのプログラム（program.agent）が
+ * 動いていて状態のないもの（シェルやエディタ、ペインのない hc run のターミナルは足さない）。agents() の並びは変えず、
+ * 足す人は同じスペース・タブ・ペインの順の位置に入れる（報告を始めても席が入れ替わらない）。足す人がいなければ agents をそのまま返す。
+ */
+export function withSilent(agents, panes, spaces) {
+  const tabs = new Map(); // タブの id → { space, tab, at: [スペースの位置, タブの位置] }
+  spaces.forEach((s, si) => (s.tabs ?? []).forEach((t, ti) => tabs.set(t.id, { space: s, tab: t, at: [si, ti] })));
+  const listed = new Set(agents.map((a) => a.address));
+  const silent = panes
+    .filter((p) => p.terminal && !listed.has(p.terminal) && !p.status && p.program?.agent && tabs.has(p.tab))
+    .map((p) => {
+      const { space: s, tab: t } = tabs.get(p.tab);
+      return { address: p.terminal, pane: p.pane, space: s.id, space_name: s.name, tab: t.id, tab_index: t.index, tab_name: t.name,
+        status: null, app: p.app ?? null, program: p.program, title: p.title ?? "", silent: true };
+    });
+  if (!silent.length) return agents;
+  const paneAt = new Map(panes.map((p, i) => [p.pane, i]));
+  const key = (a) => [...(tabs.get(a.tab)?.at ?? [Infinity, Infinity]), paneAt.get(a.pane) ?? Infinity];
+  const after = (x, y) => { // 並びで x が y より後ろか
+    for (let j = 0; j < x.length; j++) if (x[j] !== y[j]) return x[j] > y[j];
+    return false;
+  };
+  const out = [...agents];
+  for (const s of silent) {
+    const k = key(s);
+    const at = out.findIndex((a) => after(key(a), k));
+    out.splice(at < 0 ? out.length : at, 0, s);
+  }
+  return out;
+}
+
 /** スペースごとに部屋を作る。agents は herdr の agents()（スペース・タブ・ペインの順）。docs と present は roomOf と同じ。 */
 export function roomsOf(spaces, agents, docs = new Map(), present = null) {
   return spaces.map((s) => roomOf(s, agents.filter((a) => a.space === s.id), docs, present));
@@ -682,7 +720,10 @@ export class Office {
         // hc send で話しかけた（送った人のフック）か、話しかけられた（受け取った人のフック）
         if (happened("talkAt", a.talkAt)) talks.push({ from: c.address, to: a.talk, text: a.talkText, sender: true });
         if (happened("heardAt", a.heardAt)) talks.push({ from: a.heard, to: c.address, text: a.heardText, sender: false });
-        let b = behaviorOf(a.status, a.act);
+        // まだ状態を報告していない人（withSilent）: いつから報告がないか（behaviorNow が手を挙げるかを決める）
+        if (!a.silent) c.silentSince = undefined;
+        else if (c.silentSince === undefined) c.silentSince = this.clock;
+        let b = this.behaviorNow(c);
         if (c.errand && b === "raise") c.errand = null; // 質問・許可待ちは用事より先（すぐ手を挙げる）
         if (c.errand) b = c.errand.kind === "talk" ? "visit" : "read"; // 用事の途中は、エージェントが次に移っても続ける
         if (errandNow || b !== c.behavior || relocated || (moved && b !== "wander" && b !== "read")) this.retarget(c, b);
@@ -697,7 +738,7 @@ export class Office {
       if (!partner) {
         c.errand = null;
         c.returning = true;
-        this.retarget(c, behaviorOf(c.info.status, c.info.act));
+        this.retarget(c, this.behaviorNow(c));
         continue;
       }
       const spot = this.visitSpot(partner);
@@ -781,11 +822,20 @@ export class Office {
     return { x: x - 14 >= lo ? x - 14 : Math.min(x + 14, hi), y };
   }
 
+  /**
+   * 今の状態の動き（behaviorOf）。まだ状態を報告していない人（info.silent）は、席の後ろに立って待ち（wait）、SILENT_MS たっても
+   * 報告がなければ手を挙げる（raise。許可待ちと同じ「!」で、クリックでそのターミナルを出し、起動の前の確認に答えられる）
+   */
+  behaviorNow(c) {
+    if (!c.info?.silent) return behaviorOf(c.info?.status, c.info?.act);
+    return this.clock - (c.silentSince ?? this.clock) >= SILENT_MS ? "raise" : "wait";
+  }
+
   retarget(c, behavior) {
     const sits = (b) => b === "type" || b === "done";
     if (behavior === "visit" && !this.chars.has(c.errand?.to)) {
       c.errand = null; // 相手がもういない
-      behavior = behaviorOf(c.info.status, c.info.act);
+      behavior = this.behaviorNow(c);
     }
     c.behavior = behavior;
     if (behavior !== "read") c.spot = undefined;
@@ -876,7 +926,7 @@ export class Office {
         if (c.errand.left <= 0) {
           c.errand = null;
           c.returning = true;
-          this.retarget(c, behaviorOf(c.info.status, c.info.act));
+          this.retarget(c, this.behaviorNow(c));
           changed = true;
         }
       }
@@ -1312,7 +1362,8 @@ export function drawables(room, office, skills = []) {
     const { look, band, flame } = c.look;
     const ph = office.t + c.phase;
     const click = { type: "focus", terminal: c.address };
-    const tip = [c.info.name, modelLabel(c.info.model), c.info.effort, c.info.where, c.info.status].filter(Boolean).join(" · ");
+    const state = c.info.silent ? "状態の報告がまだない（起動中か、起動の前の確認で止まっている。クリックで表示）" : c.info.status;
+    const tip = [c.info.name, modelLabel(c.info.model), c.info.effort, c.info.where, state].filter(Boolean).join(" · ");
     // キャラ。effort の鉢巻きは同じ大きさの重ね絵（over）で、キャラのすぐ上に描く
     const person = (pose, x, y, h, z) => {
       add({ id: `char-${c.address}`, img: `char/${look}-${pose}`, over: band ? `band/${band}-${pose}` : null,
