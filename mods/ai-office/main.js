@@ -25,6 +25,10 @@ const META_MS = 10000; // model と effort を読み直す間隔
 const HIDDEN_MS = 1000; // 隠れている間は、この間隔で見えるようになったかだけ見る
 const SKILLS_MS = 60000; // 使える skill を読み直す間隔（めったに変わらない）
 const DOCS_CHECK_MS = 3000; // ホワイトボードに載せる .md が今読めるかを調べ直す間隔
+// 右下の通知のスイッチ（上の帯の「通知」）: shared に置き、"off" なら ai-office-toast が通知を出さない（ない・"on" なら出す）。
+// 効くのは、レイアウトのいちばん外側の "toast" が ai-office-toast のレイアウト（ai-office・main-dots-office）だけ
+const TOASTS = "ai-office.toasts";
+const TOAST_MOD = "ai-office-toast";
 // 窓の外の天気: 選んだ場所の今の天気（Open-Meteo。キーは要らず、送るのはその場所の緯度経度だけ）
 const weatherUrl = (place) => `https://api.open-meteo.com/v1/forecast?latitude=${place.lat}&longitude=${place.lon}`
   + "&current=weather_code,temperature_2m&timezone=auto";
@@ -261,11 +265,18 @@ export default class AiOffice extends View {
     this.placeId = currentPlace().id;
     this.loadWeather(cx);
     cx.timer.every(WEATHER_CHECK_MS, (cx) => this.loadWeather(cx));
-    // 窓を試す（herdr-app do ai-office.sky-rain、sky-1930、sky-night、sky-auto）。この窓を開いている間だけ
+    // herdr-app do ai-office.<コマンド>（オフィスが見えている間だけ届く）: 窓を試す（sky-rain、sky-1930、sky-night、sky-auto）と、
+    // 右下の通知のスイッチ（toasts-on で出す、toasts-off で出さない。上の帯の「通知」と同じ）
     this.trial = { weather: null, time: null };
     cx.spawn(async (cx) => {
       for (;;) {
-        const change = parseSkyCommand(await nextCommand(), Date.now(), currentPlace());
+        const command = await nextCommand();
+        const toasts = /^toasts-(on|off)$/.exec(command ?? "");
+        if (toasts) {
+          setShared(TOASTS, toasts[1]); // 描き直しは shared が変わったときに Herdr がする
+          continue;
+        }
+        const change = parseSkyCommand(command, Date.now(), currentPlace());
         if (!change) continue;
         Object.assign(this.trial, change);
         cx.notify();
@@ -977,6 +988,9 @@ export default class AiOffice extends View {
       if (status) counts[status] = (counts[status] ?? 0) + 1;
     }
     const dragging = this.dragText(floor);
+    const quiet = shared(TOASTS) === "off";
+    // 窓（mod.open）でほかのレイアウトの上に開いたときは、スイッチが効かないので薄くし、ツールチップで言う
+    const toastsHere = layout()?.toast === TOAST_MOD;
     return v_flex().id("root").size_full().bg(t.canvas).text_color(t.foreground)
       .on_mouse_up("left", (_e, cx) => { // フロアの外（上の帯など）で離した: 部屋のドラッグをやめる
         if (this.drag?.moved) cx.notify();
@@ -989,18 +1003,30 @@ export default class AiOffice extends View {
           cx.notify();
         }
       })
+      // 上の帯: 細い列（main-dots-office の Office の列は 440px まで狭まる）では、件数（ドラッグ中はその説明）だけを「…」で切り、
+      // ほかは縮めない（全部並べると約 525px）
       .child(h_flex().h(32).flex_none().px(14).gap(14).items_center().text_size(12).text_color(t.muted)
-        .child(div().font_semibold().text_color(t.foreground).child("AI Office"))
+        .child(div().flex_none().font_semibold().text_color(t.foreground).child("AI Office"))
         .child(dragging
           ? div().min_w(0).truncate().font_semibold().text_color(t.accent).child(dragging) // 部屋をドラッグ中: どうなるか
-          : div().child(`作業中 ${counts.working} · 待ち ${counts.blocked} · 完了 ${counts.done} · 待機 ${counts.idle}`))
-        .child(h_flex().id("theme").ml_auto().px(6).gap(4).items_center().rounded(4).cursor_pointer().text_color(t.dim)
+          : div().min_w(0).truncate().child(`作業中 ${counts.working} · 待ち ${counts.blocked} · 完了 ${counts.done} · 待機 ${counts.idle}`))
+        .child(h_flex().id("theme").flex_none().ml_auto().px(6).gap(4).items_center().rounded(4).cursor_pointer().text_color(t.dim)
           .hover((s) => s.text_color(t.foreground))
           .tooltip([current?.description ?? "", "クリックでテーマを選ぶ"].filter(Boolean).join("\n"))
           .on_click(() => this.themeMenu(themes))
           .child(`テーマ: ${current?.label ?? this.theme}`)
           .child(svg("mods/workspace-chrome/chevron-down.svg").size(10)))
-        .child(div().id("legend").px(6).rounded(4).cursor_pointer().text_color(t.dim).hover((s) => s.text_color(t.foreground))
+        .child(div().id("toasts").flex_none().px(6).rounded(4).cursor_pointer().text_color(t.dim).when(!toastsHere, (el) => el.opacity(0.5))
+          .hover((s) => s.text_color(t.foreground))
+          .tooltip([
+            quiet ? "右下の通知（エージェントの待ち・完了など）を出していない。クリックで出す"
+              : "右下の通知（エージェントの待ち・完了など）を出している。クリックで出さないようにする",
+            "音は止まらない（音は Herdr の Settings > Alerts）",
+            toastsHere ? "" : "このレイアウトでは効かない（効くのは ai-office と main-dots-office のレイアウト）",
+          ].filter(Boolean).join("\n"))
+          .on_click(() => setShared(TOASTS, quiet ? "on" : "off"))
+          .child(quiet ? "通知: 出さない" : "通知: 出す"))
+        .child(div().id("legend").flex_none().px(6).rounded(4).cursor_pointer().text_color(t.dim).hover((s) => s.text_color(t.foreground))
           .tooltip("クリックで凡例（キャラの見分け方: AI と model、effort の鉢巻き）")
           .on_click(() => openOverlay({ mod: "ai-office-legend", kind: "popup", width: 300, height: 420 }))
           .child("凡例")))

@@ -67,7 +67,7 @@ herdr-app do layout.toggle --id office               # ボタンと同じ（開�
 
 Files・Changes のボタンは同梱の `tabs` mod に直接書かれていて増やせないので、`tabs` は複製せず
 （Herdr の更新を取り込み直す手間がない）、隣に `ai-office-toggle` のブロックを置いている。
-`layouts/main-dots-office.json` は main-dots からの 2 か所の変更だけで、本番では chezmoi の
+`layouts/main-dots-office.json` は main-dots から次の 3 か所だけを変えたもので、本番では chezmoi の
 `private_dot_config/herdr-app/layouts/main-dots.json` に同じ変更を入れる:
 
 1. タブバーのブロック（`"id": "tabs"`）を、タブバーと `ai-office-toggle`（幅 88、`window_drag`）を横に並べた
@@ -75,7 +75,10 @@ Files・Changes のボタンは同梱の `tabs` mod に直接書かれていて�
 2. `work-body` の子の最後に、オフィスのブロックを足す:
    `{"id": "office", "type": "block", "hidden": true, "size": {"px": 560}, "min": 440, "max": 1400,
    "content": {"mod": "ai-office", "props": {"block": "office"}}}`（`props.block` で自分が隠れているかを調べる）
-見本は質問や完了を報告するので、herdr-app の通知音とトーストが出る（全部を順に回る 1 人は 40 秒ごとに質問する）。
+3. いちばん外側（`"id": "root"`）に `"toast": "ai-office-toast"` を足す。右下の通知は `ai-office-toast` で描く（下の「右下の通知」）
+
+見本が質問や完了を報告するので、herdr-app の通知音が鳴り、右下に通知（トースト）が出る。全部を順に回る 1 人は 40 秒ごとに質問する。
+右下の通知はオフィスの「通知: 出さない」で止められる。
 質問役（タブ ask）は、Claude Code の複数の質問のように 3 問を続けて聞き、最後に答えの確認を出す。
 
 ## テーマ（部屋の形）
@@ -162,6 +165,23 @@ Files・Changes のボタンは同梱の `tabs` mod に直接書かれていて�
   見える。和風の座布団は 20 x 13）
 - テーマで変えられるのは、寸法と、床・壁・廊下・ガラス・扉の絵と、仕切りの色、窓の枠（3 つから）、机と椅子の絵。机の並べ方・
   歩き方の決まり・ほかの家具（植木・ノート PC など）は変えられない
+
+## 右下の通知
+
+オフィスの上の帯の「通知: 出す」をクリックすると「通知: 出さない」になり、herdr-app の右下の通知（トースト）が止まる。
+もう一度クリックすると戻る。右下の通知は、エージェントが待っているときや、見ていない間に終わったときに出る。
+
+初めは「出す」（Herdr のまま）。選んだ設定は shared（`ai-office.toasts`）に置くので、再起動しても残り、同じ PC で
+開いているほかのオフィスにも反映される。ほかの PC には伝わらない。`herdr-app do ai-office.toasts-off`（出さない）・
+`toasts-on`（出す）でも切り替えられる。コマンドはオフィスが見えているときだけ届く。
+
+- 「通知: 出さない」で止まるのは右下の通知だけで、音は鳴る。その間は、エラー通知（コマンドの失敗など）も mod の
+  `notify()` も出ない。Herdr の設定には通知を止める項目がない。Settings > Alerts の「Play sounds」を切っても、止まるのは音だけ。
+- 効くのは、いちばん外側に `"toast": "ai-office-toast"` があるレイアウト（`ai-office` と `main-dots-office`）だけ。
+  オフィスを浮いた窓（`mod.open`）でほかのレイアウトの上に開くと、スイッチが薄くなる。押せるが、浮いた窓の下にある
+  レイアウトでは効かない。
+- Herdr は、レイアウトのいちばん外側の `"toast"` に指定した mod で通知を描く。`mods/ai-office-toast/` は Herdr 0.1.16 同梱の
+  `toast` の写しで、「出さない」なら通知が出たらすぐ閉じる。Herdr の更新で同梱の `toast` が変わったら写し直す。
 
 ## 状態と動き
 
@@ -359,6 +379,7 @@ hooks/register.sh remove   # このフックだけ外す（ほかのフックは
 | `mods/ai-office-legend/` | 右上の「凡例」をクリックすると出る、キャラの見分け方（オフィスと同じ絵） |
 | `mods/ai-office-tab/` | 机の PC をクリックすると出る、そのエージェントのタブのメニュー（名前を変える・閉じる） |
 | `mods/ai-office-ask/` | 質問の「?」をクリックすると出る、質問と選択肢（`parse.js` が画面から読む） |
+| `mods/ai-office-toast/` | 右下の通知を描く（Herdr 同梱の `toast` の写し）。上の帯の設定が「通知: 出さない」のときは出さない |
 | `layouts/ai-office.json` | オフィスと、選んだエージェントのターミナルを並べたレイアウト |
 | `layouts/main-dots-office.json` | main-dots に「Office」ボタンとオフィスの列を足したレイアウト |
 | `scripts/build-art.py` | ドット絵（文字の格子で描き、4 倍の PNG に書き出す）。テーマの絵は `themes/modern/` と `themes/classic/`（和風）へ。窓の外は、空（`img/sky/`）と、町ごとの街並みと名物（`img/view/<町>-<時間帯>`）を重ねる。`tmp/art-preview.png` に一覧と部屋の見本、`tmp/landmarks-preview.png` に町ごとの窓 |
