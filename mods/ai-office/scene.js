@@ -1338,11 +1338,11 @@ export function drawables(room, office, skills = []) {
     add({ id: `desk-${seat.i}`, img: "desk-m", ...art("desk-m"), x: seat.segX, y: BACK, w: 24, h: 21, z: BACK + 15 });
     if (seat.agent) {
       // 誰かの席: いつもの椅子とノート PC（本人が歩き回っていても置いたまま）。PC は名札と同じく、クリックでその人を
-      // 表示してから、右クリックはそのまま、その人のタブのメニュー（名前を変える・閉じる。main.js の tabMenu）
+      // 表示し、右クリックでその人のタブのメニュー（名前を変える・閉じる。main.js の tabMenu）
       add({ id: `chair-${seat.i}`, img: "chair", ...art("chair"), ...chairAt(seat), z: BACK - 2 });
       add({ id: `laptop-${seat.i}`, img: "laptop", x: seat.segX + 5, y: BACK - 5, w: 14, h: 10, z: BACK + 15.5, owner: seat.agent,
-        click: { type: "tab-menu", terminal: seat.agent, focus: true }, right: { type: "tab-menu", terminal: seat.agent },
-        tip: "PC: クリックでこのエージェントのタブのメニュー（名前を変える・閉じる）。右クリックはメニューだけ", glow: true });
+        click: { type: "focus", terminal: seat.agent }, right: { type: "tab-menu", terminal: seat.agent },
+        tip: "PC: クリックでこのエージェントを表示。右クリックでタブのメニュー（名前を変える・閉じる）", glow: true });
       // 机の前の板の名札（タブバーと同じ名前。長ければ切る）。本人が歩き回っていても席に残るので、誰の席か分かる。
       // クリックはキャラと同じく、その人を表示
       const info = office.chars.get(seat.agent)?.info ?? {};

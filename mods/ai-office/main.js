@@ -551,7 +551,7 @@ export default class AiOffice extends View {
   }
 
   // scene.js の click: { type: "focus", terminal } / { type: "hire", space, machine } / { type: "skills" }。
-  // 壁のホワイトボード: { type: "docs", room, docs: [{ path, kind, who }] }。机の PC: { type: "tab-menu", terminal, focus? }
+  // 壁のホワイトボード: { type: "docs", room, docs: [{ path, kind, who }] }。机の PC の右クリック: { type: "tab-menu", terminal }
   act(click) {
     if (click.type === "focus") run("agent.focus", { terminal: click.terminal });
     if (click.type === "tab-menu") this.tabMenu(click);
@@ -576,13 +576,12 @@ export default class AiOffice extends View {
     }
   }
 
-  // 机の PC: そのエージェントのタブのメニュー（ai-office-tab: 名前を変える・閉じる。New tab は出さない）。名札と同じく、
-  // 左クリックはその人を表示してから（focus）、右クリックはメニューだけ。閉じる前に確かめるかは Herdr の tab.close に任せる
-  tabMenu({ terminal, focus }) {
+  // 机の PC の右クリック: そのエージェントのタブのメニュー（ai-office-tab: 名前を変える・閉じる。New tab は出さない）。
+  // 左クリックは名札と同じく、その人を表示するだけ（focus）。閉じる前に確かめるかは Herdr の tab.close に任せる
+  tabMenu({ terminal }) {
     // まだ状態を報告していない人（withSilent）は agents() にいないので、ペインからタブを探す
     const tab = agents().find((x) => x.address === terminal)?.tab ?? panes().find((p) => p.terminal === terminal)?.tab;
     if (!tab) return;
-    if (focus) run("agent.focus", { terminal });
     openOverlay({ mod: "ai-office-tab", kind: "popup", width: 200, height: 90, props: { tab } });
   }
 
@@ -680,14 +679,15 @@ export default class AiOffice extends View {
 
   // 壁の名札（スペースの名前。長ければ真ん中を「…」にして、だいたい herdr-ai-office ほどの長さまで）。左の仕切りの右から、
   // 窓（書いたものがあればホワイトボード）の手前まで（それより長くなるときは、さらに終わりを「…」で切る）。
-  // 左クリックでそのスペースを選び、herdr のスペースのメニュー（名前を変える・閉じる、git ならワークツリー）を出す。
+  // 左クリックでそのスペースを選び、その部屋のメニュー（ai-office-tab: 名前を変える・閉じる、git ならワークツリーを開く・外す。
+  // ワークツリーを作るのはエージェントなので、Herdr のスペースのメニューにある New worktree は出さない）を出す。
   // 右クリックはメニューだけ。閉じるときは herdr が確かめる（部屋のエージェントも終わる）。
   // 名札の並ぶ壁と同じく、ほかの部屋へドラッグすると部屋の順番が変わる（名札の上で離せばクリック）
   plate(room) {
     const full = room.machine ? `${room.machine}: ${room.name}` : room.name;
     const text = plateText(full); // 長い名前は真ん中を「…」に（全部はツールチップ）
     const right = room.docs.length ? room.w - 116 : room.w - 76;
-    const menu = () => openOverlay({ mod: "menu", kind: "popup", width: 200, height: 260, props: { tab: "space", target: { id: room.id } } });
+    const menu = () => openOverlay({ mod: "ai-office-tab", kind: "popup", width: 200, height: 260, props: { space: room.id } });
     return div().id(`plate-${room.id}`).absolute().left(px(room.ox + 10)).top(px(room.oy + 5)).h(px(12)).max_w(px(right - 14))
       .cursor_pointer().on_mouse_down("left", (_e, cx) => {
         this.drag = { from: room.id, over: null, start: null, moved: false };

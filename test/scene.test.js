@@ -558,8 +558,10 @@ describe("drawables", () => {
     office.sync(w.rooms, w.info);
     const d = drawables(w.rooms[0], office);
     expect(d.find((x) => x.id === "chair-0").img).toBe("chair");
-    expect(d.find((x) => x.id === "laptop-0")).toMatchObject({ // PC: タブのメニュー（クリックは表示してから）
-      click: { type: "tab-menu", terminal: "t1", focus: true }, right: { type: "tab-menu", terminal: "t1" } });
+    // PC: クリックは名札と同じく表示するだけ、右クリックでタブのメニュー
+    const laptop = d.find((x) => x.id === "laptop-0");
+    expect(laptop.click).toEqual({ type: "focus", terminal: "t1" });
+    expect(laptop.right).toEqual({ type: "tab-menu", terminal: "t1" });
     // PC は 14 x 10（座った人の胴と同じ幅）で席の真ん中、上の端は机の奥の縁の 5 上（口の下。顔にかからない）
     expect(d.find((x) => x.id === "laptop-0")).toMatchObject({ x: w.rooms[0].seats[0].cx - 7, y: BACK - 5, w: 14, h: 10 });
     expect(d.find((x) => x.id === "chair-1").img).toBe("chair-free");
