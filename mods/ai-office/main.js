@@ -6,7 +6,7 @@ import { v_flex, h_flex } from "gpui-base";
 import * as fs from "fs/promises";
 import {
   spaces, agents, terminals, panes, theme, window, run, openOverlay, pickFolder, home, appHome, readTextFile, layout, props, setShared,
-  shared, nextCommand,
+  shared, nextCommand, knownAgents,
 } from "herdr";
 import {
   SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, layoutFloor, drawables,
@@ -35,13 +35,14 @@ const WEATHER_STALE_MS = 3 * 3600000; // これより古い天気は使わない
 /**
  * herdr のデータを集める: スペースごとの部屋と、エージェントごとの状態・model・effort。
  * meta: Claude のセッション ID → { model, effort }（loadMeta が読む）、codexDefaults: ~/.codex/config.toml の既定、
- * present: ホワイトボードに載せる .md のうち今読めるもの（checkDocs が調べる。読めないものは載せない）。
+ * present: ホワイトボードに載せる .md のうち今読めるもの（checkDocs が調べる。読めないものは載せない）、
+ * agentKeys: エージェントのプログラムの key（loadAgentKeys が読む。まだ状態を報告していない人を見分ける）。
  */
-function gather(meta, codexDefaults, present) {
+function gather(meta, codexDefaults, present, agentKeys) {
   const sp = spaces();
   const ps = panes();
   // 報告している人と、まだ状態を報告していない人（雇った直後や、起動の前の確認で止まっている人。withSilent）
-  const ag = withSilent(agents(), ps, sp);
+  const ag = withSilent(agents(), ps, sp, agentKeys);
   const terms = new Map(terminals().map((t) => [t.address, t]));
   const tabs = new Map(sp.flatMap((s) => (s.tabs ?? []).map((tab) => [tab.id, tab])));
   const info = new Map(ag.map((a) => {
@@ -250,6 +251,11 @@ export default class AiOffice extends View {
     this.skillsKey = "";
     this.loadSkills(cx);
     cx.timer.every(SKILLS_MS, (cx) => this.loadSkills(cx));
+    this.agentKeys = new Set(); // エージェントのプログラムの key（loadAgentKeys。読めるまでは空で、誰も足さない）
+    this.loadAgentKeys(cx);
+    cx.timer.every(SKILLS_MS, (cx) => { // 読めなかったときだけ試し直す（失敗は覚えられない）
+      if (!this.agentKeys.size) this.loadAgentKeys(cx);
+    });
     this.weatherTried = 0;
     this.weatherFor = null; // 最後に天気を取りにいった場所（場所が変わったら、待たずに取る）
     this.placeId = currentPlace().id;
@@ -390,7 +396,7 @@ export default class AiOffice extends View {
       this.office = new Office();
       this.sig = "";
     }
-    const { rooms, info, open } = gather(this.meta, this.codexDefaults, this.present);
+    const { rooms, info, open } = gather(this.meta, this.codexDefaults, this.present, this.agentKeys);
     this.open = open;
     const floor = layoutFloor(rooms, this.width / SCALE - 2 * MARGIN);
     const placed = floor.rooms.filter((r) => !r.newRoom);
@@ -407,6 +413,23 @@ export default class AiOffice extends View {
       ...placed.flatMap((r) => drawables(r, this.office, skills)
         .map((d) => ({ ...d, id: `${r.id}-${d.id}`, x: d.x + r.ox, y: d.y + r.oy, z: d.z + r.oy }))),
     ].sort((a, b) => a.z - b.z);
+  }
+
+  // エージェントのプログラムの key: 雇うポップアップと同じ knownAgents()（programs.json の run のあるもの）。まだ状態を
+  // 報告していない人のペインは program.agent が false なので、program.key がこの中にあるかで見分ける（withSilent）。
+  // 表はめったに変わらないので、読めたら読み直さない
+  loadAgentKeys(cx) {
+    cx.spawn(async (cx) => {
+      try {
+        const keys = new Set((await knownAgents()).map((a) => a.key));
+        if (keys.size) {
+          this.agentKeys = keys;
+          cx.notify();
+        }
+      } catch {
+        // 読めなかった: init の timer が SKILLS_MS ごとに試し直す
+      }
+    });
   }
 
   // model と effort: Claude は effort-recorder（statusLine）がセッションごとに書くキャッシュ

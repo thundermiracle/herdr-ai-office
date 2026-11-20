@@ -480,16 +480,19 @@ export function openAgents(spaces, agents) {
  * （OSC 7501）ので、報告を始めるまでは agents() に出てこない。雇った直後（ふつうは 1 秒もかからない）のほか、起動の前の
  * 確認（Codex のアップデートの確認や、まだ信頼していない git のフォルダの確認など）で止まっている間は、ずっと出てこない。
  * オフィスのレイアウトにはタブの一覧がないので、足さないと、その人は見えず、確認にも答えられない。
- * panes は herdr の panes()、spaces は spaces()。足すのは、どこかのタブのペインで、エージェントのプログラム（program.agent）が
- * 動いていて状態のないもの（シェルやエディタ、ペインのない hc run のターミナルは足さない）。agents() の並びは変えず、
+ * panes は herdr の panes()、spaces は spaces()、agentKeys はエージェントのプログラムの key（knownAgents() の key。雇う
+ * ポップアップと同じ）。足すのは、どこかのタブのペインで、エージェントのプログラムが動いていて状態のないもの（シェルやエディタ、
+ * ペインのない hc run のターミナルは足さない）。報告していないペインの program.agent は false なので（program.key は
+ * codex などになる）、key で見分ける。agentKeys が空（まだ読めていない）なら誰も足さない。agents() の並びは変えず、
  * 足す人は同じスペース・タブ・ペインの順の位置に入れる（報告を始めても席が入れ替わらない）。足す人がいなければ agents をそのまま返す。
  */
-export function withSilent(agents, panes, spaces) {
+export function withSilent(agents, panes, spaces, agentKeys = new Set()) {
   const tabs = new Map(); // タブの id → { space, tab, at: [スペースの位置, タブの位置] }
   spaces.forEach((s, si) => (s.tabs ?? []).forEach((t, ti) => tabs.set(t.id, { space: s, tab: t, at: [si, ti] })));
   const listed = new Set(agents.map((a) => a.address));
   const silent = panes
-    .filter((p) => p.terminal && !listed.has(p.terminal) && !p.status && p.program?.agent && tabs.has(p.tab))
+    .filter((p) => p.terminal && !listed.has(p.terminal) && !p.status && tabs.has(p.tab)
+      && (p.program?.agent || agentKeys.has(p.program?.key)))
     .map((p) => {
       const { space: s, tab: t } = tabs.get(p.tab);
       return { address: p.terminal, pane: p.pane, space: s.id, space_name: s.name, tab: t.id, tab_index: t.index, tab_name: t.name,

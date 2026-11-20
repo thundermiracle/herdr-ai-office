@@ -628,29 +628,34 @@ describe("who sits where", () => {
 // 状態はプログラムが自分で報告するので、雇った直後や、起動の前の確認（Codex のアップデートの確認など）で止まっている人は
 // agents() に出てこない。オフィスにはタブの一覧がないので、足さないと見えず、確認にも答えられない
 describe("agents that have not reported yet", () => {
-  const codex = { key: "codex", name: "Codex", agent: true };
-  const shell = { key: "shell", name: "zsh", agent: false };
+  // herdr の panes() の program と同じ形。報告している人だけ agent が true で、確認で止まっている Codex は key が codex でも
+  // agent は false（2026-11-20 にオフィスの panes() を書き出して確かめた）
+  const claude = { key: "claude", name: "Claude Code", shell: false, agent: true };
+  const stuck = (key, name) => ({ key, name, shell: false, agent: false });
+  const shell = { key: "shell", name: "zsh", shell: true, agent: false };
+  const KEYS = new Set(["claude", "codex", "kiro", "cursor"]); // knownAgents() の key
   const spaces = [
     { id: "a", name: "a", tabs: [{ id: "a1", index: 1, name: "1" }, { id: "a2", index: 2, name: "Codex" }, { id: "a3", index: 3, name: "3" }] },
     { id: "b", name: "b", tabs: [{ id: "b1", index: 1, name: "1" }] },
   ];
 
-  test("a tab's pane running an agent with no status is added where agents() would list it", () => {
+  test("a tab's pane running an agent program with no status is added where agents() would list it", () => {
     const agents = [
       { address: "t1", pane: "p1", space: "a", tab: "a1", status: "idle" },
       { address: "t3", pane: "p3", space: "a", tab: "a3", status: "working" },
       { address: "t4", pane: "p4", space: "b", tab: "b1", status: "idle" },
     ];
     const panes = [
-      { pane: "p1", terminal: "t1", tab: "a1", status: "idle", program: codex },
-      { pane: "p2", terminal: "t2", tab: "a2", status: null, app: null, program: codex, title: "" }, // 確認で止まっている
-      { pane: "p3", terminal: "t3", tab: "a3", status: "working", program: codex },
-      { pane: "p4", terminal: "t4", tab: "b1", status: "idle", program: codex },
+      { pane: "p1", terminal: "t1", tab: "a1", status: "idle", app: "claude-code", program: claude, title: "Claude Code" },
+      // アップデートの確認で止まっている Codex（シェルから起動したので、タイトルはシェルが付けたコマンド）
+      { pane: "p2", terminal: "t2", tab: "a2", status: null, app: null, program: stuck("codex", "Codex"), title: "cd -- ~/x && codex  " },
+      { pane: "p3", terminal: "t3", tab: "a3", status: "working", app: "claude-code", program: claude, title: "Claude Code" },
+      { pane: "p4", terminal: "t4", tab: "b1", status: "idle", app: "claude-code", program: claude, title: "Claude Code" },
     ];
-    const all = withSilent(agents, panes, spaces);
+    const all = withSilent(agents, panes, spaces, KEYS);
     expect(all.map((a) => a.address)).toEqual(["t1", "t2", "t3", "t4"]);
     expect(all[1]).toMatchObject({ address: "t2", pane: "p2", space: "a", space_name: "a", tab: "a2", tab_index: 2, tab_name: "Codex",
-      status: null, program: codex, silent: true });
+      status: null, program: { key: "codex" }, silent: true });
     expect(all.filter((a) => a.silent).length).toBe(1); // 報告している人には付けない
     // 部屋では、報告している人と同じく席に着く（空いた席はいつもいちばん後ろ）
     expect(roomsOf([space("a"), space("b")], all)[0].seats.map((s) => s.agent)).toEqual(["t1", "t2", "t3", null]);
@@ -659,12 +664,20 @@ describe("agents that have not reported yet", () => {
   test("not added: shells and other programs, mod panes, terminals already in agents(), tabs not in any space", () => {
     const agents = [{ address: "t1", pane: "p1", space: "a", tab: "a1", status: "idle" }];
     const panes = [
-      { pane: "p1", terminal: "t1", tab: "a1", status: null, program: codex },
+      { pane: "p1", terminal: "t1", tab: "a1", status: null, program: stuck("codex", "Codex") },
       { pane: "p2", terminal: "t2", tab: "a2", status: null, program: shell },
-      { pane: "p3", terminal: null, mod: "files", tab: "a3", status: null, program: codex },
-      { pane: "p9", terminal: "t9", tab: "gone", status: null, program: codex },
+      { pane: "p5", terminal: "t5", tab: "a2", status: null, program: stuck("nvim", "Neovim") }, // エージェントでないプログラム
+      { pane: "p3", terminal: null, mod: "files", tab: "a3", status: null, program: stuck("codex", "Codex") },
+      { pane: "p9", terminal: "t9", tab: "gone", status: null, program: stuck("codex", "Codex") },
     ];
-    expect(withSilent(agents, panes, spaces)).toBe(agents);
+    expect(withSilent(agents, panes, spaces, KEYS)).toBe(agents);
+  });
+
+  test("until the agent programs are known (an empty set), nobody is added", () => {
+    const panes = [{ pane: "p2", terminal: "t2", tab: "a2", status: null, program: stuck("kiro", "Kiro") }];
+    expect(withSilent([], panes, spaces, new Set())).toEqual([]);
+    expect(withSilent([], panes, spaces)).toEqual([]);
+    expect(withSilent([], panes, spaces, KEYS).map((a) => a.address)).toEqual(["t2"]);
   });
 
   // 雇った人。info は main.js の gather と同じ形（silent のときは status が null）
