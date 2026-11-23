@@ -6,7 +6,7 @@ import {
   drawables, dropTarget, floorDrawables, floorPath, layoutFloor, lookOf, roomAt, talkLabel,
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
   FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, isNoiseDoc, plateText, openAgents,
-  DOOR_HOLD_MS, DOOR_MS, DOOR_SLIDE, doorsMoving, WINDOW_FRAMES, IMAGES, SILENT_MS, withSilent,
+  DOOR_HOLD_MS, DOOR_MS, DOOR_SLIDE, doorsMoving, WINDOW_FRAMES, IMAGES, SILENT_MS, withSilent, shownStatus,
 } from "../mods/ai-office/scene.js";
 
 // テーマは、オフィスと同じく mods/ai-office/themes/<名前>/ の theme.json と PNG から読む（確かめで落ちたら、ここで止まる）
@@ -72,6 +72,14 @@ describe("behaviorOf", () => {
     expect(behaviorOf("done")).toBe("done");
     expect(behaviorOf("idle")).toBe("wander");
     expect(behaviorOf(null)).toBe("wander");
+  });
+
+  test("a completion read in the chat shows as idle (no ✓) until a later turn finishes", () => {
+    expect(shownStatus("done", 7, undefined)).toBe("done"); // まだ見ていない
+    expect(shownStatus("done", 7, 7)).toBe("idle"); // 会話でこのターンを見た
+    expect(shownStatus("done", 8, 7)).toBe("done"); // 次のターンの完了は、また ✓
+    expect(shownStatus("working", 7, 7)).toBe("working");
+    expect(shownStatus("done", undefined, undefined)).toBe("done"); // ターンが分からなければ、そのまま
   });
 });
 
@@ -549,11 +557,12 @@ describe("drawables", () => {
     expect(d.find((x) => x.id === "chair-0").click).toBeUndefined();
     expect(d.find((x) => x.id === "chair-1").click).toEqual(hire);
     expect(d.find((x) => x.id === "hire-1").click).toEqual(hire);
-    // キャラのクリックは chat（ターミナルを出していれば切り替え、隠していれば会話。決めるのは main.js）、名札はターミナルのまま
+    // キャラ・名札・PC のクリックは同じ chat（ターミナルを出していれば切り替え、隠していれば会話。決めるのは main.js）
     const char = d.find((x) => x.id === "char-t1");
     expect(char.click).toEqual({ type: "chat", terminal: "t1", name: expect.any(String), machine: null });
     expect(char.tip).toContain("隠しているときは会話");
-    expect(d.find((x) => x.id === "name-0").click).toEqual({ type: "focus", terminal: "t1", });
+    expect(d.find((x) => x.id === "name-0").click).toEqual(char.click);
+    expect(d.find((x) => x.id === "laptop-0").click).toEqual(char.click);
   });
 
   test("the empty seat looks different: green chair, no laptop, a + sign", () => {
@@ -562,9 +571,9 @@ describe("drawables", () => {
     office.sync(w.rooms, w.info);
     const d = drawables(w.rooms[0], office);
     expect(d.find((x) => x.id === "chair-0").img).toBe("chair");
-    // PC: クリックは名札と同じく表示するだけ、右クリックでタブのメニュー
+    // PC: クリックは名札・キャラと同じ、右クリックでタブのメニュー
     const laptop = d.find((x) => x.id === "laptop-0");
-    expect(laptop.click).toEqual({ type: "focus", terminal: "t1" });
+    expect(laptop.click).toMatchObject({ type: "chat", terminal: "t1" });
     expect(laptop.right).toEqual({ type: "tab-menu", terminal: "t1" });
     // PC は 14 x 10（座った人の胴と同じ幅）で席の真ん中、上の端は机の奥の縁の 5 上（口の下。顔にかからない）
     expect(d.find((x) => x.id === "laptop-0")).toMatchObject({ x: w.rooms[0].seats[0].cx - 7, y: BACK - 5, w: 14, h: 10 });
@@ -622,7 +631,7 @@ describe("who sits where", () => {
     settle(office);
     const d = drawables(w.rooms[0], office);
     const plate = d.find((x) => x.id === "name-0");
-    expect(plate).toMatchObject({ plate: "Fix the login bug", owner: "t1", click: { type: "focus", terminal: "t1" }, y: BACK + 10 });
+    expect(plate).toMatchObject({ plate: "Fix the login bug", owner: "t1", click: { type: "chat", terminal: "t1" }, y: BACK + 10 });
     expect(d.find((x) => x.id === "laptop-0").owner).toBe("t1");
     expect(d.find((x) => x.id === "char-t1").owner).toBe("t1");
     expect(d.find((x) => x.id === "name-1").owner).toBe("t2"); // 席を立っている人の名札も席に残る
@@ -716,6 +725,9 @@ describe("agents that have not reported yet", () => {
     expect(d.find((x) => x.id === "char-t1").img).toMatch(/-raise-[01]$/);
     expect(d.find((x) => x.id === "bubble-t1")).toMatchObject({ img: "bubble-alert", click: { type: "focus", terminal: "t1" } });
     expect(d.find((x) => x.id === "char-t1").click).toEqual({ type: "focus", terminal: "t1" });
+    // 名札と PC も、報告がまだのあいだはターミナル（会話は送れない）
+    expect(d.find((x) => x.id === "name-0").click).toEqual({ type: "focus", terminal: "t1" });
+    expect(d.find((x) => x.id === "laptop-0").click).toEqual({ type: "focus", terminal: "t1" });
     // 確認に答えて報告を始めたら（idle）、ふつうの人と同じくうろうろ
     w.info.set("t1", { status: "idle", app: "codex", name: "Codex" });
     office.sync(w.rooms, w.info);

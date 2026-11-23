@@ -11,7 +11,7 @@ import {
 import {
   SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, layoutFloor, drawables,
   floorDrawables, running, doorsMoving, roomAt, dropTarget, useTheme, geometry, seatName, readTheme, addTheme, themeList, pngSize, plateText,
-  openAgents, withSilent,
+  openAgents, withSilent, shownStatus,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
   PLACES, WEATHER_MS, TRIAL_WEATHER, defaultPlace, offsetAt, offsetLabel, placeAt, placeClock, weatherOf, parseWeather,
   windowView, windowTip, parseSkyCommand,
@@ -43,6 +43,7 @@ const WEATHER_STALE_MS = 3 * 3600000; // これより古い天気は使わない
  * agentKeys: エージェントのプログラムの key（loadAgentKeys が読む。まだ状態を報告していない人を見分ける）。
  */
 function gather(meta, codexDefaults, present, agentKeys) {
+  const seen = shared(SEEN) ?? {}; // 会話で見た完了（アドレス → ターン。ai-office-chat が書く）
   const sp = spaces();
   const ps = panes();
   // 報告している人と、まだ状態を報告していない人（雇った直後や、起動の前の確認で止まっている人。withSilent）
@@ -55,7 +56,7 @@ function gather(meta, codexDefaults, present, agentKeys) {
     const sid = t?.labels?.["resume.id"]; // agent-resume が付ける Claude のセッション ID
     const { model, effort } = agentModel({ app, argv: t?.foreground?.argv, cached: sid ? meta.get(sid) : null, codexDefaults });
     return [a.address, {
-      status: a.status,
+      status: shownStatus(a.status, t?.turn, seen[a.address]), // 会話で見た完了は待機として出す
       silent: Boolean(a.silent), // まだ状態を報告していない（status は null。しばらくして手を挙げる）
       app,
       model,
@@ -90,6 +91,8 @@ function gather(meta, codexDefaults, present, agentKeys) {
 // レイアウトの根から id のブロックまでの道（見つからなければ null）
 // ai-office レイアウトの、選んだエージェントのターミナルのブロック（layouts/ai-office.json）。上の帯のスイッチで出し入れする
 const TERMINAL_BLOCK = "agent";
+// 会話のダイアログで見た完了（shared。アドレス → 見たターン）。そのターンの完了は ✓ を出さない（scene.js の shownStatus）
+const SEEN = "ai-office.seen";
 
 function pathTo(node, id) {
   if (!node) return null;

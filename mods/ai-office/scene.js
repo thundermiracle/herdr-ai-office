@@ -394,6 +394,16 @@ export function seatName({ tabName, named, program, title, address }) {
 }
 
 /**
+ * オフィスに出す状態。完了（done。見ていない間に終わった）でも、そのターン（terminals() の turn）を会話のダイアログで見たなら
+ * 待機（idle）として出す（✓ を消す）。herdr の done はターミナルを見せたときだけ idle に戻り、ターミナルを隠して会話で読んでも
+ * 戻らない（隠したまま agent.focus しても戻らなかった）ので、オフィスで覚える（seenTurn: shared の ai-office.seen の、
+ * そのアドレスの見たターン）。次のターンで終われば、ターンが変わるのでまた ✓ が出る。
+ */
+export function shownStatus(status, turn, seenTurn) {
+  return status === "done" && turn != null && seenTurn === turn ? "idle" : status;
+}
+
+/**
  * 状態から動きを決める。act はターミナルのラベル office.act（read / edit / run ...）。
  * type: 席でタイピング、read: 本棚で読む、raise: 手を挙げて待つ、done: 席で ✓、wander: うろうろ
  */
@@ -1313,6 +1323,12 @@ export function drawables(room, office, skills = []) {
   const art = (name) => (IMAGES[name] ? { src: IMAGES[name].src } : {}); // テーマが替えた家具の絵（DESK_SIZES と椅子）
   const chair = IMAGES.chair ?? CHAIR; // 椅子は席の真ん中に、下の端を机の奥の縁にそろえる
   const chairAt = (seat) => ({ x: seat.cx - Math.floor(chair.w / 2), y: BACK - chair.h, w: chair.w, h: chair.h });
+  // その人のクリック（キャラ・名札・PC の左クリック）: chat。main.js の act が、右のターミナルを出しているならそのターミナルに
+  // 切り替え、隠しているなら会話のダイアログ（ai-office-chat）を出す。まだ状態を報告していない人は、いつもターミナル（起動の
+  // 前の確認に答えるため。会話は送れない）
+  const whoOf = (info) => [info.name, modelLabel(info.model), info.effort, info.where].filter(Boolean).join(" · ");
+  const talkTo = (address, info) => (info.silent ? { type: "focus", terminal: address }
+    : { type: "chat", terminal: address, name: whoOf(info) || address, machine: room.machine ?? null });
   add({ id: "plant", img: "plant", x: room.w - 18, y: BACK + 4, w: 12, h: 17, z: 95 });
   // ガラスの部屋（テーマの glass）の手前のガラスの壁と扉: 机・植木・部屋の中の人より手前、横の廊下を歩く人より奥。
   // ガラスはテーマの images.glass を横に並べる（tile）。扉の枠（images.door）は、通り道 LEFT_PASS を真ん中に 16 開けた
@@ -1337,18 +1353,19 @@ export function drawables(room, office, skills = []) {
   for (const seat of room.seats) {
     add({ id: `desk-${seat.i}`, img: "desk-m", ...art("desk-m"), x: seat.segX, y: BACK, w: 24, h: 21, z: BACK + 15 });
     if (seat.agent) {
-      // 誰かの席: いつもの椅子とノート PC（本人が歩き回っていても置いたまま）。PC は名札と同じく、クリックでその人を
-      // 表示し、右クリックでその人のタブのメニュー（名前を変える・閉じる。main.js の tabMenu）
+      // 誰かの席: いつもの椅子とノート PC（本人が歩き回っていても置いたまま）。PC と名札のクリックはキャラと同じ（talkTo）。
+      // PC の右クリックは、その人のタブのメニュー（名前を変える・閉じる。main.js の tabMenu）
+      const info = office.chars.get(seat.agent)?.info ?? {};
+      const talk = talkTo(seat.agent, info);
       add({ id: `chair-${seat.i}`, img: "chair", ...art("chair"), ...chairAt(seat), z: BACK - 2 });
       add({ id: `laptop-${seat.i}`, img: "laptop", x: seat.segX + 5, y: BACK - 5, w: 14, h: 10, z: BACK + 15.5, owner: seat.agent,
-        click: { type: "focus", terminal: seat.agent }, right: { type: "tab-menu", terminal: seat.agent },
-        tip: "PC: クリックでこのエージェントを表示。右クリックでタブのメニュー（名前を変える・閉じる）", glow: true });
-      // 机の前の板の名札（タブバーと同じ名前。長ければ切る）。本人が歩き回っていても席に残るので、誰の席か分かる。
-      // クリックはキャラと同じく、その人を表示
-      const info = office.chars.get(seat.agent)?.info ?? {};
+        click: talk, right: { type: "tab-menu", terminal: seat.agent },
+        tip: "PC: クリックでこのエージェントのターミナルを表示（ターミナルを隠しているときは会話）。右クリックでタブのメニュー"
+          + "（名前を変える・閉じる）", glow: true });
+      // 机の前の板の名札（タブバーと同じ名前。長ければ切る）。本人が歩き回っていても席に残るので、誰の席か分かる
       const name = info.seatName ?? info.tab ?? info.name ?? seat.agent;
       add({ id: `name-${seat.i}`, plate: name, x: seat.segX + 1, y: BACK + 10, w: 22, h: 6, z: BACK + 15.9, owner: seat.agent,
-        click: { type: "focus", terminal: seat.agent }, tip: `${name}（クリックで表示）` });
+        click: talk, tip: `${name}（クリックでターミナルを表示。ターミナルを隠しているときは会話）` });
       continue;
     }
     // 空いた席（雇える席）: 緑の椅子、ノート PC なし、上に「＋」の札が揺れる
@@ -1366,12 +1383,8 @@ export function drawables(room, office, skills = []) {
     const ph = office.t + c.phase;
     const focus = { type: "focus", terminal: c.address };
     const state = c.info.silent ? "状態の報告がまだない（起動中か、起動の前の確認で止まっている。クリックで表示）" : c.info.status;
-    const who = [c.info.name, modelLabel(c.info.model), c.info.effort, c.info.where].filter(Boolean).join(" · ");
-    const tip = [who, state].filter(Boolean).join(" · ");
-    // キャラのクリック（chat）: main.js が、右のターミナルを出しているならそのターミナルに切り替え、隠しているなら会話の
-    // ダイアログ（ai-office-chat）を出す。まだ状態を報告していない人は、いつもターミナル（起動の前の確認に答えるため。会話は
-    // 送れない）。名札と PC のクリックは、いつもターミナル
-    const click = c.info.silent ? focus : { type: "chat", terminal: c.address, name: who, machine: room.machine ?? null };
+    const tip = [whoOf(c.info), state].filter(Boolean).join(" · ");
+    const click = talkTo(c.address, c.info); // 名札・PC と同じ
     const charTip = c.info.silent ? tip : `${tip}\nクリック: ターミナルを表示（ターミナルを隠しているときは会話）`;
     // キャラ。effort の鉢巻きは同じ大きさの重ね絵（over）で、キャラのすぐ上に描く
     const person = (pose, x, y, h, z) => {

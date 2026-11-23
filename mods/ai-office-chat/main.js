@@ -14,10 +14,11 @@
 // いちばん下にいる間（開いたとき・送ったとき・いちばん下までスクロールしたとき）は、中身が伸びるたびにいちばん下に合わせる。
 // ホイールで上へ戻ると追いかけるのをやめ、右下に「↓ 最新へ」を出す。
 // Esc か「閉じる」で閉じる。「ターミナルを開く」でそのターミナルへ。
-// props: { terminal, name, machine }。props なしで開いたとき（herdr-app do mod.open --name ai-office-chat）は、最初のエージェント。
+// props: { terminal, name, machine }。props なしで開いたとき（herdr-app do mod.open --name ai-office-chat）は、完了の人がいれば
+// その人（結果を読みたい人）、いなければ最初のエージェント。
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, TextView, TextareaState, Textarea } from "gpui-base";
-import { theme, props, agents, terminals, layout, exec, hc, run, closeOverlay, checking } from "herdr";
+import { theme, props, agents, terminals, layout, shared, setShared, exec, hc, run, closeOverlay, checking } from "herdr";
 import { READ_SH, readEntries, mergeEntries, chatBubbles, delivered } from "./transcript.js";
 
 const TICK_MS = 1000; // 状態を見る間隔
@@ -27,12 +28,15 @@ const OVERLAP = 262144; // 読み直すとき、前に読んだところより�
 const SEND_TIMEOUT_MS = 90000; // 送るのを待つ時間（hc send はターミナルの書きかけを 60 秒まで待つ）
 const SCREEN_LINES = 30; // 記録が読めないときに出す画面の行数
 const STATUS = { working: "作業中", idle: "待機中", done: "完了", blocked: "質問か確認で止まっています" };
+// 会話で見た完了（shared。アドレス → 見たターン）。オフィスはそのターンの完了に ✓ を出さない（scene.js の shownStatus）
+const SEEN = "ai-office.seen";
 
 // 誰と話すか
 function target() {
   const p = props() ?? {};
   if (p.terminal) return { terminal: p.terminal, name: p.name ?? p.terminal, machine: p.machine ?? null };
-  const a = agents()[0];
+  const list = agents();
+  const a = list.find((x) => x.status === "done") ?? list[0];
   return a ? { terminal: a.address, name: `${a.program?.name ?? a.app ?? "agent"} · ${a.space_name} / ${a.tab_name}`, machine: null } : null;
 }
 
@@ -111,6 +115,7 @@ export default class Chat extends View {
       this.seq = seq;
       this.load(cx);
     }
+    this.markSeen();
     const shown = `${a?.status}|${this.doing()}`;
     if (shown !== this.shown) {
       this.shown = shown;
@@ -228,7 +233,20 @@ export default class Chat extends View {
     cx.notify();
   }
 
-  close() {
+  // 相手が完了（見ていない間に終わった）で、やりとりを出せたら、このダイアログで見たことを覚える（オフィスはそのターンの ✓ を
+  // 消す）。herdr の done はターミナルを見せたときだけ待機に戻り、ターミナルを隠したまま表示（agent.focus）しても戻らないので、
+  // オフィスで覚える。開いている間に終わったときも、ここ（1 秒ごと）で覚える。今はないターミナルの分は捨てる
+  markSeen() {
+    if (this.agent()?.status !== "done" || (this.size < 0 && this.screen === null)) return;
+    const turn = terminals().find((x) => x.address === this.who.terminal)?.turn;
+    const seen = shared(SEEN) ?? {};
+    if (turn == null || seen[this.who.terminal] === turn) return;
+    const live = new Set(terminals().map((x) => x.address));
+    setShared(SEEN, { ...Object.fromEntries(Object.entries(seen).filter(([k]) => live.has(k))), [this.who.terminal]: turn });
+  }
+
+  // 閉じる（Esc・「閉じる」）
+  dismiss() {
     const overlay = props()?.overlay;
     if (overlay) closeOverlay(overlay);
   }
@@ -236,12 +254,12 @@ export default class Chat extends View {
   focusTerminal() {
     showTerminal();
     run("agent.focus", { terminal: this.who.terminal });
-    this.close();
+    this.dismiss();
   }
 
   key(e, cx) {
     if (e.keystroke !== "escape") return;
-    this.close();
+    this.dismiss();
     cx.stop_propagation();
   }
 
@@ -291,7 +309,7 @@ export default class Chat extends View {
           .child(div().text_size(15).font_semibold().truncate().child("会話"))
           .child(div().text_size(11.5).text_color(t.dim).truncate().child(`${this.who.name}　${state}`)))
         .child(button("chat-terminal", "ターミナルを開く", () => this.focusTerminal()))
-        .child(button("chat-close", "閉じる", () => this.close())))
+        .child(button("chat-close", "閉じる", () => this.dismiss())))
       .child(div().id("chat-view").flex_1().min_w(0).min_h(0).relative().overflow_hidden()
         .on_size_change((size, cx) => this.measure(size.height, this.bodyH, cx))
         .on_scroll_wheel((e, cx) => this.scrollTo(this.top - e.delta.y, cx))
