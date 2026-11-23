@@ -1364,13 +1364,19 @@ export function drawables(room, office, skills = []) {
     if (c.room !== room.id) continue;
     const { look, band, flame } = c.look;
     const ph = office.t + c.phase;
-    const click = { type: "focus", terminal: c.address };
+    const focus = { type: "focus", terminal: c.address };
     const state = c.info.silent ? "状態の報告がまだない（起動中か、起動の前の確認で止まっている。クリックで表示）" : c.info.status;
-    const tip = [c.info.name, modelLabel(c.info.model), c.info.effort, c.info.where, state].filter(Boolean).join(" · ");
+    const who = [c.info.name, modelLabel(c.info.model), c.info.effort, c.info.where].filter(Boolean).join(" · ");
+    const tip = [who, state].filter(Boolean).join(" · ");
+    // キャラのクリック（chat）: main.js が、右のターミナルを出しているならそのターミナルに切り替え、隠しているなら会話の
+    // ダイアログ（ai-office-chat）を出す。まだ状態を報告していない人は、いつもターミナル（起動の前の確認に答えるため。会話は
+    // 送れない）。名札と PC のクリックは、いつもターミナル
+    const click = c.info.silent ? focus : { type: "chat", terminal: c.address, name: who, machine: room.machine ?? null };
+    const charTip = c.info.silent ? tip : `${tip}\nクリック: ターミナルを表示（ターミナルを隠しているときは会話）`;
     // キャラ。effort の鉢巻きは同じ大きさの重ね絵（over）で、キャラのすぐ上に描く
     const person = (pose, x, y, h, z) => {
       add({ id: `char-${c.address}`, img: `char/${look}-${pose}`, over: band ? `band/${band}-${pose}` : null,
-        x, y, w: 18, h, z, click, tip, char: c, owner: c.address });
+        x, y, w: 18, h, z, click, tip: charTip, char: c, owner: c.address });
     };
     if (c.seated) {
       const pose = c.behavior === "done" ? "sit-happy" : ph % 8 < 6 ? "sit-0" : "sit-1";
@@ -1413,7 +1419,7 @@ export function drawables(room, office, skills = []) {
       const question = c.info.kind === "question";
       add({ id: `bubble-${c.address}`, img: question ? "bubble-ask" : "bubble-alert", x: x - 6, y: y - 36 - (Math.floor(ph / 3) % 2),
         w: 13, h: 14, z: 1000, glow: true,
-        click: question ? { type: "ask", terminal: c.address, name: tip } : click,
+        click: question ? { type: "ask", terminal: c.address, name: tip } : focus,
         tip: question ? "クリックで質問に答える" : tip });
     }
   }

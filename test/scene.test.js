@@ -549,7 +549,11 @@ describe("drawables", () => {
     expect(d.find((x) => x.id === "chair-0").click).toBeUndefined();
     expect(d.find((x) => x.id === "chair-1").click).toEqual(hire);
     expect(d.find((x) => x.id === "hire-1").click).toEqual(hire);
-    expect(d.find((x) => x.id === "char-t1").click).toEqual({ type: "focus", terminal: "t1" });
+    // キャラのクリックは chat（ターミナルを出していれば切り替え、隠していれば会話。決めるのは main.js）、名札はターミナルのまま
+    const char = d.find((x) => x.id === "char-t1");
+    expect(char.click).toEqual({ type: "chat", terminal: "t1", name: expect.any(String), machine: null });
+    expect(char.tip).toContain("隠しているときは会話");
+    expect(d.find((x) => x.id === "name-0").click).toEqual({ type: "focus", terminal: "t1", });
   });
 
   test("the empty seat looks different: green chair, no laptop, a + sign", () => {

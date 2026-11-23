@@ -88,6 +88,9 @@ function gather(meta, codexDefaults, present, agentKeys) {
 }
 
 // レイアウトの根から id のブロックまでの道（見つからなければ null）
+// ai-office レイアウトの、選んだエージェントのターミナルのブロック（layouts/ai-office.json）。上の帯のスイッチで出し入れする
+const TERMINAL_BLOCK = "agent";
+
 function pathTo(node, id) {
   if (!node) return null;
   if (node.id === id) return [node];
@@ -560,10 +563,15 @@ export default class AiOffice extends View {
       .when(Boolean(d.books), (el) => el.children(d.books.map((b) => this.book(b))));
   }
 
-  // scene.js の click: { type: "focus", terminal } / { type: "hire", space, machine } / { type: "skills" }。
+  // scene.js の click: { type: "focus", terminal } / { type: "chat", terminal, name, machine } / { type: "hire", space, machine } /
+  // { type: "skills" }。
   // 壁のホワイトボード: { type: "docs", room, docs: [{ path, kind, who }] }。机の PC の右クリック: { type: "tab-menu", terminal }
   act(click) {
-    if (click.type === "focus") run("agent.focus", { terminal: click.terminal });
+    if (click.type === "focus") {
+      // ターミナルを隠していたら出す（隠したままだと、表示しても見えない）
+      if (pathTo(layout(), TERMINAL_BLOCK)?.at(-1)?.hidden) run("layout.show", { id: TERMINAL_BLOCK });
+      run("agent.focus", { terminal: click.terminal });
+    }
     if (click.type === "tab-menu") this.tabMenu(click);
     if (click.type === "skills") {
       const skills = this.shelfSkills();
@@ -576,6 +584,14 @@ export default class AiOffice extends View {
     if (click.type === "ask") {
       // 選択肢の説明や答えの確認が長いこともあるので、プランと同じ広さのダイアログにして中をスクロールさせる
       openOverlay({ mod: "ai-office-ask", kind: "dialog", width: 0.65, height: 0.8, props: { terminal: click.terminal, name: click.name } });
+    }
+    if (click.type === "chat") {
+      // キャラのクリック: 右のターミナルを出しているなら、そのターミナルに切り替えるだけ（話すのはターミナルで）。隠している
+      // なら会話のダイアログ（ai-office-chat）。ターミナルのブロックがないレイアウト（main-dots-office など）は、メインの欄に
+      // ターミナルが見えているので切り替え。会話は長くなるので、プランと同じ広さのダイアログにして中をスクロールさせる
+      if (!pathTo(layout(), TERMINAL_BLOCK)?.at(-1)?.hidden) run("agent.focus", { terminal: click.terminal });
+      else openOverlay({ mod: "ai-office-chat", kind: "dialog", width: 0.65, height: 0.8,
+        props: { terminal: click.terminal, name: click.name, machine: click.machine } });
     }
     if (click.type === "docs") {
       // プランは長い行（コードや表）が多いので、skill の中身より広く、窓の幅に合わせる
@@ -990,6 +1006,8 @@ export default class AiOffice extends View {
     const quiet = shared(TOASTS) === "off";
     // 窓（mod.open）でほかのレイアウトの上に開いたときは、スイッチが効かないので薄くし、ツールチップで言う
     const toastsHere = layout()?.toast === TOAST_MOD;
+    // 右のターミナル（ai-office レイアウトだけ）。隠すとオフィスが窓いっぱいになる。出し入れはレイアウトに覚えられ、再起動しても残る
+    const terminal = pathTo(layout(), TERMINAL_BLOCK)?.at(-1) ?? null;
     return v_flex().id("root").size_full().bg(t.canvas).text_color(t.foreground)
       .on_mouse_up("left", (_e, cx) => { // フロアの外（上の帯など）で離した: 部屋のドラッグをやめる
         if (this.drag?.moved) cx.notify();
@@ -1015,6 +1033,13 @@ export default class AiOffice extends View {
           .on_click(() => this.themeMenu(themes))
           .child(`テーマ: ${current?.label ?? this.theme}`)
           .child(svg("mods/workspace-chrome/chevron-down.svg").size(10)))
+        .when(Boolean(terminal), (el) => el.child(div().id("terminal-toggle").flex_none().px(6).rounded(4).cursor_pointer()
+          .text_color(t.dim).hover((s) => s.text_color(t.foreground))
+          .tooltip(terminal.hidden
+            ? "右のターミナルを出していない（オフィスが窓いっぱい）。クリックで出す\n名札などでターミナルを表示したときも出る"
+            : "右のターミナルを出している。クリックで隠して、オフィスを窓いっぱいにする")
+          .on_click(() => run("layout.toggle", { id: TERMINAL_BLOCK }))
+          .child(terminal.hidden ? "ターミナル: 出さない" : "ターミナル: 出す")))
         .child(div().id("toasts").flex_none().px(6).rounded(4).cursor_pointer().text_color(t.dim).when(!toastsHere, (el) => el.opacity(0.5))
           .hover((s) => s.text_color(t.foreground))
           .tooltip([

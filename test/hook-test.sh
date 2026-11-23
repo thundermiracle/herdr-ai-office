@@ -307,6 +307,24 @@ if printf '%s\n' "$got" | grep -qx "$P/slow.md"; then ok=yes; else ok=no; fails=
 echo "$ok  a write within the window is still mine        docs=$(printf '%s' "$got" | sed "s#$proj#P#g" | tr '\n' ',')"
 doc_check "SessionEnd clears the docs (s5)" "$(event SessionEnd | jq -c '.session_id = "s5"')" ""
 
+# 会話の記録の道（office.transcript）: セッションが替わったときだけ書く（コマンドの文の中の同じ名前は拾わない）。
+# SessionEnd で消え、次のセッションでまた書く
+tr_check() { # tr_check <説明> <JSON> <期待する office.transcript>
+  local name=$1 json=$2 want=$3 got ok
+  printf '%s' "$json" | HC_TERMINAL_ID="$term" TMPDIR="$tmp" sh -c "$hook"
+  sleep 0.4
+  got=$(label office.transcript)
+  if [ "$got" = "$want" ]; then ok=yes; else ok=no; fails=$((fails + 1)); fi
+  printf '%-4s %-40s transcript=%s\n' "$ok" "$name" "'$got'"
+}
+tr_check "the session's record is labelled" "$(prompt 'hi')" /tmp/t.jsonl
+hc label "$term" office.transcript=/kept >/dev/null
+tr_check "the same record is not written again" "$(pre Read)" /kept
+tr_check "a new session's record replaces it" \
+  "$(pre Bash '' '{"command":"echo \"transcript_path\": \"/evil.jsonl\""}' | jq -c '.transcript_path = "/tmp/t2.jsonl"')" /tmp/t2.jsonl
+tr_check "SessionEnd clears the record" "$(event SessionEnd)" ""
+tr_check "the next session labels it again" "$(prompt 'again')" /tmp/t.jsonl
+
 # Bash の .md の式（hooks/md-writes.jq）は、この PC のどの jq でも同じ答え（jq 1.6 には flags を渡す scan がなく、
 # 前は式ごと読めずに Bash の .md を 1 つも拾えなかった。フックは PATH の最初の jq を使う）
 md_case() { # md_case <コマンド> <期待する道（改行で区切る）>

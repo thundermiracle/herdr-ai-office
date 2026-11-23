@@ -11,7 +11,7 @@
 // 質問しているエージェントのうち最初の人。
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { theme, props, agents, terminals, hc, run, closeOverlay } from "herdr";
+import { theme, props, agents, terminals, layout, hc, run, closeOverlay } from "herdr";
 import { parseQuestion, keysFor, typesAnswer, sameQuestion, nextRead } from "./parse.js";
 
 const FOLLOW_MS = 250; // 答えたあと、画面を読み直す間隔
@@ -32,6 +32,12 @@ function target() {
   const asking = new Set(terminals().filter((t) => kindOf(t) === "question").map((t) => t.address));
   const a = agents().find((x) => x.status === "blocked" && asking.has(x.address));
   return a ? { terminal: a.address, name: `${a.program?.name ?? a.app ?? "agent"} · ${a.space_name} / ${a.tab_name}` } : null;
+}
+
+// オフィスのレイアウト（ai-office）でターミナルのブロック（agent）を隠していたら出す（隠したままだと、開いても見えない）
+function showTerminal() {
+  const find = (n) => (n?.id === "agent" ? n : (n?.children ?? []).map(find).find(Boolean) ?? null);
+  if (find(layout())?.hidden) run("layout.show", { id: "agent" });
 }
 
 async function screenOf(terminal) {
@@ -89,6 +95,7 @@ export default class Ask extends View {
   }
 
   focus() {
+    showTerminal();
     run("agent.focus", { terminal: this.who.terminal });
     this.close();
   }

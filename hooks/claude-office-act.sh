@@ -10,6 +10,8 @@
 #                    送った人にフックがない（Codex など）ときも、AI Office は送った人を行かせる
 #   office.plan: プランのファイル（Claude Code のプランモードで書く ~/.claude/plans/<名前>.md。設定 plansDirectory なら
 #                そこ）。AI Office は、その部屋の壁にホワイトボードを掛け、クリックで中身を出す。セッションの終わりまで残す
+#   office.transcript: 会話の記録（Claude Code の transcript_path。~/.claude/projects/<フォルダ>/<セッション>.jsonl）。AI Office の
+#                会話のポップアップ（キャラのクリック）が、ここからやりとりを読む。セッションが替わったときだけ書き、終わったら消す
 #   office.docs: このセッションで書いた .md（プラン以外。改行で区切り、新しい順。プロジェクトの .md は 8 本まで、一時フォルダの
 #                .md は別に 4 本まで。作業フォルダの .md をいくら書いても、プロジェクトの .md は押し出されない）。ホワイトボードで読める。
 #                Write / Edit / MultiEdit の .md と、Bash で書いた .md: コマンドに出てくる .md の道（hooks/md-writes.jq）の、
@@ -256,8 +258,17 @@ EOF
   fi
 fi
 
+# 会話の記録の道（書いた道を $TMPDIR に覚え、替わったときだけ書く）。最初に出てくる transcript_path（コマンドの文の中の
+# 同じ名前を拾わないよう、行の終わりからではなく、はじめから探す）
+tmemo="$memo.transcript"
+new_transcript=
+if [ -z "$ended" ]; then
+  transcript=$(printf '%s' "$input" | grep -o '"transcript_path"[[:space:]]*:[[:space:]]*"[^"]*"' | head -n 1 | sed 's/.*"\([^"]*\)"$/\1/')
+  [ -n "$transcript" ] && [ "$transcript" != "$(cat "$tmemo" 2>/dev/null)" ] && new_transcript=$transcript
+fi
+
 next="$act|$skill"
-if [ -z "$event$talk$heard$plan$docs$ended" ] && [ -f "$memo" ] && [ "$prev" = "$next" ]; then
+if [ -z "$event$talk$heard$plan$docs$ended$new_transcript" ] && [ -f "$memo" ] && [ "$prev" = "$next" ]; then
   exit 0 # 同じ値で、出来事でもない
 fi
 printf '%s' "$next" >"$memo"
@@ -271,6 +282,10 @@ if [ -n "$heard" ]; then
 fi
 [ -n "$plan" ] && set -- "$@" "office.plan=$plan"
 [ -n "$docs" ] && set -- "$@" "office.docs=$docs"
-[ -n "$ended" ] && set -- "$@" "office.plan=" "office.docs="
+if [ -n "$new_transcript" ]; then
+  printf '%s' "$new_transcript" >"$tmemo"
+  set -- "$@" "office.transcript=$new_transcript"
+fi
+[ -n "$ended" ] && { set -- "$@" "office.plan=" "office.docs=" "office.transcript="; rm -f "$tmemo"; }
 hc label "$HC_TERMINAL_ID" "$@" </dev/null >/dev/null 2>&1 &
 exit 0
