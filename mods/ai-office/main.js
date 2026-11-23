@@ -1,6 +1,7 @@
 // ai-office: スペースを部屋に、エージェントをキャラクターにして、ドット絵のオフィスで見せる。
 // 中身の計算は scene.js（herdr を知らない）。ここは herdr のデータを集めて渡し、返ってきた絵を並べる。
-// 絵は 4 倍に拡大済みの PNG で、絵の 1 ピクセルを SCALE（2）論理 px で描く（にじまない大きさ）。
+// 絵は 4 倍に拡大済みの PNG で、絵の 1 ピクセルを SCALE（2）論理 px で描く（にじまない大きさ）。窓が広いときは 3・4 論理 px
+// （1.5 倍・2 倍。scene.js の fitFloor が決める）で描き、絵はその倍率用の 6 倍・8 倍の PNG（名前に @6x・@8x）を使う。
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import * as fs from "fs/promises";
@@ -9,7 +10,7 @@ import {
   shared, nextCommand, knownAgents,
 } from "herdr";
 import {
-  SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, layoutFloor, drawables,
+  SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, fitFloor, drawables,
   floorDrawables, running, doorsMoving, roomAt, dropTarget, useTheme, geometry, seatName, readTheme, addTheme, themeList, pngSize, plateText,
   openAgents, withSilent, shownStatus,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
@@ -18,7 +19,19 @@ import {
 } from "./scene.js";
 
 const IMG = "mods/ai-office/img";
-const px = (v) => v * SCALE;
+// 今の倍率（絵の 1 ピクセルの論理 px）。描く前に floorNow が窓に合わせて決める
+let scale = SCALE;
+const px = (v) => v * scale;
+// フロアの中の文字・余白・角の丸み（SCALE で描くときの論理 px）を、今の倍率に合わせる
+const ui = (v) => (v * scale) / SCALE;
+// 大きく描くときの絵: その倍率でぼやけない PNG（同じ名前に @6x・@8x）。ないもの（人が足したテーマなど）は 4 倍の PNG を
+// 伸ばす（少しぼやける）。あるファイルは起動したときに読む（loadHires）
+const HIRES = { 3: "@6x", 4: "@8x" };
+const hires = new Set();
+const pic = (path) => {
+  const big = HIRES[scale] ? path.replace(/\.png$/, `${HIRES[scale]}.png`) : path;
+  return hires.has(big) ? big : path;
+};
 const MARGIN = 6; // フロアのまわりの余白
 const DRAG_START = 4; // 部屋を押したまま、これだけ（絵の px）動かしたらドラッグの始まり（それまではクリック）
 const META_MS = 10000; // model と effort を読み直す間隔
@@ -220,6 +233,19 @@ async function loadThemes() {
   return skipped;
 }
 
+// 大きく描くときの絵（@6x・@8x の PNG）のうち、あるもの（pic が使う）: img/ とその下のフォルダ、テーマのフォルダから
+async function loadHires() {
+  const dirs = [IMG, ...(await subdirs(`${appHome()}/${IMG}`)).map((d) => `${IMG}/${d}`)];
+  for (const base of ["mods/ai-office/themes", "ai-office-themes"]) {
+    dirs.push(...(await subdirs(`${appHome()}/${base}`)).map((d) => `${base}/${d}`));
+  }
+  for (const dir of dirs) {
+    for (const name of await names(`${appHome()}/${dir}`)) {
+      if (/@\d+x\.png$/.test(name)) hires.add(`${dir}/${name}`);
+    }
+  }
+}
+
 // 壁時計と窓の外の場所（壁時計のクリックで選ぶ。shared の ai-office.place に、どのコピーで選んでも）。まだ選んでいなければ、
 // Mac の今の時差にいちばん近い場所（日本なら東京）
 function currentPlace() {
@@ -239,6 +265,7 @@ export default class AiOffice extends View {
     this.skippedThemes = []; // 使えなかったテーマと理由（「テーマ」のドロップダウンの下に出す）
     cx.spawn(async (cx) => {
       this.skippedThemes = await loadThemes();
+      await loadHires();
       cx.notify();
     });
     this.office = new Office();
@@ -250,7 +277,9 @@ export default class AiOffice extends View {
     this.presentKey = "";
     this.checkDocs(cx);
     cx.timer.every(DOCS_CHECK_MS, (cx) => this.checkDocs(cx));
-    this.width = 900; // on_size_change が来るまでの仮の幅（論理 px）
+    this.width = 900; // フロアに使える幅と高さ（論理 px。on_size_change が来るまでは仮のもので、今の大きさで描く）
+    this.height = 0;
+    this.zoom = SCALE; // 今の倍率（floorNow。押した所を絵の座標にするとき）
     this.last = Date.now();
     this.sig = "";
     this.meta = new Map();
@@ -414,7 +443,9 @@ export default class AiOffice extends View {
     }
     const { rooms, info, open } = gather(this.meta, this.codexDefaults, this.present, this.agentKeys);
     this.open = open;
-    const floor = layoutFloor(rooms, this.width / SCALE - 2 * MARGIN);
+    // 窓に合わせた大きさと並び（広ければ 1.5 倍・2 倍）
+    const floor = fitFloor(rooms, this.width / SCALE - 2 * MARGIN, this.height / SCALE - 2 * MARGIN);
+    this.zoom = scale = floor.zoom;
     const placed = floor.rooms.filter((r) => !r.newRoom);
     this.office.sync(placed, info);
     return { floor, placed, info };
@@ -523,9 +554,9 @@ export default class AiOffice extends View {
     });
   }
 
-  // 描くものの絵: テーマの絵（src）か、img/ の絵（img）
+  // 描くものの絵: テーマの絵（src）か、img/ の絵（img）。今の倍率のもの
   src(d) {
-    return d.src ?? `${IMG}/${d.img}.png`;
+    return pic(d.src ?? `${IMG}/${d.img}.png`);
   }
 
   sprite(d) {
@@ -538,7 +569,7 @@ export default class AiOffice extends View {
   }
 
   overlay(d) {
-    return image(`${IMG}/${d.over}.png`).absolute().left(0).top(0).size_full();
+    return image(pic(`${IMG}/${d.over}.png`)).absolute().left(0).top(0).size_full();
   }
 
   // ボタンの押下: 窓（mod.open）で開いたときに押した所から窓が動きださないよう止める。
@@ -551,9 +582,9 @@ export default class AiOffice extends View {
   // クリックできる絵。持ち主（owner）があれば、その持ち主のどれかにマウスが乗っている間と、その人のタブを開いている間は明るくする
   button(id, d, onClick, tip) {
     return div().id(id).absolute().left(px(d.x)).top(px(d.y)).w(px(d.w)).h(px(d.h)).cursor_pointer()
-      .when(Boolean(d.glow), (el) => el.rounded(6).hover((s) => s.bg("#ffffff59"))) // 絵はほぼ透明なので後ろを明るくする
+      .when(Boolean(d.glow), (el) => el.rounded(ui(6)).hover((s) => s.bg("#ffffff59"))) // 絵はほぼ透明なので後ろを明るくする
       .when(Boolean(d.owner), (el) => el.on_hover((hovered, cx) => this.hoverOn(d.owner, hovered, cx)))
-      .when(this.lit(d.owner), (el) => el.rounded(6).bg("#ffffff73"))
+      .when(this.lit(d.owner), (el) => el.rounded(ui(6)).bg("#ffffff73"))
       .on_mouse_down("left", (_e, cx) => this.hold(cx))
       .on_click((_e, cx) => onClick(cx))
       .when(Boolean(d.right), (el) => el.on_mouse_down("right", (_e, cx) => {
@@ -630,13 +661,13 @@ export default class AiOffice extends View {
   // 机の前の板の名札（タブバーと同じ名前。入らなければ「…」で切る）。持ち主にマウスが乗っている間と、その人のタブを開いている間は黄色
   nameplate(d) {
     const lit = this.lit(d.owner);
-    return div().id(d.id).absolute().left(px(d.x)).top(px(d.y)).w(px(d.w)).h(px(d.h)).px(3).flex().items_center()
-      .rounded(3).border(1).border_color("#5b3a2c").bg(lit ? "#ffe08a" : "#fffaf0").cursor_pointer()
+    return div().id(d.id).absolute().left(px(d.x)).top(px(d.y)).w(px(d.w)).h(px(d.h)).px(ui(3)).flex().items_center()
+      .rounded(ui(3)).border(1).border_color("#5b3a2c").bg(lit ? "#ffe08a" : "#fffaf0").cursor_pointer()
       .on_mouse_down("left", (_e, cx) => this.hold(cx))
       .on_click(() => this.act(d.click))
       .on_hover((hovered, cx) => this.hoverOn(d.owner, hovered, cx))
       .tooltip(d.tip)
-      .child(div().w_full().text_size(9).line_height("10px").text_color("#3b2a2a").whitespace_nowrap().text_ellipsis()
+      .child(div().w_full().text_size(ui(9)).line_height(`${ui(10)}px`).text_color("#3b2a2a").whitespace_nowrap().text_ellipsis()
         .overflow_hidden().child(d.plate));
   }
 
@@ -646,8 +677,8 @@ export default class AiOffice extends View {
     const name = this.hover && this.office.chars.get(this.hover)?.info?.seatName;
     if (!c || !name) return [];
     return [h_flex().absolute().left(px(c.x + 9 - 90)).top(px(c.y - 11)).w(px(180)).h(px(9)).justify_center()
-      .child(h_flex().max_w_full().h_full().px(4).items_center().rounded(3).border(1).border_color("#3b2a2a").bg("#ffe08a")
-        .child(div().min_w(0).text_size(10).text_color("#3b2a2a").whitespace_nowrap().text_ellipsis().overflow_hidden()
+      .child(h_flex().max_w_full().h_full().px(ui(4)).items_center().rounded(ui(3)).border(1).border_color("#3b2a2a").bg("#ffe08a")
+        .child(div().min_w(0).text_size(ui(10)).text_color("#3b2a2a").whitespace_nowrap().text_ellipsis().overflow_hidden()
           .child(name)))];
   }
 
@@ -675,9 +706,9 @@ export default class AiOffice extends View {
   // 札（使っている skill の名前）。文字の幅が分からないので、広い枠の真ん中に置く
   tag(d) {
     return h_flex().absolute().left(px(d.x - 50)).top(px(d.y)).w(px(100)).h(px(9)).justify_center()
-      .child(h_flex().h_full().pl(3).pr(5).gap(4).items_center().rounded(3).border(1).border_color("#3b2a2a").bg("#fffaf0")
+      .child(h_flex().h_full().pl(ui(3)).pr(ui(5)).gap(ui(4)).items_center().rounded(ui(3)).border(1).border_color("#3b2a2a").bg("#fffaf0")
         .child(div().w(px(2)).h(px(6)).bg(d.color ?? "#9aa4b4"))
-        .child(div().text_size(10).text_color("#3b2a2a").whitespace_nowrap().child(d.text)));
+        .child(div().text_size(ui(10)).text_color("#3b2a2a").whitespace_nowrap().child(d.text)));
   }
 
   // 壁時計（選んだ場所の今の時刻。文字盤に時針と分針を重ねる）。クリックで場所（タイムゾーン）のドロップダウン。
@@ -691,7 +722,7 @@ export default class AiOffice extends View {
       .on_mouse_down("left", (_e, cx) => this.hold(cx))
       .on_click(() => this.placeMenu())
       .tooltip(`${place.name} ${text}（${offsetLabel(offsetAt(place, Date.now()))}）: クリックで場所（タイムゾーン）を選ぶ`)
-      .children(["clock-face", `clock-m-${m}`, `clock-h-${h}`].map((img) => image(`${IMG}/${img}.png`).absolute().left(0).top(0).size_full()));
+      .children(["clock-face", `clock-m-${m}`, `clock-h-${h}`].map((img) => image(pic(`${IMG}/${img}.png`)).absolute().left(0).top(0).size_full()));
   }
 
   // 壁時計のクリック: 場所のドロップダウン（ai-office-pick）。選ぶと、壁時計の時刻・窓の空・天気がその場所になる
@@ -728,8 +759,8 @@ export default class AiOffice extends View {
       })
       .on_mouse_down("right", () => menu())
       .tooltip(`${full}\nクリック: このスペースを選んで、メニュー（名前を変える・閉じる）。ドラッグ: 部屋の順番を変える`)
-      .px(8).flex().items_center().rounded(3).border(2).border_color("#5b3a2c").bg(room.active ? "#c58a55" : "#a8774c")
-      .text_size(12).font_semibold().text_color("#fff4dc").whitespace_nowrap().text_ellipsis().overflow_hidden()
+      .px(ui(8)).flex().items_center().rounded(ui(3)).border(2).border_color("#5b3a2c").bg(room.active ? "#c58a55" : "#a8774c")
+      .text_size(ui(12)).font_semibold().text_color("#fff4dc").whitespace_nowrap().text_ellipsis().overflow_hidden()
       .child(text);
   }
 
@@ -738,7 +769,7 @@ export default class AiOffice extends View {
     const { WALL_H, IMAGES } = geometry();
     const img = IMAGES.wall;
     const tiles = [];
-    for (let dx = 0; dx < w; dx += img.w) tiles.push(image(img.src).absolute().left(px(dx)).top(0).w(px(img.w)).h(px(img.h)));
+    for (let dx = 0; dx < w; dx += img.w) tiles.push(image(pic(img.src)).absolute().left(px(dx)).top(0).w(px(img.w)).h(px(img.h)));
     return div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(WALL_H)).overflow_hidden().children(tiles);
   }
 
@@ -786,7 +817,7 @@ export default class AiOffice extends View {
   // ホバーでその場所の時刻と天気
   sky(x, y, view, id) {
     return div().id(id).absolute().left(px(x)).top(px(y)).w(px(28)).h(px(16)).tooltip(view.tip)
-      .children(view.layers.map((img) => image(`${IMG}/${img}.png`).absolute().left(0).top(0).size_full()));
+      .children(view.layers.map((img) => image(pic(`${IMG}/${img}.png`)).absolute().left(0).top(0).size_full()));
   }
 
   // 壁のホワイトボード（この部屋の人のプランと書いた .md）。窓の左に掛け、クリックで中身（ai-office-docs）。
@@ -836,7 +867,7 @@ export default class AiOffice extends View {
         .tooltip("空き部屋: クリックで新しい部屋（スペース）を作る")
         .child(this.sprite({ img: "door", x: (lot.w - PART_W - 16) / 2, y: doorY, w: 16, h: 20 }))
         .child(div().absolute().left(0).top(px(doorY + 26)).w_full().flex().justify_center()
-          .text_size(11).text_color("#fff4dcdd").child("+ 部屋")),
+          .text_size(ui(11)).text_color("#fff4dcdd").child("+ 部屋")),
       ...(GLASS ? this.frontGlass(lot) : []),
     ];
   }
@@ -859,7 +890,7 @@ export default class AiOffice extends View {
 
   // フロアの点（論理 px）→ 絵の座標
   floorPoint(p) {
-    return { x: p.x / SCALE, y: p.y / SCALE };
+    return { x: p.x / this.zoom, y: p.y / this.zoom };
   }
 
   // 部屋の奥の壁（名札の並ぶ帯）の上の点なら、その部屋（つかめるのは壁だけ。床までつかめると、どこを押しても
@@ -957,19 +988,19 @@ export default class AiOffice extends View {
     const floorTiles = [];
     for (let y = 0; y < floor.h; y += wood.h) {
       for (let x = HALL_W; x < floor.w; x += wood.w) {
-        floorTiles.push(image(wood.src).absolute().left(px(x)).top(px(y)).w(px(wood.w)).h(px(wood.h)));
+        floorTiles.push(image(pic(wood.src)).absolute().left(px(x)).top(px(y)).w(px(wood.w)).h(px(wood.h)));
       }
     }
     if (corridor) { // 列ごとの横の廊下（部屋の枠の下）
       for (let oy = 0; oy < floor.h; oy += ROOM_H) {
         for (let x = HALL_W; x < floor.w; x += corridor.w) {
-          floorTiles.push(image(corridor.src).absolute().left(px(x)).top(px(oy + BOX_H)).w(px(corridor.w)).h(px(corridor.h)));
+          floorTiles.push(image(pic(corridor.src)).absolute().left(px(x)).top(px(oy + BOX_H)).w(px(corridor.w)).h(px(corridor.h)));
         }
       }
     }
     const hallTiles = [];
     for (let y = 0; y < floor.h; y += hall.h) {
-      hallTiles.push(image(hall.src).absolute().left(0).top(px(y)).w(px(hall.w)).h(px(hall.h)));
+      hallTiles.push(image(pic(hall.src)).absolute().left(0).top(px(y)).w(px(hall.w)).h(px(hall.h)));
     }
     const active = floor.rooms.find((r) => r.active);
     return div().id("floor").relative().w(px(floor.w)).h(px(floor.h)).overflow_hidden().rounded(4)
@@ -1017,12 +1048,6 @@ export default class AiOffice extends View {
         this.leave(cx);
         this.drag = null;
       })
-      .on_size_change((size, cx) => {
-        if (Math.abs(size.width - this.width) >= 1) {
-          this.width = size.width;
-          cx.notify();
-        }
-      })
       // 上の帯: 細い列（main-dots-office の Office の列は 440px まで狭まる）では、件数（ドラッグ中はその説明）だけを「…」で切り、
       // ほかは縮めない（全部並べると約 525px）
       .child(h_flex().h(32).flex_none().px(14).gap(14).items_center().text_size(12).text_color(t.muted)
@@ -1058,6 +1083,15 @@ export default class AiOffice extends View {
           .on_click(() => openOverlay({ mod: "ai-office-legend", kind: "popup", width: 300, height: 420 }))
           .child("凡例")))
       .child(div().id("scroll").flex_1().min_h(0).overflow_scroll() // 細い列（Office ボタン）では横にも
-        .child(div().p(px(MARGIN)).child(this.building(floor, this.items(placed), t, this.view()))));
+        .on_size_change((size, cx) => { // フロアに使える広さ。変わったら、入るいちばん大きい倍率で描き直す（floorNow）
+          if (Math.abs(size.width - this.width) >= 1 || Math.abs(size.height - this.height) >= 1) {
+            this.width = size.width;
+            this.height = size.height;
+            cx.notify();
+          }
+        })
+        // まわりの余白は倍率によらない。幅が余るときは真ん中に
+        .child(div().p(MARGIN * SCALE).pl(Math.max(MARGIN * SCALE, (this.width - floor.w * scale) / 2))
+          .child(this.building(floor, this.items(placed), t, this.view()))));
   }
 }

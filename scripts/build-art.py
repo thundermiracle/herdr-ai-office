@@ -1,6 +1,7 @@
 # ドット絵を作る: uv run --with pillow scripts/build-art.py
 # 絵は文字の格子で描き、外側の輪郭は自動で付ける。書き出すときに 4 倍に拡大する
 # （mod では絵の 1 ピクセル = 2 論理 px で描くので、Retina では物理 1:1 になり、にじまない）。
+# 窓が広いときにオフィスを 1.5 倍・2 倍（3・4 論理 px）で描くための 6 倍・8 倍も、同じ名前に @6x・@8x を付けて書き出す。
 # 出力: mods/ai-office/img/（mod が使う PNG）、mods/ai-office/themes/modern/ と classic/（テーマの絵）、
 #       tmp/art-preview.png（確認用の一覧と部屋の見本）
 import random
@@ -8,6 +9,7 @@ from pathlib import Path
 from PIL import Image
 
 SCALE = 4
+HIRES = (6, 8)  # 大きく描くときの倍率（mod の pic が、描く倍率に合うものを選ぶ）
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "mods" / "ai-office" / "img"
 THEMES = ROOT / "mods" / "ai-office" / "themes"  # テーマごとの絵（themes/<名前>/。theme.json の images が指す）
@@ -1719,6 +1721,9 @@ def save(im, name, out=OUT):
     path = out / f"{name}.png"
     path.parent.mkdir(parents=True, exist_ok=True)
     up(im).save(path, optimize=True)
+    for k in HIRES:
+        big = im.resize((im.width * k, im.height * k), Image.NEAREST)
+        big.save(path.with_name(f"{path.stem}@{k}x.png"), optimize=True)
     return path
 
 

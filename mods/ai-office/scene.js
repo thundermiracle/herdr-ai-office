@@ -1,10 +1,13 @@
 // scene.js: オフィスの中身の計算。herdr も gpui-kit も import しない（bun test で試せる）。
-// 座標はすべて絵のピクセル（art px）。mod は SCALE 倍の論理 px で描く。
+// 座標はすべて絵のピクセル（art px）。mod は SCALE 倍の論理 px で描く（窓が広いときは ZOOMS の大きい倍率。fitFloor）。
 // 絵の置き方は scripts/build-art.py の見本（preview）と同じ:
 //   立ち・歩き（18x24）は左上を (足の x-9, 足の y-23)、座り（18x18）は (席の x-9, BACK-18)、
 //   椅子は (席の x-7, BACK-9)、ノート PC は (席の机の x+7, BACK-5)、手は (席の机の x, BACK)。
 
 export const SCALE = 2;
+// 窓に合わせて大きく描く倍率（絵の 1 ピクセルを何論理 px で描くか。大きい順）。ターミナルを隠して広くなったら、入るいちばん
+// 大きいもので描く（fitFloor）。倍率ごとに、ぼやけない大きさの PNG を作ってある（build-art.py。3 は @6x、4 は @8x）
+export const ZOOMS = [4, 3, SCALE];
 export const TICK_ACTIVE = 250; // ms。窓がアクティブなとき（4fps。6fps だと main-dots の横で CPU 約 15%）
 export const TICK_INACTIVE = 500; // 窓が後ろにあるとき（2fps）
 export const TICK_RUN = 125; // 誰かが小走りしている間（8fps。速く動くので、4fps だと 1 コマで大きく飛ぶ）
@@ -532,12 +535,39 @@ export function roomsOf(spaces, agents, docs = new Map(), present = null) {
 
 /**
  * 1 枚のフロアに並べる: 廊下の右に部屋をすき間なく左から並べ、幅（廊下を除く）に入らなければ次の列へ。
- * 列の右端はそろえる（列のいちばん右の部屋を広げる）ので、フロアは四角になる。最後に空き部屋を置く。
+ * 列の右端はそろえる（列のいちばん右の部屋を広げる。空き部屋は広げない）ので、フロアは四角になる。最後に空き部屋を置く。
  * 返す部屋には、フロアの中の位置（ox, oy。部屋の左上）が付く。
  */
 export function layoutFloor(rooms, widthArt) {
-  const lots = [...rooms, { id: "new-room", newRoom: true, w: NEW_ROOM_W, h: ROOM_H }];
-  const avail = Math.max(widthArt - HALL_W, MIN_ROOM_W);
+  return placeRows(fillRows(withNewRoom(rooms), Math.max(widthArt - HALL_W, MIN_ROOM_W)));
+}
+
+/**
+ * 窓に合わせたフロア（オフィスの mod が使う）: widthArt x heightArt（今の大きさ SCALE で、フロアに使える幅と高さ。絵の px）に
+ * 入る、いちばん大きい倍率（ZOOMS）で並べる。ターミナルを隠して広くなったら大きく描き、部屋が増えれば小さくして 1 列に多く
+ * 並べる。どの倍率でも、列の数がいちばん少ない並びで、列の幅がそろうように分ける（evenRows）。空き部屋だけの列になる
+ * 倍率は使わない（その列いっぱいに広がって、空いた所が目立つ）。大きくできなければ今の大きさ（高さが入らなければスクロール）。
+ * 返すのは layoutFloor と同じもの + zoom（絵の 1 ピクセルの論理 px）。
+ */
+export function fitFloor(rooms, widthArt, heightArt) {
+  const lots = withNewRoom(rooms);
+  for (const zoom of ZOOMS.filter((z) => z > SCALE)) {
+    const k = zoom / SCALE;
+    const rows = evenRows(lots, Math.max(widthArt / k - HALL_W, MIN_ROOM_W));
+    const floor = placeRows(rows);
+    const lone = rows.length > 1 && rows.at(-1).length === 1; // 最後の列が空き部屋だけ
+    if (!lone && floor.w * k <= widthArt && floor.h * k <= heightArt) return { ...floor, zoom };
+  }
+  return { ...placeRows(evenRows(lots, Math.max(widthArt - HALL_W, MIN_ROOM_W))), zoom: SCALE };
+}
+
+// 部屋の並びの最後に、空き部屋
+function withNewRoom(rooms) {
+  return [...rooms, { id: "new-room", newRoom: true, w: NEW_ROOM_W, h: ROOM_H }];
+}
+
+// 左から詰めて、幅 avail に入らなければ次の列へ（列の数がいちばん少ない。最後の列だけ短くなりやすい）
+function fillRows(lots, avail) {
   const rows = [[]];
   let rowW = 0;
   for (const lot of lots) {
@@ -548,14 +578,36 @@ export function layoutFloor(rooms, widthArt) {
     rows.at(-1).push(lot);
     rowW += lot.w;
   }
+  return rows;
+}
+
+// fillRows と同じ列の数で、いちばん広い列がいちばん狭くなる分け方（部屋の順は変えない）: 詰める幅を、その列の数に
+// 収まるところまで狭める
+function evenRows(lots, avail) {
+  const count = fillRows(lots, avail).length;
+  let lo = Math.max(...lots.map((lot) => lot.w));
+  let hi = Math.max(lo, Math.floor(avail)); // 部屋の幅は整数
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (fillRows(lots, mid).length <= count) hi = mid;
+    else lo = mid + 1;
+  }
+  return fillRows(lots, lo);
+}
+
+// 列ごとの位置を付ける。列の右端はそろえる（列のいちばん右の部屋を広げる）ので、フロアは四角になる。空き部屋は広げない
+// （空いた所が大きく見える）: その左の部屋を広げる（空き部屋だけの列なら空き部屋）
+function placeRows(rows) {
   const sum = (row) => row.reduce((n, lot) => n + lot.w, 0);
   const width = Math.max(...rows.map(sum));
   const placed = [];
   rows.forEach((row, ri) => {
     const extra = width - sum(row);
+    let grow = row.length - 1;
+    while (grow > 0 && row[grow].newRoom) grow--;
     let x = HALL_W;
     row.forEach((lot, i) => {
-      const w = lot.w + (i === row.length - 1 ? extra : 0);
+      const w = lot.w + (i === grow ? extra : 0);
       placed.push({ ...lot, w, ox: x, oy: ri * ROOM_H, row: ri });
       x += w;
     });

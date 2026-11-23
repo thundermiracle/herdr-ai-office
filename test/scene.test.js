@@ -7,6 +7,7 @@ import {
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
   FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, isNoiseDoc, plateText, openAgents,
   DOOR_HOLD_MS, DOOR_MS, DOOR_SLIDE, doorsMoving, WINDOW_FRAMES, IMAGES, SILENT_MS, withSilent, shownStatus,
+  SCALE, NEW_ROOM_W, fitFloor,
 } from "../mods/ai-office/scene.js";
 
 // テーマは、オフィスと同じく mods/ai-office/themes/<名前>/ の theme.json と PNG から読む（確かめで落ちたら、ここで止まる）
@@ -234,7 +235,63 @@ describe("rooms", () => {
     // 列の右端はそろう（フロアは四角）
     expect(b.ox + b.w).toBe(floor.w);
     expect(lot.ox + lot.w).toBe(floor.w);
+    expect(lot.w).toBe(NEW_ROOM_W); // 空き部屋は広げず、その左の部屋が広がる（空いた所が大きく見えない）
+    expect(c.w).toBe(floor.w - HALL_W - NEW_ROOM_W);
     expect(floor.h).toBe(2 * ROOM_H);
+  });
+});
+
+describe("fitting the floor to the window", () => {
+  // 部屋（幅 w）を n 個。列ごとの並び（"+" は空き部屋）
+  const lots = (n, w = BOARD_ROOM_W) => Array.from({ length: n }, (_, i) => ({ id: `r${i + 1}`, w, h: ROOM_H }));
+  const rows = (floor) => {
+    const out = [];
+    for (const r of floor.rooms) (out[r.row] ??= []).push(r.newRoom ? "+" : r.id);
+    return out.map((row) => row.join(" "));
+  };
+  const fit = (n, w, width = W, height = H()) => {
+    const floor = fitFloor(lots(n, w), width, height);
+    return [floor.zoom, rows(floor)];
+  };
+  // ターミナルを隠したこの Mac の窓ぐらい（今の大きさで、フロアに使える幅と高さ。絵の px）。高さは 4.2 列分（列の高さは
+  // テーマで違うので、試すときに計る）
+  const W = 839;
+  const H = () => 4.2 * ROOM_H;
+
+  test("as big as the window allows; more rooms draw smaller with more in each row", () => {
+    expect(fit(1)).toEqual([4, ["r1 +"]]); // 2 倍（いちばん大きい倍率）
+    expect(fit(2)).toEqual([4, ["r1", "r2 +"]]); // 2 倍で上下に
+    expect(fit(3)).toEqual([3, ["r1 r2", "r3 +"]]); // 1.5 倍
+    expect(fit(4)).toEqual([3, ["r1 r2", "r3 r4 +"]]);
+    expect(fit(5)).toEqual([SCALE, ["r1 r2 r3", "r4 r5 +"]]); // 今の大きさ
+    expect(fit(6)).toEqual([SCALE, ["r1 r2 r3", "r4 r5 r6 +"]]);
+    const floor = fitFloor(lots(2), W, H());
+    const k = floor.zoom / SCALE;
+    expect(floor.w * k).toBeLessThanOrEqual(W);
+    expect(floor.h * k).toBeLessThanOrEqual(H());
+    // 列の右端はそろう（上の列の部屋を広げる）
+    expect(floor.rooms.map((r) => [r.ox, r.oy, r.w])).toEqual([
+      [HALL_W, 0, BOARD_ROOM_W + NEW_ROOM_W], [HALL_W, ROOM_H, BOARD_ROOM_W], [HALL_W + BOARD_ROOM_W, ROOM_H, NEW_ROOM_W],
+    ]);
+  });
+
+  test("rows come out even, and the empty room never gets a row of its own when that can be helped", () => {
+    // 左から詰めると、空き部屋だけが下の列になって、その列いっぱいに広がる
+    expect(rows(layoutFloor(lots(2, MIN_ROOM_W), W / 2))).toEqual(["r1 r2", "+"]);
+    expect(fit(2, MIN_ROOM_W)).toEqual([4, ["r1", "r2 +"]]);
+    // 左から詰めると最後の列だけ短い（3 と 1）。そろえて 2 と 2
+    expect(rows(layoutFloor(lots(4), 3 * BOARD_ROOM_W + HALL_W + 20))).toEqual(["r1 r2 r3", "r4 +"]);
+    expect(fit(4, BOARD_ROOM_W, 3 * BOARD_ROOM_W + HALL_W + 20, 2 * ROOM_H)).toEqual([SCALE, ["r1 r2", "r3 r4 +"]]);
+    // 2 倍だと空き部屋だけの列になる幅なら、1.5 倍で 1 列
+    expect(fit(1, BOARD_ROOM_W, 520, 10 * ROOM_H)).toEqual([3, ["r1 +"]]);
+    // 短い列の余りは、空き部屋ではなくその左の部屋が受け取る
+    expect(fitFloor(lots(3), W, H()).rooms.filter((r) => r.row === 1).map((r) => [r.id, r.w]))
+      .toEqual([["r3", 2 * BOARD_ROOM_W - NEW_ROOM_W], ["new-room", NEW_ROOM_W]]);
+  });
+
+  test("a narrow column (terminal shown) or an unknown height stays at today's size", () => {
+    expect(fit(2, BOARD_ROOM_W, 208, 10 * ROOM_H)).toEqual([SCALE, ["r1", "r2", "+"]]); // 1 列に 1 部屋（はみ出す分はスクロール）
+    expect(fit(2, BOARD_ROOM_W, W, 0)).toEqual([SCALE, ["r1 r2 +"]]);
   });
 });
 
