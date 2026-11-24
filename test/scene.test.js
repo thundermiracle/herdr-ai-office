@@ -77,7 +77,7 @@ describe("behaviorOf", () => {
 
   test("a completion read in the chat shows as idle (no ✓) until a later turn finishes", () => {
     expect(shownStatus("done", 7, undefined)).toBe("done"); // まだ見ていない
-    expect(shownStatus("done", 7, 7)).toBe("idle"); // 会話でこのターンを見た
+    expect(shownStatus("done", 7, 7)).toBe("idle"); // このターンを重ねて出して見た
     expect(shownStatus("done", 8, 7)).toBe("done"); // 次のターンの完了は、また ✓
     expect(shownStatus("working", 7, 7)).toBe("working");
     expect(shownStatus("done", undefined, undefined)).toBe("done"); // ターンが分からなければ、そのまま
@@ -614,10 +614,11 @@ describe("drawables", () => {
     expect(d.find((x) => x.id === "chair-0").click).toBeUndefined();
     expect(d.find((x) => x.id === "chair-1").click).toEqual(hire);
     expect(d.find((x) => x.id === "hire-1").click).toEqual(hire);
-    // キャラ・名札・PC のクリックは同じ chat（ターミナルを出していれば切り替え、隠していれば会話。決めるのは main.js）
+    // キャラ・名札・PC のクリックは同じ chat（ターミナルを出していれば切り替え、隠していればオフィスの上に重ねて出す。
+    // 決めるのは main.js）
     const char = d.find((x) => x.id === "char-t1");
     expect(char.click).toEqual({ type: "chat", terminal: "t1", name: expect.any(String), machine: null });
-    expect(char.tip).toContain("隠しているときは会話");
+    expect(char.tip).toContain("隠しているときは、オフィスの上に重ねて");
     expect(d.find((x) => x.id === "name-0").click).toEqual(char.click);
     expect(d.find((x) => x.id === "laptop-0").click).toEqual(char.click);
   });
@@ -780,11 +781,12 @@ describe("agents that have not reported yet", () => {
     expect(c.behavior).toBe("raise");
     d = drawables(w.rooms[0], office);
     expect(d.find((x) => x.id === "char-t1").img).toMatch(/-raise-[01]$/);
-    expect(d.find((x) => x.id === "bubble-t1")).toMatchObject({ img: "bubble-alert", click: { type: "focus", terminal: "t1" } });
-    expect(d.find((x) => x.id === "char-t1").click).toEqual({ type: "focus", terminal: "t1" });
-    // 名札と PC も、報告がまだのあいだはターミナル（会話は送れない）
-    expect(d.find((x) => x.id === "name-0").click).toEqual({ type: "focus", terminal: "t1" });
-    expect(d.find((x) => x.id === "laptop-0").click).toEqual({ type: "focus", terminal: "t1" });
+    // 「!」・キャラ・名札・PC は、ふつうの人と同じ chat（そのターミナルで、起動の前の確認に答えられる）
+    const talk = { type: "chat", terminal: "t1", name: expect.any(String), machine: null };
+    expect(d.find((x) => x.id === "bubble-t1")).toMatchObject({ img: "bubble-alert", click: talk });
+    expect(d.find((x) => x.id === "char-t1").click).toEqual(talk);
+    expect(d.find((x) => x.id === "name-0").click).toEqual(talk);
+    expect(d.find((x) => x.id === "laptop-0").click).toEqual(talk);
     // 確認に答えて報告を始めたら（idle）、ふつうの人と同じくうろうろ
     w.info.set("t1", { status: "idle", app: "codex", name: "Codex" });
     office.sync(w.rooms, w.info);

@@ -397,10 +397,10 @@ export function seatName({ tabName, named, program, title, address }) {
 }
 
 /**
- * オフィスに出す状態。完了（done。見ていない間に終わった）でも、そのターン（terminals() の turn）を会話のダイアログで見たなら
- * 待機（idle）として出す（✓ を消す）。herdr の done はターミナルを見せたときだけ idle に戻り、ターミナルを隠して会話で読んでも
- * 戻らない（隠したまま agent.focus しても戻らなかった）ので、オフィスで覚える（seenTurn: shared の ai-office.seen の、
- * そのアドレスの見たターン）。次のターンで終われば、ターンが変わるのでまた ✓ が出る。
+ * オフィスに出す状態。完了（done。見ていない間に終わった）でも、そのターン（terminals() の turn）を、オフィスの上に重ねて出した
+ * ターミナルで見たなら、待機（idle）として出す（✓ を消す）。herdr の done は右のターミナルで見せたときに idle に戻るが、重ねて
+ * 出しただけで戻るかは分からない（隠したまま agent.focus しても戻らなかった）ので、オフィスで覚える（seenTurn: shared の
+ * ai-office.seen の、そのアドレスの見たターン）。次のターンで終われば、ターンが変わるのでまた ✓ が出る。
  */
 export function shownStatus(status, turn, seenTurn) {
   return status === "done" && turn != null && seenTurn === turn ? "idle" : status;
@@ -1375,12 +1375,11 @@ export function drawables(room, office, skills = []) {
   const art = (name) => (IMAGES[name] ? { src: IMAGES[name].src } : {}); // テーマが替えた家具の絵（DESK_SIZES と椅子）
   const chair = IMAGES.chair ?? CHAIR; // 椅子は席の真ん中に、下の端を机の奥の縁にそろえる
   const chairAt = (seat) => ({ x: seat.cx - Math.floor(chair.w / 2), y: BACK - chair.h, w: chair.w, h: chair.h });
-  // その人のクリック（キャラ・名札・PC の左クリック）: chat。main.js の act が、右のターミナルを出しているならそのターミナルに
-  // 切り替え、隠しているなら会話のダイアログ（ai-office-chat）を出す。まだ状態を報告していない人は、いつもターミナル（起動の
-  // 前の確認に答えるため。会話は送れない）
+  // その人のクリック（キャラ・名札・PC の左クリックと、許可待ちの「!」）: chat。main.js の act が、右のターミナルを出しているなら
+  // そのターミナルに切り替え、隠しているならそのターミナルをオフィスの上に重ねて出す（本物のターミナルなので、Claude Code でも
+  // Codex でも、まだ状態を報告していない人の起動の前の確認でも、そのまま答えられる）
   const whoOf = (info) => [info.name, modelLabel(info.model), info.effort, info.where].filter(Boolean).join(" · ");
-  const talkTo = (address, info) => (info.silent ? { type: "focus", terminal: address }
-    : { type: "chat", terminal: address, name: whoOf(info) || address, machine: room.machine ?? null });
+  const talkTo = (address, info) => ({ type: "chat", terminal: address, name: whoOf(info) || address, machine: room.machine ?? null });
   add({ id: "plant", img: "plant", x: room.w - 18, y: BACK + 4, w: 12, h: 17, z: 95 });
   // ガラスの部屋（テーマの glass）の手前のガラスの壁と扉: 机・植木・部屋の中の人より手前、横の廊下を歩く人より奥。
   // ガラスはテーマの images.glass を横に並べる（tile）。扉の枠（images.door）は、通り道 LEFT_PASS を真ん中に 16 開けた
@@ -1412,12 +1411,12 @@ export function drawables(room, office, skills = []) {
       add({ id: `chair-${seat.i}`, img: "chair", ...art("chair"), ...chairAt(seat), z: BACK - 2 });
       add({ id: `laptop-${seat.i}`, img: "laptop", x: seat.segX + 5, y: BACK - 5, w: 14, h: 10, z: BACK + 15.5, owner: seat.agent,
         click: talk, right: { type: "tab-menu", terminal: seat.agent },
-        tip: "PC: クリックでこのエージェントのターミナルを表示（ターミナルを隠しているときは会話）。右クリックでタブのメニュー"
+        tip: "PC: クリックでこのエージェントのターミナルを表示（右のターミナルを隠しているときは、オフィスの上に重ねて）。右クリックでタブのメニュー"
           + "（名前を変える・閉じる）", glow: true });
       // 机の前の板の名札（タブバーと同じ名前。長ければ切る）。本人が歩き回っていても席に残るので、誰の席か分かる
       const name = info.seatName ?? info.tab ?? info.name ?? seat.agent;
       add({ id: `name-${seat.i}`, plate: name, x: seat.segX + 1, y: BACK + 10, w: 22, h: 6, z: BACK + 15.9, owner: seat.agent,
-        click: talk, tip: `${name}（クリックでターミナルを表示。ターミナルを隠しているときは会話）` });
+        click: talk, tip: `${name}（クリックでターミナルを表示。右のターミナルを隠しているときは、オフィスの上に重ねて）` });
       continue;
     }
     // 空いた席（雇える席）: 緑の椅子、ノート PC なし、上に「＋」の札が揺れる
@@ -1433,11 +1432,10 @@ export function drawables(room, office, skills = []) {
     if (c.room !== room.id) continue;
     const { look, band, flame } = c.look;
     const ph = office.t + c.phase;
-    const focus = { type: "focus", terminal: c.address };
-    const state = c.info.silent ? "状態の報告がまだない（起動中か、起動の前の確認で止まっている。クリックで表示）" : c.info.status;
+    const state = c.info.silent ? "状態の報告がまだない（起動中か、起動の前の確認で止まっている）" : c.info.status;
     const tip = [whoOf(c.info), state].filter(Boolean).join(" · ");
-    const click = talkTo(c.address, c.info); // 名札・PC と同じ
-    const charTip = c.info.silent ? tip : `${tip}\nクリック: ターミナルを表示（ターミナルを隠しているときは会話）`;
+    const click = talkTo(c.address, c.info); // 名札・PC・「!」と同じ
+    const charTip = `${tip}\nクリック: ターミナルを表示（右のターミナルを隠しているときは、オフィスの上に重ねて）`;
     // キャラ。effort の鉢巻きは同じ大きさの重ね絵（over）で、キャラのすぐ上に描く
     const person = (pose, x, y, h, z) => {
       add({ id: `char-${c.address}`, img: `char/${look}-${pose}`, over: band ? `band/${band}-${pose}` : null,
@@ -1484,7 +1482,7 @@ export function drawables(room, office, skills = []) {
       const question = c.info.kind === "question";
       add({ id: `bubble-${c.address}`, img: question ? "bubble-ask" : "bubble-alert", x: x - 6, y: y - 36 - (Math.floor(ph / 3) % 2),
         w: 13, h: 14, z: 1000, glow: true,
-        click: question ? { type: "ask", terminal: c.address, name: tip } : focus,
+        click: question ? { type: "ask", terminal: c.address, name: tip } : click,
         tip: question ? "クリックで質問に答える" : tip });
     }
   }

@@ -56,7 +56,7 @@ const WEATHER_STALE_MS = 3 * 3600000; // これより古い天気は使わない
  * agentKeys: エージェントのプログラムの key（loadAgentKeys が読む。まだ状態を報告していない人を見分ける）。
  */
 function gather(meta, codexDefaults, present, agentKeys) {
-  const seen = shared(SEEN) ?? {}; // 会話で見た完了（アドレス → ターン。ai-office-chat が書く）
+  const seen = shared(SEEN) ?? {}; // 見た完了（アドレス → ターン。markSeen が書く）
   const sp = spaces();
   const ps = panes();
   // 報告している人と、まだ状態を報告していない人（雇った直後や、起動の前の確認で止まっている人。withSilent）
@@ -69,7 +69,7 @@ function gather(meta, codexDefaults, present, agentKeys) {
     const sid = t?.labels?.["resume.id"]; // agent-resume が付ける Claude のセッション ID
     const { model, effort } = agentModel({ app, argv: t?.foreground?.argv, cached: sid ? meta.get(sid) : null, codexDefaults });
     return [a.address, {
-      status: shownStatus(a.status, t?.turn, seen[a.address]), // 会話で見た完了は待機として出す
+      status: shownStatus(a.status, t?.turn, seen[a.address]), // 見た完了は待機として出す
       silent: Boolean(a.silent), // まだ状態を報告していない（status は null。しばらくして手を挙げる）
       app,
       model,
@@ -104,8 +104,19 @@ function gather(meta, codexDefaults, present, agentKeys) {
 // レイアウトの根から id のブロックまでの道（見つからなければ null）
 // ai-office レイアウトの、選んだエージェントのターミナルのブロック（layouts/ai-office.json）。上の帯のスイッチで出し入れする
 const TERMINAL_BLOCK = "agent";
-// 会話のダイアログで見た完了（shared。アドレス → 見たターン）。そのターンの完了は ✓ を出さない（scene.js の shownStatus）
+// 重ねて出したターミナルで見た完了（shared。アドレス → 見たターン）。そのターンの完了は ✓ を出さない（scene.js の shownStatus）
 const SEEN = "ai-office.seen";
+
+// 完了の人のターミナルを重ねて出す（terminal.peek）ときに、そのターンを見たと覚える。Herdr がのぞいただけで「見た」と
+// 数えるかは分からないので、オフィスでも覚える。今はないターミナルの分は捨てる
+function markSeen(address) {
+  if (agents().find((a) => a.address === address)?.status !== "done") return;
+  const turn = terminals().find((x) => x.address === address)?.turn;
+  if (turn == null) return;
+  const live = new Set(terminals().map((x) => x.address));
+  const seen = Object.fromEntries(Object.entries(shared(SEEN) ?? {}).filter(([k]) => live.has(k)));
+  setShared(SEEN, { ...seen, [address]: turn });
+}
 
 function pathTo(node, id) {
   if (!node) return null;
@@ -597,15 +608,10 @@ export default class AiOffice extends View {
       .when(Boolean(d.books), (el) => el.children(d.books.map((b) => this.book(b))));
   }
 
-  // scene.js の click: { type: "focus", terminal } / { type: "chat", terminal, name, machine } / { type: "hire", space, machine } /
+  // scene.js の click: { type: "chat", terminal, name, machine } / { type: "ask", terminal, name } / { type: "hire", space, machine } /
   // { type: "skills" }。
   // 壁のホワイトボード: { type: "docs", room, docs: [{ path, kind, who }] }。机の PC の右クリック: { type: "tab-menu", terminal }
   act(click) {
-    if (click.type === "focus") {
-      // ターミナルを隠していたら出す（隠したままだと、表示しても見えない）
-      if (pathTo(layout(), TERMINAL_BLOCK)?.at(-1)?.hidden) run("layout.show", { id: TERMINAL_BLOCK });
-      run("agent.focus", { terminal: click.terminal });
-    }
     if (click.type === "tab-menu") this.tabMenu(click);
     if (click.type === "skills") {
       const skills = this.shelfSkills();
@@ -621,11 +627,14 @@ export default class AiOffice extends View {
     }
     if (click.type === "chat") {
       // キャラのクリック: 右のターミナルを出しているなら、そのターミナルに切り替えるだけ（話すのはターミナルで）。隠している
-      // なら会話のダイアログ（ai-office-chat）。ターミナルのブロックがないレイアウト（main-dots-office など）は、メインの欄に
-      // ターミナルが見えているので切り替え。会話は長くなるので、プランと同じ広さのダイアログにして中をスクロールさせる
+      // なら、そのターミナルをオフィスの上に重ねて出す（Herdr の terminal.peek。本物のターミナルなので Claude Code をそのまま
+      // 使える。上の帯に「go to」と閉じる）。ターミナルのブロックがないレイアウト（main-dots-office など）は、メインの欄に
+      // ターミナルが見えているので切り替え
       if (!pathTo(layout(), TERMINAL_BLOCK)?.at(-1)?.hidden) run("agent.focus", { terminal: click.terminal });
-      else openOverlay({ mod: "ai-office-chat", kind: "dialog", width: 0.65, height: 0.8,
-        props: { terminal: click.terminal, name: click.name, machine: click.machine } });
+      else {
+        markSeen(click.terminal);
+        run("terminal.peek", { terminal: click.terminal });
+      }
     }
     if (click.type === "docs") {
       // プランは長い行（コードや表）が多いので、skill の中身より広く、窓の幅に合わせる

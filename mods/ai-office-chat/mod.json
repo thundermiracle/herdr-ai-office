@@ -1,9 +1,0 @@
-{
-  "place": "none",
-  "title": "AI Office: chat",
-  "overlay": {
-    "kind": "dialog",
-    "width": 0.65,
-    "height": 0.8
-  }
-}
