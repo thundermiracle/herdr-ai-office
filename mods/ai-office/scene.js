@@ -406,6 +406,25 @@ export function shownStatus(status, turn, seenTurn) {
   return status === "done" && turn != null && seenTurn === turn ? "idle" : status;
 }
 
+const KEY_MODS = { cmd: "⌘", ctrl: "⌃", alt: "⌥", shift: "⇧" };
+const KEY_NAMES = { enter: "Return", space: "Space", tab: "Tab", backspace: "⌫" };
+
+/**
+ * オフィスの上に重ねて出したターミナル（terminal.peek）を閉じるキーの書き方（⌘. など）。Esc はエージェントに届く（Claude
+ * Code なら作業の中断）ので、閉じるのは keys.json で overlay.close に割り当てたキー（README の「会話」の cmd-.）か、
+ * 上の帯の ✕。bindings は herdr の keys()（{ section, keys, action }）。重ねたターミナルがキーを受け取っているので、効くと
+ * 確かめた terminal のものだけを見て、なければ null（ツールチップは ✕ だけを言う）。Esc のキーは ⌘ を付けても重ねた
+ * ターミナルが受け取り、閉じない（この Mac で cmd-escape を試した）ので数えない。
+ */
+export function closeKeyOf(bindings = []) {
+  const keys = bindings.find((k) => k.action === "overlay.close" && k.section === "terminal" && !/(^|-)escape$/.test(k.keys))?.keys;
+  if (!keys) return null;
+  const parts = keys.split(/-(?=.)/); // cmd-- の最後の - はキー
+  const key = parts.pop();
+  const name = KEY_NAMES[key] ?? key[0].toUpperCase() + key.slice(1);
+  return parts.map((m) => KEY_MODS[m] ?? `${m}-`).join("") + name;
+}
+
 /**
  * 状態から動きを決める。act はターミナルのラベル office.act（read / edit / run ...）。
  * type: 席でタイピング、read: 本棚で読む、raise: 手を挙げて待つ、done: 席で ✓、wander: うろうろ
@@ -1360,9 +1379,9 @@ export function animating(office) {
  * 名札）。main.js は、どれかにマウスが乗ると、同じ持ち主のものを一緒に光らせる。
  * img と over（上に重ねる絵）は img/ の下の名前（.png なし）。books は本棚の上に描く本（shelfBooks、本棚の左上から）。
  * tile があれば、img（幅 tile）を w の幅まで横に並べる（ガラスの壁）。src があれば img/ でなくその絵（テーマの絵）。
- * skills は資料室の本棚の skill（札の色に使う）。
+ * skills は資料室の本棚の skill（札の色に使う）。closeKey は重ねて出したターミナルを閉じるキー（closeKeyOf。ツールチップに出す）。
  */
-export function drawables(room, office, skills = []) {
+export function drawables(room, office, skills = [], closeKey = null) {
   const out = [];
   const add = (d) => out.push(d);
   const colorOf = (id) => SKILL_SOURCES[skills.find((x) => sameSkill(id, x.id))?.source]?.color ?? "#9aa4b4";
@@ -1380,6 +1399,8 @@ export function drawables(room, office, skills = []) {
   // Codex でも、まだ状態を報告していない人の起動の前の確認でも、そのまま答えられる）
   const whoOf = (info) => [info.name, modelLabel(info.model), info.effort, info.where].filter(Boolean).join(" · ");
   const talkTo = (address, info) => ({ type: "chat", terminal: address, name: whoOf(info) || address, machine: room.machine ?? null });
+  // ツールチップの最後の行: 重ねたターミナルの閉じ方（Esc はエージェントに届くので、閉じるキーか ✕）
+  const shut = `重ねたターミナルは ${closeKey ? `${closeKey} か ✕` : "✕"} で閉じる（Esc はエージェントに届く）`;
   add({ id: "plant", img: "plant", x: room.w - 18, y: BACK + 4, w: 12, h: 17, z: 95 });
   // ガラスの部屋（テーマの glass）の手前のガラスの壁と扉: 机・植木・部屋の中の人より手前、横の廊下を歩く人より奥。
   // ガラスはテーマの images.glass を横に並べる（tile）。扉の枠（images.door）は、通り道 LEFT_PASS を真ん中に 16 開けた
@@ -1412,11 +1433,11 @@ export function drawables(room, office, skills = []) {
       add({ id: `laptop-${seat.i}`, img: "laptop", x: seat.segX + 5, y: BACK - 5, w: 14, h: 10, z: BACK + 15.5, owner: seat.agent,
         click: talk, right: { type: "tab-menu", terminal: seat.agent },
         tip: "PC: クリックでこのエージェントのターミナルを表示（右のターミナルを隠しているときは、オフィスの上に重ねて）。右クリックでタブのメニュー"
-          + "（名前を変える・閉じる）", glow: true });
+          + `（名前を変える・閉じる）\n${shut}`, glow: true });
       // 机の前の板の名札（タブバーと同じ名前。長ければ切る）。本人が歩き回っていても席に残るので、誰の席か分かる
       const name = info.seatName ?? info.tab ?? info.name ?? seat.agent;
       add({ id: `name-${seat.i}`, plate: name, x: seat.segX + 1, y: BACK + 10, w: 22, h: 6, z: BACK + 15.9, owner: seat.agent,
-        click: talk, tip: `${name}（クリックでターミナルを表示。右のターミナルを隠しているときは、オフィスの上に重ねて）` });
+        click: talk, tip: `${name}（クリックでターミナルを表示。右のターミナルを隠しているときは、オフィスの上に重ねて）\n${shut}` });
       continue;
     }
     // 空いた席（雇える席）: 緑の椅子、ノート PC なし、上に「＋」の札が揺れる
@@ -1435,7 +1456,7 @@ export function drawables(room, office, skills = []) {
     const state = c.info.silent ? "状態の報告がまだない（起動中か、起動の前の確認で止まっている）" : c.info.status;
     const tip = [whoOf(c.info), state].filter(Boolean).join(" · ");
     const click = talkTo(c.address, c.info); // 名札・PC・「!」と同じ
-    const charTip = `${tip}\nクリック: ターミナルを表示（右のターミナルを隠しているときは、オフィスの上に重ねて）`;
+    const charTip = `${tip}\nクリック: ターミナルを表示（右のターミナルを隠しているときは、オフィスの上に重ねて）\n${shut}`;
     // キャラ。effort の鉢巻きは同じ大きさの重ね絵（over）で、キャラのすぐ上に描く
     const person = (pose, x, y, h, z) => {
       add({ id: `char-${c.address}`, img: `char/${look}-${pose}`, over: band ? `band/${band}-${pose}` : null,

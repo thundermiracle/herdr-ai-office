@@ -7,12 +7,12 @@ import { v_flex, h_flex } from "gpui-base";
 import * as fs from "fs/promises";
 import {
   spaces, agents, terminals, panes, theme, window, run, openOverlay, pickFolder, home, appHome, readTextFile, layout, props, setShared,
-  shared, nextCommand, knownAgents,
+  shared, nextCommand, knownAgents, keys,
 } from "herdr";
 import {
   SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, fitFloor, drawables,
   floorDrawables, running, doorsMoving, roomAt, dropTarget, useTheme, geometry, seatName, readTheme, addTheme, themeList, pngSize, plateText,
-  openAgents, withSilent, shownStatus,
+  openAgents, withSilent, shownStatus, closeKeyOf,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
   PLACES, WEATHER_MS, TRIAL_WEATHER, defaultPlace, offsetAt, offsetLabel, placeAt, placeClock, weatherOf, parseWeather,
   windowView, windowTip, parseSkyCommand,
@@ -466,9 +466,10 @@ export default class AiOffice extends View {
   // ほかの部屋の手前の通路や廊下を歩く人も、正しく前後する
   items(placed) {
     const skills = this.shelfSkills();
+    const closeKey = closeKeyOf(keys()); // 重ねたターミナルを閉じるキー（keys.json。ツールチップに出す）
     return [
       ...floorDrawables(this.office, skills),
-      ...placed.flatMap((r) => drawables(r, this.office, skills)
+      ...placed.flatMap((r) => drawables(r, this.office, skills, closeKey)
         .map((d) => ({ ...d, id: `${r.id}-${d.id}`, x: d.x + r.ox, y: d.y + r.oy, z: d.z + r.oy }))),
     ].sort((a, b) => a.z - b.z);
   }
@@ -628,8 +629,9 @@ export default class AiOffice extends View {
     if (click.type === "chat") {
       // キャラのクリック: 右のターミナルを出しているなら、そのターミナルに切り替えるだけ（話すのはターミナルで）。隠している
       // なら、そのターミナルをオフィスの上に重ねて出す（Herdr の terminal.peek。本物のターミナルなので Claude Code をそのまま
-      // 使える。上の帯に「go to」と閉じる）。ターミナルのブロックがないレイアウト（main-dots-office など）は、メインの欄に
-      // ターミナルが見えているので切り替え
+      // 使える。上の帯に「go to」と ✕）。Esc はエージェントに届くので、閉じるのは ✕ か、keys.json で overlay.close に割り当てた
+      // キー（⌘.）。ターミナルのブロックがないレイアウト（main-dots-office など）は、メインの欄にターミナルが見えているので
+      // 切り替え
       if (!pathTo(layout(), TERMINAL_BLOCK)?.at(-1)?.hidden) run("agent.focus", { terminal: click.terminal });
       else {
         markSeen(click.terminal);

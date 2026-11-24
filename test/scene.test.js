@@ -7,7 +7,7 @@ import {
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
   FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, isNoiseDoc, plateText, openAgents,
   DOOR_HOLD_MS, DOOR_MS, DOOR_SLIDE, doorsMoving, WINDOW_FRAMES, IMAGES, SILENT_MS, withSilent, shownStatus,
-  SCALE, NEW_ROOM_W, fitFloor,
+  SCALE, NEW_ROOM_W, fitFloor, closeKeyOf,
 } from "../mods/ai-office/scene.js";
 
 // テーマは、オフィスと同じく mods/ai-office/themes/<名前>/ の theme.json と PNG から読む（確かめで落ちたら、ここで止まる）
@@ -621,6 +621,33 @@ describe("drawables", () => {
     expect(char.tip).toContain("隠しているときは、オフィスの上に重ねて");
     expect(d.find((x) => x.id === "name-0").click).toEqual(char.click);
     expect(d.find((x) => x.id === "laptop-0").click).toEqual(char.click);
+  });
+
+  test("the tooltips say how to close the terminal shown over the office, with the key keys.json gives it", () => {
+    // Esc はエージェントに届くので、閉じるのは keys.json の overlay.close のキーか ✕。キーがなければ ✕ だけ
+    expect(closeKeyOf([{ section: "terminal", keys: "cmd-.", action: "overlay.close" }])).toBe("⌘.");
+    expect(closeKeyOf([{ section: "terminal", keys: "ctrl-shift-w", action: "overlay.close" }])).toBe("⌃⇧W");
+    expect(closeKeyOf([{ section: "terminal", keys: "cmd--", action: "overlay.close" }])).toBe("⌘-");
+    expect(closeKeyOf([{ section: "terminal", keys: "cmd-w", action: "tab.close" }])).toBeNull();
+    // 重ねたターミナルの中で効くと確かめたのは terminal のものだけ
+    expect(closeKeyOf([{ section: "global", keys: "cmd-.", action: "overlay.close" }])).toBeNull();
+    expect(closeKeyOf([{ section: "layout:main", keys: "cmd-.", action: "overlay.close" }])).toBeNull();
+    // Esc のキーは、⌘ を付けても重ねたターミナルが受け取って閉じないので数えない
+    expect(closeKeyOf([{ section: "terminal", keys: "cmd-escape", action: "overlay.close" },
+      { section: "terminal", keys: "cmd-.", action: "overlay.close" }])).toBe("⌘.");
+    expect(closeKeyOf([{ section: "terminal", keys: "escape", action: "overlay.close" }])).toBeNull();
+    expect(closeKeyOf()).toBeNull();
+    const office = new Office(seeded(7));
+    const w = world({ t1: "working" });
+    office.sync(w.rooms, w.info);
+    const tips = (d) => ["char-t1", "name-0", "laptop-0"].map((id) => d.find((x) => x.id === id).tip);
+    for (const tip of tips(drawables(w.rooms[0], office, [], "⌘."))) {
+      expect(tip).toContain("重ねたターミナルは ⌘. か ✕ で閉じる（Esc はエージェントに届く）");
+    }
+    for (const tip of tips(drawables(w.rooms[0], office))) {
+      expect(tip).toContain("重ねたターミナルは ✕ で閉じる");
+      expect(tip).not.toContain("⌘");
+    }
   });
 
   test("the empty seat looks different: green chair, no laptop, a + sign", () => {
