@@ -601,7 +601,7 @@ export default class AiOffice extends View {
       .on_click((_e, cx) => onClick(cx))
       .when(Boolean(d.right), (el) => el.on_mouse_down("right", (_e, cx) => {
         cx.stop_propagation();
-        this.act(d.right);
+        this.act(d.right, cx);
       }))
       .when(Boolean(tip), (el) => el.tooltip(tip))
       .child(image(this.src(d)).size_full())
@@ -612,7 +612,15 @@ export default class AiOffice extends View {
   // scene.js の click: { type: "chat", terminal, name, machine } / { type: "ask", terminal, name } / { type: "hire", space, machine } /
   // { type: "skills" }。
   // 壁のホワイトボード: { type: "docs", room, docs: [{ path, kind, who }] }。机の PC の右クリック: { type: "tab-menu", terminal }
-  act(click) {
+  act(click, cx) {
+    // 上に重ねるもの（ターミナル・ダイアログ・ポップアップ）を出すクリックでは、マウスが乗っている印（明るさと頭の上の名前）を
+    // 消す。消さないと、閉じたあともクリックした人が選んだままに見えた（乗せ直せばまた付く）。右のターミナルに切り替える
+    // だけのとき（chat）は、オフィスが見えたままなので残す
+    const terminalShown = !pathTo(layout(), TERMINAL_BLOCK)?.at(-1)?.hidden;
+    if ((click.type !== "chat" || !terminalShown) && this.hover) {
+      this.hover = null;
+      cx.notify();
+    }
     if (click.type === "tab-menu") this.tabMenu(click);
     if (click.type === "skills") {
       const skills = this.shelfSkills();
@@ -632,7 +640,7 @@ export default class AiOffice extends View {
       // 使える。上の帯に「go to」と ✕）。Esc はエージェントに届くので、閉じるのは ✕ か、keys.json で overlay.close に割り当てた
       // キー（⌘.）。ターミナルのブロックがないレイアウト（main-dots-office など）は、メインの欄にターミナルが見えているので
       // 切り替え
-      if (!pathTo(layout(), TERMINAL_BLOCK)?.at(-1)?.hidden) run("agent.focus", { terminal: click.terminal });
+      if (terminalShown) run("agent.focus", { terminal: click.terminal });
       else {
         markSeen(click.terminal);
         run("terminal.peek", { terminal: click.terminal });
@@ -675,7 +683,7 @@ export default class AiOffice extends View {
     return div().id(d.id).absolute().left(px(d.x)).top(px(d.y)).w(px(d.w)).h(px(d.h)).px(ui(3)).flex().items_center()
       .rounded(ui(3)).border(1).border_color("#5b3a2c").bg(lit ? "#ffe08a" : "#fffaf0").cursor_pointer()
       .on_mouse_down("left", (_e, cx) => this.hold(cx))
-      .on_click(() => this.act(d.click))
+      .on_click((_e, cx) => this.act(d.click, cx))
       .on_hover((hovered, cx) => this.hoverOn(d.owner, hovered, cx))
       .tooltip(d.tip)
       .child(div().w_full().text_size(ui(9)).line_height(`${ui(10)}px`).text_color("#3b2a2a").whitespace_nowrap().text_ellipsis()
@@ -697,7 +705,7 @@ export default class AiOffice extends View {
     if (d.text !== undefined) return this.tag(d);
     if (d.plate !== undefined) return this.nameplate(d);
     if (d.tile) return this.tiled(d);
-    return d.click ? this.button(d.id, d, () => this.act(d.click), d.tip) : this.sprite(d);
+    return d.click ? this.button(d.id, d, (cx) => this.act(d.click, cx), d.tip) : this.sprite(d);
   }
 
   // 幅 tile の絵を、w の幅まで横に並べる（はみ出した分は切る。ガラスや障子の壁）
@@ -841,7 +849,7 @@ export default class AiOffice extends View {
     const plans = docs.filter((d) => d.kind === "plan").length;
     const count = [plans ? `プラン ${plans}` : "", docs.length > plans ? `.md ${docs.length - plans}` : ""].filter(Boolean).join("・");
     const d = { img: "whiteboard-plan", x: room.ox + room.w - 112, y: room.oy + 7 + geometry().DECOR_DY, w: 30, h: 18, glow: true };
-    return this.button(`board-${room.id}`, d, () => this.act({ type: "docs", room: room.name, docs }), `ホワイトボード: ${count}（クリックで読む）`);
+    return this.button(`board-${room.id}`, d, (cx) => this.act({ type: "docs", room: room.name, docs }, cx), `ホワイトボード: ${count}（クリックで読む）`);
   }
 
   // 部屋の後ろのもの: 奥の壁、左の仕切り（ガラスの部屋: 隣とは壁、縦の廊下に面していればガラス）、壁の飾り（ホワイトボード・
