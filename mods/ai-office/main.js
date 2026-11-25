@@ -109,6 +109,8 @@ const SEEN = "ai-office.seen";
 // 最後にオフィスで開いた人（shared。アドレス）。ai-office.open-last（keys.json で ⌘⇧.）で、その人をもう一度開く。どのコピーでも、
 // 再起動しても同じ人
 const LAST = "ai-office.last";
+// コマ送りで出た例外（shared。いちばん新しいもの）。オフィスが止まったときに読む（AiOffice の failed）
+const ERROR = "ai-office.error";
 
 // 完了の人のターミナルを重ねて出す（terminal.peek）ときに、そのターンを見たと覚える。Herdr がのぞいただけで「見た」と
 // 数えるかは分からないので、オフィスでも覚える。今はないターミナルの分は捨てる
@@ -534,50 +536,85 @@ export default class AiOffice extends View {
 
   // コマ送り: 1 本のタイマーで全員の位置とコマを進める。ネイティブの loop / transition は
   // 約 30fps で窓全体を描き直す（1 つで CPU 約 20%）ので使わない。窓が後ろにあるときはゆっくり。
+  // 1 コマで例外が出ても、次のコマは必ず予約する（前は次を予約する前に例外が出ると、オフィス全体が止まったままになった）。
+  // 出た例外は failed が shared に残す
   schedule(cx) {
-    const hidden = this.hidden();
-    const active = window()?.active;
-    const fast = running(this.office) || doorsMoving(this.office); // 小走りか、自動ドアの開け閉め
-    const ms = hidden ? HIDDEN_MS : !active ? TICK_INACTIVE : fast ? TICK_RUN : TICK_ACTIVE;
+    let ms = TICK_ACTIVE;
+    try {
+      const fast = running(this.office) || doorsMoving(this.office); // 小走りか、自動ドアの開け閉め
+      ms = this.hidden() ? HIDDEN_MS : !window()?.active ? TICK_INACTIVE : fast ? TICK_RUN : TICK_ACTIVE;
+    } catch (e) {
+      this.failed("schedule", e);
+    }
     cx.timer.after(ms, (cx) => {
-      if (this.hidden()) {
-        this.shown = false;
-        this.schedule(cx); // 隠れている間は何もしない（見えたときの経過時間は dt の上限で切る）
-        return;
-      }
-      if (!this.shown) {
-        this.shown = true;
-        this.loadWeather(cx); // 見えたら、古くなった天気をすぐ取り直す（隠れている間は取らないので）
-      }
-      const now = Date.now();
-      const dt = Math.min(now - this.last, 1000); // スリープ明けに瞬間移動しないよう
-      this.last = now;
-      const state = this.floorNow();
-      if (!state) { // テーマを読み終えるまで
-        this.schedule(cx);
-        return;
-      }
-      const { placed } = state;
-      this.office.tick(dt);
-      // 描く絵（名前と位置）が前のコマと同じなら描き直さない。時計の針・窓の外（雨のコマも）・ツールチップの
-      // 東京の時刻（1 分ごと）が変わったときも描き直す
-      const place = currentPlace();
-      if (place.id !== this.placeId) { // 場所が変わった（どのコピーで選んでも）: その場所の天気をすぐ取りにいく
-        this.placeId = place.id;
-        this.loadWeather(cx);
-      }
-      const clock = placeClock(place, now);
-      const { h, m } = clockHands(clock.min);
-      const docs = placed.map((r) => r.docs.map((d) => d.path).join(",")).join("/") // 壁のホワイトボード（items にない）
-        + `|${[...this.open].join(",")}`; // 開いているタブの人（明るくする。items の位置には出ない）
-      const sig = `${place.id}|${h}:${m}|${this.view().key}|${clock.text}|${docs}|` + this.items(placed)
-        .map((d) => `${d.img ?? d.text}+${d.over}+${d.books?.length ?? ""}@${d.x},${d.y}`).join(";");
-      if (sig !== this.sig) {
-        this.sig = sig;
-        cx.notify();
+      try {
+        this.frame(cx);
+      } catch (e) {
+        this.failed("frame", e);
       }
       this.schedule(cx);
     });
+  }
+
+  // 1 コマ。隠れている間は何もしない（見えたときの経過時間は dt の上限で切る）
+  frame(cx) {
+    if (this.hidden()) {
+      this.shown = false;
+      return;
+    }
+    if (!this.shown) {
+      this.shown = true;
+      this.loadWeather(cx); // 見えたら、古くなった天気をすぐ取り直す（隠れている間は取らないので）
+    }
+    const now = Date.now();
+    const dt = Math.min(now - this.last, 1000); // スリープ明けに瞬間移動しないよう
+    this.last = now;
+    const state = this.floorNow();
+    if (!state) return; // テーマを読み終えるまで
+    const { placed } = state;
+    this.office.tick(dt);
+    // 描く絵（名前と位置）が前のコマと同じなら描き直さない。時計の針・窓の外（雨のコマも）・ツールチップの
+    // 東京の時刻（1 分ごと）が変わったときも描き直す
+    const place = currentPlace();
+    if (place.id !== this.placeId) { // 場所が変わった（どのコピーで選んでも）: その場所の天気をすぐ取りにいく
+      this.placeId = place.id;
+      this.loadWeather(cx);
+    }
+    const clock = placeClock(place, now);
+    const { h, m } = clockHands(clock.min);
+    const docs = placed.map((r) => r.docs.map((d) => d.path).join(",")).join("/") // 壁のホワイトボード（items にない）
+      + `|${[...this.open].join(",")}`; // 開いているタブの人（明るくする。items の位置には出ない）
+    const sig = `${place.id}|${h}:${m}|${this.view().key}|${clock.text}|${docs}|` + this.items(placed)
+      .map((d) => `${d.img ?? d.text}+${d.over}+${d.books?.length ?? ""}@${d.x},${d.y}`).join(";");
+    if (sig !== this.sig) {
+      this.sig = sig;
+      cx.notify();
+    }
+  }
+
+  // コマ送りで出た例外を shared の ai-office.error に残す（オフィスが止まったときに、何が起きたかを後で読めるように）。
+  // shared を書くと全部の mod が描き直すので、同じ例外は初めてのときと、続いていれば 1 分ごとにだけ書く（count が数）。
+  // ここで例外を出すと次のコマを予約できないので、何があっても投げない
+  failed(where, e) {
+    try {
+      const message = String(e?.message ?? e);
+      const now = Date.now();
+      if (this.error?.where === where && this.error.message === message) this.error.count++;
+      else this.error = { where, message, count: 1, first: now, saved: 0 };
+      if (now - this.error.saved < 60000) return;
+      this.error.saved = now;
+      setShared(ERROR, {
+        where, message, count: this.error.count,
+        first: new Date(this.error.first).toISOString(), at: new Date(now).toISOString(),
+        stack: String(e?.stack ?? "").split("\n").slice(0, 8).join("\n"),
+        // そのときの様子: 倍率（2 がふつう。オフィスが広いと 3・4）、フロアに使える大きさ、右のターミナルを隠しているか
+        zoom: scale, width: Math.round(this.width), height: Math.round(this.height),
+        terminalHidden: Boolean(pathTo(layout(), TERMINAL_BLOCK)?.at(-1)?.hidden),
+        tick: this.office?.t ?? null, people: this.office?.chars?.size ?? null,
+      });
+    } catch {
+      // 残せなくても、コマ送りは続ける
+    }
   }
 
   // 描くものの絵: テーマの絵（src）か、img/ の絵（img）。今の倍率のもの
