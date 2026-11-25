@@ -28,13 +28,14 @@ herdr-app のワークスペースを部屋に、AI エージェントをキャ�
 ```sh
 gh repo clone thundermiracle/herdr-ai-office ~/Code/herdr-ai-office
 cd ~/Code/herdr-ai-office
-scripts/install.sh                                  # 入れる（mod とレイアウトのコピー・Claude Code のフックの登録・確かめ）
+scripts/install.sh                                  # 入れる（mod とレイアウトのコピー・Claude Code のフックの登録・キー・確かめ）
 herdr-app do layout.switch --name main-dots-office  # いつもの main-dots に「Office」ボタン（右上）を足したもの
 ```
 
 更新するときは `git pull && scripts/install.sh`。`install.sh` は、mod をコピーし、レイアウトはないか中身が違うときだけ
-コピーし（Office の列の開け閉めは消えない）、Claude Code のフックを登録し（もう登録してあれば何もしない）、最後に
-`scripts/doctor.sh` で用意がそろっているかを調べる（NG の行があれば、そこに直し方が出る）。フックを新しく登録したときは、
+コピーし（Office の列の開け閉めは消えない）、Claude Code のフックを登録し（もう登録してあれば何もしない）、herdr の
+keys.json に ⌘. と ⌘⇧. を足し（もうあれば何もしない。下の箇条）、最後に `scripts/doctor.sh` で用意がそろっているかを
+調べる（NG の行があれば、そこに直し方が出る）。フックを新しく登録したときは、
 動いている Claude を起動し直す（Claude は起動したときのフックを使う）。フックが要らなければ `scripts/install.sh --no-hook`
 （ホワイトボード・資料室・話しかけは動かない。部屋・キャラ・タイピング・挙手・完了は動く）。
 
@@ -44,14 +45,15 @@ herdr-app do layout.switch --name main-dots-office  # いつもの main-dots に
   あれば分かる。ない PC では起動引数（`--model`・`--effort`）だけで、それもなければ sonnet の見た目で鉢巻きなし。
 - フックはリポジトリの場所を指すので、clone した場所で `scripts/install.sh` を流す（リポジトリを動かしたら、もう一度）。
   効くのはそのあとに起動した Claude から。フックだけやめるときは `hooks/register.sh remove`。
-- オフィスの上に重ねて出したターミナルを ⌘. で閉じたいときは、`~/.config/herdr-app/keys.json` の `terminal` に
-  `"cmd-.": "overlay.close",` を足す（Esc はエージェントに届くので）。⌘⇧. で最後に開いた人をもう一度開きたいときは、
-  `"layout:ai-office": { "cmd-shift-.": "ai-office.open-last" }` を足す（下の「会話」）。
+- herdr のキーの設定 `~/.config/herdr-app/keys.json` はパソコンごとなので、`install.sh` がオフィスのキーを 2 つ足す
+  （`scripts/keys.sh add`）: オフィスの上に重ねて出したターミナルを閉じる ⌘.（Esc はエージェントに届くので）と、最後に開いた人を
+  もう一度開く ⌘⇧.（ai-office レイアウトのときだけ）。keys.json は書き換えると、herdr を更新しても新しい既定のショートカットが
+  自動では入らなくなる。書き換えたくなければ `scripts/install.sh --no-keys`（下の「会話」）。
 
 ## 使い方
 
 ```sh
-scripts/install.sh                               # 入れる・更新する（mod とレイアウトのコピー・フックの登録・確かめ）
+scripts/install.sh                               # 入れる・更新する（mod とレイアウトのコピー・フックの登録・キー・確かめ）
 herdr-app do layout.switch --name ai-office      # オフィスのレイアウトにする（ctrl-shift-l でも切り替わる）
 herdr-app do layout.switch --name main-dots      # 元に戻す
 herdr-app do mod.open --name ai-office           # 今のレイアウトの上に、浮いた窓で開く（もう一度で閉じる）
@@ -342,16 +344,22 @@ scripts/sky.sh auto         # 本物に戻す
 
 - 本物のターミナルなので、そのまま打って話せる。Claude Code でも Codex でも、起動の前の確認や許可の確認でも同じ
 - 上の帯に名前と状態、右に「go to」（そのターミナルへ）と ✕（閉じる）。Esc はエージェントに届く（Claude Code なら作業の中断）ので、
-  閉じるのは ✕ か ⌘.（コマンド＋ピリオド）。⌘. は、herdr のキーの設定 `~/.config/herdr-app/keys.json` の `terminal` に
-  `"cmd-.": "overlay.close",` を 1 行足すと使える（herdr のダイアログを閉じるコマンド。重ねたターミナルがキーを受け取っているので
-  `terminal` に置く）。⌘Esc は使えない（重ねたターミナルの中では、⌘ を付けた Esc も herdr のキーの設定まで届かない）。
-  キャラ・名札・PC のツールチップに、そのとき割り当ててあるキーが出る（なければ ✕ だけ）。`install.sh` は keys.json を
-  触らない（一字でも書き換えると、herdr を更新しても新しいショートカットが自動では入らなくなるので、足すかは人が決める）
+  閉じるのは ✕ か ⌘.（コマンド＋ピリオド）。⌘. は、herdr のキーの設定 `~/.config/herdr-app/keys.json` の `terminal` の
+  `"cmd-.": "overlay.close"`（herdr のダイアログを閉じるコマンド。重ねたターミナルがキーを受け取っているので `terminal` に置く）。
+  ⌘Esc は使えない（重ねたターミナルの中では、⌘ を付けた Esc も herdr のキーの設定まで届かない）。
+  キャラ・名札・PC のツールチップに、そのとき割り当ててあるキーが出る（なければ ✕ だけ）
 - ⌘⇧.（コマンド＋シフト＋ピリオド）で、最後にオフィスで開いた人をもう一度開く（キャラのクリックと同じ。右のターミナルを
-  出していれば、その人のターミナルに切り替える）。keys.json に `"layout:ai-office": { "cmd-shift-.": "ai-office.open-last" }` を
-  足すと使える（オフィスの mod に届くコマンドなので、オフィスのある ai-office レイアウトの欄に置く。ほかのレイアウトでは
+  出していれば、その人のターミナルに切り替える）。keys.json の `"layout:ai-office": { "cmd-shift-.": "ai-office.open-last" }`
+  （オフィスの mod に届くコマンドなので、オフィスのある ai-office レイアウトの欄に置く。main-dots-office などほかのレイアウトでは
   何もしない）。最後に開いた人は shared の `ai-office.last` に覚えるので、再起動しても残る。その人がもういなければ何もしない。
   割り当ててあれば、ツールチップにも出る
+- この 2 つのキーはリポジトリの `keys.json` にあり、`install.sh` が `scripts/keys.sh add` で herdr の keys.json に足す（Herdr の、
+  キーのある mod の入れ方と同じ。ないキーだけ足し、同じキーをほかに使っていれば変えずに知らせる。足すものがなければ書かない）。
+  keys.json はパソコンごとなので、ほかのパソコンでも `install.sh` を流すと効く。keys.json は一字でも書き換えると人のものになり、
+  herdr を更新しても新しい既定のショートカットが自動では入らなくなる（初めて書き換えるときに、元を `keys.json.before-ai-office` に
+  残す）。書き換えたくなければ `install.sh --no-keys`、あとで外すなら `scripts/keys.sh remove`、今あるかは `scripts/keys.sh status`。
+  keys.json がまだない（herdr-app を一度も起動していない）ときは足さない（2 つだけの keys.json だと、既定のショートカットが
+  全部なくなるので）
 - 完了（見ていない間に終わった。キャラの上の ✓）の人を重ねて出すと、オフィスはそのターンの完了を「見た」として、✓ を消して待機と
   して出す（shared の `ai-office.seen` にアドレスとターンを覚える。Herdr が重ねて出しただけで見たと数えるかは、まだ確かめていない）。
   次のターンで終われば、また ✓ が出る
@@ -435,11 +443,12 @@ hooks/register.sh remove   # このフックだけ外す（ほかのフックは
 | `scripts/fake-agent.sh`、`scripts/fake-question.py`、`scripts/demo.sh` | AI を使わずに状態を報告する偽エージェント、選択肢の画面で答えを受け取る偽の質問役、それを 6 人並べた見本（office-test-2 の reviewer のプランは `scripts/sample-plan.md`） |
 | `scripts/sync.sh` | mod とレイアウトを ~/.config/herdr-app にコピーして `herdr-app check`（開発用。mod の名前を渡すとその mod だけ。入れる・更新するのは `install.sh`） |
 | `scripts/check-theme.js` | テーマのフォルダを確かめる（`bun scripts/check-theme.js <フォルダ>`） |
-| `scripts/install.sh` | 入れる・更新する（mod のコピー、レイアウトはないか違うときだけコピー、フックの登録、`doctor.sh`）。`--no-hook` でフックなし |
-| `scripts/doctor.sh` | この PC の用意を調べる（道具と jq の版・フックの登録と文法・Bash の書き込みの式がこの jq で動くか・フックを試す（Write と Bash の .md）・mod がリポジトリと同じか・今ホワイトボードに載るもの（ないものとノイズ扱いのものに印））。何も変えない |
+| `scripts/install.sh` | 入れる・更新する（mod のコピー、レイアウトはないか違うときだけコピー、フックの登録、キー（`keys.sh add`）、`doctor.sh`）。`--no-hook` でフックなし、`--no-keys` でキーなし |
+| `keys.json`、`scripts/keys.sh` | オフィスのキー（⌘. と ⌘⇧.）と、それを herdr の keys.json に足す・外す・調べる（`add`・`remove`・`status`。ないキーだけ足す） |
+| `scripts/doctor.sh` | この PC の用意を調べる（道具と jq の版・フックの登録と文法・Bash の書き込みの式がこの jq で動くか・フックを試す（Write と Bash の .md）・mod がリポジトリと同じか・keys.json のオフィスのキー・今ホワイトボードに載るもの（ないものとノイズ扱いのものに印））。何も変えない |
 | `scripts/sky.sh` | 窓の外を試す（天気と、選んだ場所の時刻を決める、1 日の早送り、本物に戻す） |
 | `spike/` | 描画方針を決めたときの確認用 mod（アニメ画像・にじみ・アニメの負荷） |
-| `test/` | `bun test`（scene.js）と `test/hook-test.sh`（フック。使い捨てのターミナルで試す） |
+| `test/` | `bun test`（scene.js）と `test/hook-test.sh`（フック。使い捨てのターミナルで試す）、`test/keys-test.sh`（`keys.sh`。一時フォルダの keys.json で試す） |
 
 ## 開発
 
@@ -448,6 +457,7 @@ uv run --with pillow scripts/build-art.py   # 絵を作り直す（mods/ai-offic
 bun test                                    # scene.js（窓の外は test/sky.test.js）
 test/hook-test.sh                           # フック
 test/ask-test.sh                            # 質問に答える流れ（偽の質問役で。1 問と、続けて 3 問）
+test/keys-test.sh                           # キーを足す・外す（一時フォルダの keys.json で。本物には触らない）
 scripts/sync.sh                             # コピーして check（herdr-app は自動で読み直す）
 herdr-app shot tmp/shot.png                 # 今の画面を撮って確かめる
 ```
@@ -461,7 +471,7 @@ AI（Claude Code など）がここで確かめるときは、使っている人
 必ず人に聞く。herdr-app は作ったスペースとタブをすぐ見せるので、人がほかのエージェントに書いている最中だと、見本の新しい
 タブへ飛ばされ、打っていたキーもそちらに入る（2026-11-12 に、確かめていた AI が聞かずに何度もそうした）。先に、画面を
 動かさない確かめ方を使う: `bun test`、`test/hook-test.sh` と `test/ask-test.sh`（herdr-app に出ない使い捨てのターミナル）、
-`scripts/sync.sh`（check）。
+`test/keys-test.sh`（一時フォルダの keys.json）、`scripts/sync.sh`（check）。
 
 ## 分かっている制限
 

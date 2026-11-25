@@ -4,7 +4,7 @@
 # 調べること: 道具（jq・hc・herdr-app と jq の版）、フックの登録（このリポジトリのフックを指しているか、4 つのイベント）と文法、
 # Bash の .md の式（hooks/md-writes.jq）がこの jq で動くか、フックを試す（herdr-app に出ない使い捨てのターミナルで、Write は
 # .md を書いたことにし、Bash は一時フォルダに本当に書いて（> x.md と cp）、ラベルが付くか）、mod がリポジトリと同じか、
-# herdr-app のエラー、今ホワイトボードに載るもの
+# herdr-app のエラー、keys.json のオフィスのキー（⌘. と ⌘⇧.）、今ホワイトボードに載るもの
 # （エージェントごとのラベル。読めないものと、ノイズ扱いで載らない .md には印）。
 # 使い方: scripts/doctor.sh
 set -uo pipefail
@@ -107,6 +107,15 @@ if herdr-app status >/dev/null 2>&1; then
   errors=$(herdr-app status | jq -c '.errors // []')
   if [ "$errors" = "[]" ]; then ok "herdr-app のエラーなし"; else ng "herdr-app のエラー: $errors"; fi
 fi
+
+# 足さないこともできる（install.sh --no-keys）ので、ないキーは NG にしない
+echo "キー（scripts/keys.sh。⌘. で重ねたターミナルを閉じる・⌘⇧. で最後に開いた人をもう一度開く）"
+while IFS= read -r line; do
+  case "$line" in
+    ある:*) ok "${line#ある: }" ;;
+    *) note "$line" ;;
+  esac
+done < <("$repo/scripts/keys.sh" status 2>&1)
 
 echo "今ホワイトボードに載るもの（エージェントごとのラベル。プランと書いた .md。読めないものと、ノイズ扱いの .md は載らない）"
 # ノイズ扱い（CLAUDE.md や node_modules/ の中など）は、オフィスと同じ scene.js の isNoiseDoc で調べる（node がなければ調べない）

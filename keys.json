@@ -1,0 +1,8 @@
+{
+  "terminal": {
+    "cmd-.": "overlay.close"
+  },
+  "layout:ai-office": {
+    "cmd-shift-.": "ai-office.open-last"
+  }
+}
