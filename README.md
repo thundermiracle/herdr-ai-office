@@ -67,7 +67,7 @@ herdr-app do layout.switch --name main   # Herdr の既定のレイアウトへ
 hooks/register.sh remove                 # Claude Code のフックだけ外す（ほかのフックはそのまま）
 scripts/keys.sh remove                   # 足したキーだけ外す
 rm -r ~/.config/herdr-app/mods/ai-office ~/.config/herdr-app/mods/ai-office-*
-rm ~/.config/herdr-app/layouts/ai-office.json ~/.config/herdr-app/layouts/main-dots-office.json
+rm ~/.config/herdr-app/layouts/ai-office.json
 ```
 
 ## 使い方
@@ -78,8 +78,8 @@ herdr-app do mod.open --name ai-office        # 今のレイアウトの上に�
 scripts/demo.sh start                         # 見本: 偽エージェントのスペースを作る（AI は使わない）。stop で消す
 ```
 
-`main-dots-office` レイアウトは作者の環境用（作者の main-dots に「Office」ボタンとオフィスの列を足したもの）。このリポジトリに
-ない `spaces-dots` mod を使うので、ほかの環境ではそのままでは使えない（[docs/internals.md](docs/internals.md)）。
+自分のレイアウトに、タブバーの「Office」ボタンで出し入れするオフィスの列を足すこともできる（`ai-office-toggle`。足し方は
+[docs/internals.md](docs/internals.md)）。
 
 ### 上の帯
 
@@ -175,8 +175,8 @@ English・日本語から選べる。どちらでもない言語の OS では英
 - **壁時計と窓の外**: 町は 19 から選ぶ（初めは Mac の時差にいちばん近い町）。空は太陽の高さで夜・薄明・朝焼け・昼・夕焼けと
   変わり、町ごとに名物が見える（東京タワー、エッフェル塔など）。天気は晴れ・曇り・霧・雨・雪・雷雨。
   `scripts/sky.sh rain night` のように試せる（`scripts/sky.sh auto` で本物に戻す）
-- **右下の通知**: 「通知: 出さない」が効くのは、いちばん外側に `"toast": "ai-office-toast"` があるレイアウト（`ai-office` と
-  `main-dots-office`）だけ。その間は、エラーの通知も mod の `notify()` も出ない。`herdr-app do ai-office.toasts-off`・
+- **右下の通知**: 「通知: 出さない」が効くのは、いちばん外側に `"toast": "ai-office-toast"` があるレイアウト（`ai-office` など）
+  だけ。その間は、エラーの通知も mod の `notify()` も出ない。`herdr-app do ai-office.toasts-off`・
   `toasts-on` でも切り替えられる
 
 細かい決まりは [docs/internals.md](docs/internals.md)。
@@ -286,8 +286,8 @@ herdr-app shot tmp/shot.png                 # 今の画面を撮って確かめ�
 | 場所 | 何か |
 |---|---|
 | `mods/ai-office/` | オフィス本体。`scene.js` は計算だけ（herdr も gpui-kit も import しない）、`main.js` が描く、`text.js` は画面の文（言語ごと）、`themes/` は同梱のテーマ |
-| `mods/ai-office-*/` | オフィスから開くもの: 質問（ask）、ホワイトボード（docs）、雇う（hire）、凡例（legend）、ドロップダウン（pick）、skill の一覧と中身（skills・skill）、タブと部屋のメニュー（tab）、右下の通知（toast）、「Office」ボタン（toggle） |
-| `layouts/` | `ai-office`（オフィスと、選んだエージェントのターミナル）と、作者用の `main-dots-office` |
+| `mods/ai-office-*/` | オフィスから開くもの: 質問（ask）、ホワイトボード（docs）、雇う（hire）、凡例（legend）、ドロップダウン（pick）、skill の一覧と中身（skills・skill）、タブと部屋のメニュー（tab）、右下の通知（toast）、自分のレイアウトに置く「Office」ボタン（toggle） |
+| `layouts/` | `ai-office`（オフィスと、選んだエージェントのターミナル） |
 | `hooks/` | Claude Code のフックと、その登録・削除 |
 | `keys.json`、`scripts/keys.sh` | オフィスのキーと、それを Herdr の keys.json に足す・外す・調べるスクリプト |
 | `scripts/install.sh`・`doctor.sh`・`sync.sh` | 入れる・更新する、用意を調べる、開発中にコピーして確かめる |

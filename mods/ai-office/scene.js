@@ -12,7 +12,7 @@ export const SCALE = 2;
 // 窓に合わせて大きく描く倍率（絵の 1 ピクセルを何論理 px で描くか。大きい順）。ターミナルを隠して広くなったら、入るいちばん
 // 大きいもので描く（fitFloor）。倍率ごとに、ぼやけない大きさの PNG を作ってある（build-art.py。3 は @6x、4 は @8x）
 export const ZOOMS = [4, 3, SCALE];
-export const TICK_ACTIVE = 250; // ms。窓がアクティブなとき（4fps。6fps だと main-dots の横で CPU 約 15%）
+export const TICK_ACTIVE = 250; // ms。窓がアクティブなとき（4fps。6fps だと、横の列に出したとき CPU 約 15%）
 export const TICK_INACTIVE = 500; // 窓が後ろにあるとき（2fps）
 export const TICK_RUN = 125; // 誰かが小走りしている間（8fps。速く動くので、4fps だと 1 コマで大きく飛ぶ）
 export const SPEED = 14; // 歩く速さ（art px / 秒）

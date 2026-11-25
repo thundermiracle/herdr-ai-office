@@ -70,7 +70,7 @@ herdr-app do layout.switch --name main   # Herdr's default layout
 hooks/register.sh remove                 # remove only this Claude Code hook (other hooks stay)
 scripts/keys.sh remove                   # remove only the keys it added
 rm -r ~/.config/herdr-app/mods/ai-office ~/.config/herdr-app/mods/ai-office-*
-rm ~/.config/herdr-app/layouts/ai-office.json ~/.config/herdr-app/layouts/main-dots-office.json
+rm ~/.config/herdr-app/layouts/ai-office.json
 ```
 
 ## Use
@@ -81,9 +81,8 @@ herdr-app do mod.open --name ai-office        # open it as a floating window ove
 scripts/demo.sh start                         # a demo: spaces of fake agents (no AI involved); stop removes them
 ```
 
-The `main-dots-office` layout is the author's own (the author's main-dots layout plus an "Office" button and an office column). It
-uses a `spaces-dots` mod that isn't in this repository, so it won't work as is elsewhere (see
-[docs/internals.md](docs/internals.md), in Japanese).
+You can also add an office column to your own layout, shown and hidden with an "Office" button next to the tab bar
+(`ai-office-toggle`; how to add it is in [docs/internals.md](docs/internals.md), in Japanese).
 
 ### The top bar
 
@@ -184,8 +183,8 @@ language has every sentence English has.
   night, twilight, dawn, day, dusk — with each city's landmark in view (Tokyo Tower, the Eiffel Tower and so on). The weather can
   be clear, cloudy, fog, rain, snow or a thunderstorm. Try one with `scripts/sky.sh rain night`, and go back with
   `scripts/sky.sh auto`
-- **Toasts**: "Toasts: off" works only in layouts whose outermost node has `"toast": "ai-office-toast"` (`ai-office` and
-  `main-dots-office`). While it's off, error toasts and mods' `notify()` don't show either. `herdr-app do ai-office.toasts-off`
+- **Toasts**: "Toasts: off" works only in layouts whose outermost node has `"toast": "ai-office-toast"` (`ai-office` and the
+  like). While it's off, error toasts and mods' `notify()` don't show either. `herdr-app do ai-office.toasts-off`
   and `toasts-on` switch it too
 
 The fine print is in [docs/internals.md](docs/internals.md) (in Japanese).
@@ -299,8 +298,8 @@ herdr-app shot tmp/shot.png                 # take a screenshot to check
 | Where | What |
 |---|---|
 | `mods/ai-office/` | The office. `scene.js` only computes (imports neither herdr nor gpui-kit), `main.js` draws, `text.js` holds the sentences per language, `themes/` the bundled themes |
-| `mods/ai-office-*/` | What the office opens: questions (ask), whiteboards (docs), hiring (hire), the legend (legend), dropdowns (pick), the skill list and a skill (skills, skill), tab and room menus (tab), toasts (toast), the "Office" button (toggle) |
-| `layouts/` | `ai-office` (the office and the chosen agent's terminal) and the author's `main-dots-office` |
+| `mods/ai-office-*/` | What the office opens: questions (ask), whiteboards (docs), hiring (hire), the legend (legend), dropdowns (pick), the skill list and a skill (skills, skill), tab and room menus (tab), toasts (toast), an "Office" button for your own layout (toggle) |
+| `layouts/` | `ai-office` (the office and the chosen agent's terminal) |
 | `hooks/` | The Claude Code hook, and registering and removing it |
 | `keys.json`, `scripts/keys.sh` | The office's keys, and the script that adds them to, removes them from or checks Herdr's keys.json |
 | `scripts/install.sh`, `doctor.sh`, `sync.sh` | Install and update, check the setup, copy and check during development |

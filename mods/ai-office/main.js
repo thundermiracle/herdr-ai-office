@@ -39,7 +39,7 @@ const HIDDEN_MS = 1000; // 隠れている間は、この間隔で見えるよ�
 const SKILLS_MS = 60000; // 使える skill を読み直す間隔（めったに変わらない）
 const DOCS_CHECK_MS = 3000; // ホワイトボードに載せる .md が今読めるかを調べ直す間隔
 // 右下の通知のスイッチ（上の帯の「通知」）: shared に置き、"off" なら ai-office-toast が通知を出さない（ない・"on" なら出す）。
-// 効くのは、レイアウトのいちばん外側の "toast" が ai-office-toast のレイアウト（ai-office・main-dots-office）だけ
+// 効くのは、レイアウトのいちばん外側の "toast" が ai-office-toast のレイアウト（ai-office など）だけ
 const TOASTS = "ai-office.toasts";
 const TOAST_MOD = "ai-office-toast";
 // 窓の外の天気: 選んだ場所の今の天気（Open-Meteo。キーは要らず、送るのはその場所の緯度経度だけ）
@@ -139,7 +139,7 @@ function pathTo(node, id) {
   return null;
 }
 
-// スペースが今いるフォルダ: 最初のターミナルの今のフォルダ、なければ作ったときのフォルダ（spaces-dots と同じ）。
+// スペースが今いるフォルダ: 最初のターミナルの今のフォルダ、なければ作ったときのフォルダ（Herdr の menu と同じ）。
 // そのフォルダの .claude/skills が「このプロジェクト」の skill
 function placeOf(space, ps) {
   const tabs = new Set((space.tabs ?? []).map((t) => t.id));
@@ -714,7 +714,7 @@ export default class AiOffice extends View {
       // キャラのクリック: 右のターミナルを出しているなら、そのターミナルに切り替えるだけ（話すのはターミナルで）。隠している
       // なら、そのターミナルをオフィスの上に重ねて出す（Herdr の terminal.peek。本物のターミナルなので Claude Code をそのまま
       // 使える。上の帯に「go to」と ✕）。Esc はエージェントに届くので、閉じるのは ✕ か、keys.json で overlay.close に割り当てた
-      // キー（⌘.）。ターミナルのブロックがないレイアウト（main-dots-office など）は、メインの欄にターミナルが見えているので
+      // キー（⌘.）。ターミナルのブロックがないレイアウト（Office ボタンで列を出すものなど）は、メインの欄にターミナルが見えているので
       // 切り替え
       if (shared(LAST) !== click.terminal) setShared(LAST, click.terminal);
       if (terminalShown) run("agent.focus", { terminal: click.terminal });
@@ -1161,7 +1161,7 @@ export default class AiOffice extends View {
         this.leave(cx);
         this.drag = null;
       })
-      // 上の帯: 細い列（main-dots-office の Office の列は 440px まで狭まる）では、件数（ドラッグ中はその説明）だけを「…」で切り、
+      // 上の帯: 細い列（Office ボタンで出すオフィスの列は 440px まで狭まる）では、件数（ドラッグ中はその説明）だけを「…」で切り、
       // ほかは縮めない（全部並べると約 560px）。いちばん右は言語のボタン（地球の絵だけ。どの言語でも同じ幅）
       .child(h_flex().h(32).flex_none().px(14).gap(14).items_center().text_size(12).text_color(t.muted)
         .child(div().flex_none().font_semibold().text_color(t.foreground).child("AI Office"))
