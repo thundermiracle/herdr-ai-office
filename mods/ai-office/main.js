@@ -15,7 +15,7 @@ import {
   openAgents, withSilent, shownStatus, closeKeyOf, reopenKeyOf, overlayOpen,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
   PLACES, WEATHER_MS, TRIAL_WEATHER, defaultPlace, offsetAt, offsetLabel, placeAt, placeClock, weatherOf, parseWeather,
-  windowView, windowTip, parseSkyCommand,
+  windowView, windowTip, parseSkyCommand, LANGS, useLang, tr, placeName, inLang, langOf, languageOf,
 } from "./scene.js";
 
 const IMG = "mods/ai-office/img";
@@ -48,6 +48,12 @@ const weatherUrl = (place) => `https://api.open-meteo.com/v1/forecast?latitude=$
 const WEATHER_CHECK_MS = 60000; // 天気が古くなったかを見る間隔（取り直すのは WEATHER_MS ごと）
 const WEATHER_RETRY_MS = 5 * 60000; // 取れなかったとき、次に試すまで
 const WEATHER_STALE_MS = 3 * 3600000; // これより古い天気は使わない（晴れ扱い。何時間も閉じていたあと）
+// 画面の言語（text.js の表）: 上の帯の言語のボタンで選んだもの（shared。"auto" か、ないなら OS に合わせる）と、起動したときに
+// 調べる OS の言語（shared。ほかの ai-office の mod も、この 2 つで同じ言語を選ぶ）
+const LANG = "ai-office.lang";
+const OS_LANG = "ai-office.os-lang";
+// OS の言語を調べる: macOS は「言語と地域」のいちばん上（defaults）、ほかは LC_ALL・LC_MESSAGES・LANG
+const OS_LANG_SCRIPT = 'defaults read -g AppleLanguages 2>/dev/null || printf "%s" "${LC_ALL:-${LC_MESSAGES:-$LANG}}"';
 
 /**
  * herdr のデータを集める: スペースごとの部屋と、エージェントごとの状態・model・effort。
@@ -230,7 +236,7 @@ async function loadThemes() {
       try {
         json = JSON.parse(text);
       } catch (e) {
-        skipped.push({ name: `${base}/${name}`, why: `theme.json を読めない（${e?.message ?? e}）` });
+        skipped.push({ name: `${base}/${name}`, why: tr("themeUnreadable", e?.message ?? e) });
         continue;
       }
       const sizes = {};
@@ -275,8 +281,27 @@ function liveWeather(now, place) {
   return w && typeof w.cover === "string" && (w.place ?? "tokyo") === place.id && now - w.fetchedAt < WEATHER_STALE_MS ? w : null;
 }
 
+// 画面の言語を今のものにする（text.js の useLang。描く前と、文を作る前に）。上の帯の言語のボタンで選んだもの、OS に合わせるなら
+// 調べた OS の言語
+function langNow() {
+  return useLang(langOf(shared(LANG), shared(OS_LANG)));
+}
+
+// OS の言語（"ja" など。languageOf）。調べられなければ null
+async function osLanguage() {
+  const r = await exec("sh", ["-c", OS_LANG_SCRIPT], { timeout: 5000 }).catch(() => null);
+  return r?.code === 0 ? languageOf(r.stdout) : null;
+}
+
 export default class AiOffice extends View {
   init(_props, cx) {
+    langNow(); // テーマを確かめた文（使えなかった理由）も、この言語で
+    // OS の言語を調べて、変わっていれば shared に置く（Herdr を閉じても残るので、次からは初めからその言語で描く）。
+    // 描き直しは shared が変わったときに Herdr がする
+    cx.spawn(async () => {
+      const os = await osLanguage();
+      if (os && os !== shared(OS_LANG)) setShared(OS_LANG, os);
+    });
     this.theme = null; // 使っているテーマ（テーマを読み終えるまでは null で、フロアを描かない）
     this.skippedThemes = []; // 使えなかったテーマと理由（「テーマ」のドロップダウンの下に出す）
     cx.spawn(async (cx) => {
@@ -364,7 +389,7 @@ export default class AiOffice extends View {
         if (!weather) throw new Error("応答に今の天気がない");
         setShared("ai-office.weather", { ...weather, place: place.id });
       } catch (e) {
-        console.log(`ai-office: ${place.name}の天気を取れなかった: ${e?.message ?? e}`);
+        console.log(`ai-office: ${place.id} の天気を取れなかった: ${e?.message ?? e}`);
       }
     });
   }
@@ -674,12 +699,12 @@ export default class AiOffice extends View {
     }
     if (click.type === "tab-menu") this.tabMenu(click);
     if (click.type === "skills") {
+      // 出どころの名前は、一覧（ai-office-skills）が今の言語で出す
       const skills = this.shelfSkills();
       const groups = Object.entries(SKILL_SOURCES)
-        .map(([source, { label, color }]) => ({ label, color, skills: skills.filter((x) => x.source === source) }))
+        .map(([source, { color }]) => ({ source, color, skills: skills.filter((x) => x.source === source) }))
         .filter((g) => g.skills.length);
-      openOverlay({ mod: "ai-office-skills", kind: "popup", width: 400, height: 520,
-        props: { title: "資料室", count: skills.length, groups } });
+      openOverlay({ mod: "ai-office-skills", kind: "popup", width: 400, height: 520, props: { count: skills.length, groups } });
     }
     if (click.type === "ask") {
       // 選択肢の説明や答えの確認が長いこともあるので、プランと同じ広さのダイアログにして中をスクロールさせる
@@ -792,7 +817,7 @@ export default class AiOffice extends View {
       .hover((st) => st.bg("#ffffff59"))
       .on_mouse_down("left", (_e, cx) => this.hold(cx))
       .on_click(() => this.placeMenu())
-      .tooltip(`${place.name} ${text}（${offsetLabel(offsetAt(place, Date.now()))}）: クリックで場所（タイムゾーン）を選ぶ`)
+      .tooltip(tr("clockTip", placeName(place), text, offsetLabel(offsetAt(place, Date.now()))))
       .children(["clock-face", `clock-m-${m}`, `clock-h-${h}`].map((img) => image(pic(`${IMG}/${img}.png`)).absolute().left(0).top(0).size_full()));
   }
 
@@ -801,8 +826,8 @@ export default class AiOffice extends View {
     const now = Date.now();
     const items = PLACES.map((p) => {
       const offset = offsetAt(p, now);
-      const summer = p.dst && offset !== p.std ? "（夏時間）" : "";
-      return { name: p.id, label: p.name, description: `${offsetLabel(offset)}${summer} · 今 ${placeClock(p, now).text}` };
+      const summer = Boolean(p.dst) && offset !== p.std;
+      return { name: p.id, label: placeName(p), description: tr("placeNow", offsetLabel(offset), summer, placeClock(p, now).text) };
     });
     openOverlay({ mod: "ai-office-pick", kind: "popup", width: 300, height: 420,
       props: { key: "ai-office.place", items, current: currentPlace().id, height: 420 } });
@@ -829,7 +854,7 @@ export default class AiOffice extends View {
         menu();
       })
       .on_mouse_down("right", () => menu())
-      .tooltip(`${full}\nクリック: このスペースを選んで、メニュー（名前を変える・閉じる）。ドラッグ: 部屋の順番を変える`)
+      .tooltip(tr("roomPlateTip", full))
       .px(ui(8)).flex().items_center().rounded(ui(3)).border(2).border_color("#5b3a2c").bg(room.active ? "#c58a55" : "#a8774c")
       .text_size(ui(12)).font_semibold().text_color("#fff4dc").whitespace_nowrap().text_ellipsis().overflow_hidden()
       .child(text);
@@ -899,9 +924,9 @@ export default class AiOffice extends View {
       return { path: d.path, kind: d.kind, who: [a.name, a.tab].filter(Boolean).join(" · ") || d.address };
     });
     const plans = docs.filter((d) => d.kind === "plan").length;
-    const count = [plans ? `プラン ${plans}` : "", docs.length > plans ? `.md ${docs.length - plans}` : ""].filter(Boolean).join("・");
     const d = { img: "whiteboard-plan", x: room.ox + room.w - 112, y: room.oy + 7 + geometry().DECOR_DY, w: 30, h: 18, glow: true };
-    return this.button(`board-${room.id}`, d, (cx) => this.act({ type: "docs", room: room.name, docs }, cx), `ホワイトボード: ${count}（クリックで読む）`);
+    return this.button(`board-${room.id}`, d, (cx) => this.act({ type: "docs", room: room.name, docs }, cx),
+      tr("boardTip", plans, docs.length - plans));
   }
 
   // 部屋の後ろのもの: 奥の壁、左の仕切り（ガラスの部屋: 隣とは壁、縦の廊下に面していればガラス）、壁の飾り（ホワイトボード・
@@ -932,13 +957,13 @@ export default class AiOffice extends View {
         .bg("#00000038").cursor_pointer().hover((s) => s.bg("#00000020"))
         .on_mouse_down("left", (_e, cx) => this.hold(cx))
         .on_click((_e, cx) => cx.spawn(async () => {
-          const folder = await pickFolder({ prompt: "この部屋にする" });
+          const folder = await pickFolder({ prompt: tr("folderPrompt") });
           if (folder) run("space.new", { folder });
         }))
-        .tooltip("空き部屋: クリックで新しい部屋（スペース）を作る")
+        .tooltip(tr("newRoomTip"))
         .child(this.sprite({ img: "door", x: (lot.w - PART_W - 16) / 2, y: doorY, w: 16, h: 20 }))
         .child(div().absolute().left(0).top(px(doorY + 26)).w_full().flex().justify_center()
-          .text_size(ui(11)).text_color("#fff4dcdd").child("+ 部屋")),
+          .text_size(ui(11)).text_color("#fff4dcdd").child(tr("newRoom"))),
       ...(GLASS ? this.frontGlass(lot) : []),
     ];
   }
@@ -949,10 +974,25 @@ export default class AiOffice extends View {
     const height = Math.min(420, 12 + themes.length * 62 + (this.skippedThemes.length ? 10 + this.skippedThemes.length * 52 : 0));
     openOverlay({ mod: "ai-office-pick", kind: "popup", width: 320, height, props: {
       key: "ai-office.theme",
-      items: themes.map(({ name, label, description }) => ({ name, label, description })),
+      items: themes.map(({ name, label, description }) => ({ name, label: inLang(label), description: inLang(description) })),
       current: this.theme,
-      notes: this.skippedThemes.map((x) => ({ title: `使えない: ${x.name}`, text: x.why })),
+      notes: this.skippedThemes.map((x) => ({ title: tr("themeSkipped", x.name), text: x.why })),
       height,
+    } });
+  }
+
+  // 右上の言語のボタン: 言語のドロップダウン（ai-office-pick。選ぶと shared の ai-office.lang に置き、どの ai-office の mod も
+  // その言語で描き直す）。いちばん上は OS に合わせる（今の OS の言語も出す）
+  langMenu() {
+    const os = LANGS[langOf("auto", shared(OS_LANG))];
+    const items = [
+      { name: "auto", label: tr("langAuto"), description: tr("langAutoNow", os) },
+      ...Object.entries(LANGS).map(([name, label]) => ({ name, label })),
+    ];
+    const choice = shared(LANG);
+    const height = 24 + 46 + (items.length - 1) * 34;
+    openOverlay({ mod: "ai-office-pick", kind: "popup", width: 220, height, props: {
+      key: LANG, items, current: LANGS[choice] ? choice : "auto", height,
     } });
   }
 
@@ -1010,8 +1050,8 @@ export default class AiOffice extends View {
     if (!this.drag?.moved) return null;
     const name = (id) => floor.rooms.find((r) => r.id === id)?.name ?? "";
     const { from, over } = this.drag;
-    if (!over) return `「${name(from)}」をつかんでいます。ほかの部屋の上で離すと、順番が変わります`;
-    return `「${name(from)}」を「${name(over.id)}」の${over.side === "right" ? "後ろ" : "前"}へ（離すと動かす）`;
+    if (!over) return tr("dragHold", name(from));
+    return tr("dragTo", name(from), name(over.id), over.side === "right");
   }
 
   // 離した: ほかの部屋の上なら、その部屋の位置へ動かす（位置は今の spaces() で数える）
@@ -1096,8 +1136,9 @@ export default class AiOffice extends View {
 
   render() {
     const t = theme();
+    const lang = langNow();
     const now = this.floorNow();
-    if (!now) return v_flex().id("root").size_full().bg(t.canvas).p(14).text_size(12).text_color(t.dim).child("テーマを読んでいます…");
+    if (!now) return v_flex().id("root").size_full().bg(t.canvas).p(14).text_size(12).text_color(t.dim).child(tr("loadingThemes"));
     const { floor, placed, info } = now;
     const themes = themeList();
     const current = themes.find((x) => x.name === this.theme);
@@ -1113,6 +1154,7 @@ export default class AiOffice extends View {
     const toastsHere = layout()?.toast === TOAST_MOD;
     // 右のターミナル（ai-office レイアウトだけ）。隠すとオフィスが窓いっぱいになる。出し入れはレイアウトに覚えられ、再起動しても残る
     const terminal = pathTo(layout(), TERMINAL_BLOCK)?.at(-1) ?? null;
+    const langAuto = !LANGS[shared(LANG)]; // 言語を選んでいない（OS に合わせる）
     return v_flex().id("root").size_full().bg(t.canvas).text_color(t.foreground)
       .on_mouse_up("left", (_e, cx) => { // フロアの外（上の帯など）で離した: 部屋のドラッグをやめる
         if (this.drag?.moved) cx.notify();
@@ -1120,39 +1162,38 @@ export default class AiOffice extends View {
         this.drag = null;
       })
       // 上の帯: 細い列（main-dots-office の Office の列は 440px まで狭まる）では、件数（ドラッグ中はその説明）だけを「…」で切り、
-      // ほかは縮めない（全部並べると約 525px）
+      // ほかは縮めない（全部並べると約 560px）。いちばん右は言語のボタン（地球の絵だけ。どの言語でも同じ幅）
       .child(h_flex().h(32).flex_none().px(14).gap(14).items_center().text_size(12).text_color(t.muted)
         .child(div().flex_none().font_semibold().text_color(t.foreground).child("AI Office"))
         .child(dragging
           ? div().min_w(0).truncate().font_semibold().text_color(t.accent).child(dragging) // 部屋をドラッグ中: どうなるか
-          : div().min_w(0).truncate().child(`作業中 ${counts.working} · 待ち ${counts.blocked} · 完了 ${counts.done} · 待機 ${counts.idle}`))
+          : div().min_w(0).truncate().child(tr("counts", counts)))
         .child(h_flex().id("theme").flex_none().ml_auto().px(6).gap(4).items_center().rounded(4).cursor_pointer().text_color(t.dim)
           .hover((s) => s.text_color(t.foreground))
-          .tooltip([current?.description ?? "", "クリックでテーマを選ぶ"].filter(Boolean).join("\n"))
+          .tooltip([inLang(current?.description), tr("themeTip")].filter(Boolean).join("\n"))
           .on_click(() => this.themeMenu(themes))
-          .child(`テーマ: ${current?.label ?? this.theme}`)
+          .child(tr("themeButton", inLang(current?.label) || this.theme))
           .child(svg("mods/workspace-chrome/chevron-down.svg").size(10)))
         .when(Boolean(terminal), (el) => el.child(div().id("terminal-toggle").flex_none().px(6).rounded(4).cursor_pointer()
           .text_color(t.dim).hover((s) => s.text_color(t.foreground))
-          .tooltip(terminal.hidden
-            ? "右のターミナルを出していない（オフィスが窓いっぱい）。クリックで出す\n名札などでターミナルを表示したときも出る"
-            : "右のターミナルを出している。クリックで隠して、オフィスを窓いっぱいにする")
+          .tooltip(tr(terminal.hidden ? "terminalHiddenTip" : "terminalShownTip"))
           .on_click(() => run("layout.toggle", { id: TERMINAL_BLOCK }))
-          .child(terminal.hidden ? "ターミナル: 出さない" : "ターミナル: 出す")))
+          .child(tr(terminal.hidden ? "terminalHidden" : "terminalShown"))))
         .child(div().id("toasts").flex_none().px(6).rounded(4).cursor_pointer().text_color(t.dim).when(!toastsHere, (el) => el.opacity(0.5))
           .hover((s) => s.text_color(t.foreground))
-          .tooltip([
-            quiet ? "右下の通知（エージェントの待ち・完了など）を出していない。クリックで出す"
-              : "右下の通知（エージェントの待ち・完了など）を出している。クリックで出さないようにする",
-            "音は止まらない（音は Herdr の Settings > Alerts）",
-            toastsHere ? "" : "このレイアウトでは効かない（効くのは ai-office と main-dots-office のレイアウト）",
-          ].filter(Boolean).join("\n"))
+          .tooltip([tr(quiet ? "toastsOffTip" : "toastsOnTip"), tr("toastsSound"), toastsHere ? "" : tr("toastsElsewhere")]
+            .filter(Boolean).join("\n"))
           .on_click(() => setShared(TOASTS, quiet ? "on" : "off"))
-          .child(quiet ? "通知: 出さない" : "通知: 出す"))
+          .child(tr(quiet ? "toastsOff" : "toastsOn")))
         .child(div().id("legend").flex_none().px(6).rounded(4).cursor_pointer().text_color(t.dim).hover((s) => s.text_color(t.foreground))
-          .tooltip("クリックで凡例（キャラの見分け方: AI と model、effort の鉢巻き）")
+          .tooltip(tr("legendTip"))
           .on_click(() => openOverlay({ mod: "ai-office-legend", kind: "popup", width: 300, height: 420 }))
-          .child("凡例")))
+          .child(tr("legend")))
+        .child(h_flex().id("lang").flex_none().h(20).px(4).items_center().rounded(4).cursor_pointer().text_color(t.dim)
+          .hover((s) => s.text_color(t.foreground))
+          .tooltip(tr("langTip", LANGS[lang], langAuto))
+          .on_click(() => this.langMenu())
+          .child(svg("mods/ai-office/globe.svg").size(13))))
       .child(div().id("scroll").flex_1().min_h(0).overflow_scroll() // 細い列（Office ボタン）では横にも
         .on_size_change((size, cx) => { // フロアに使える広さ。変わったら、入るいちばん大きい倍率で描き直す（floorNow）
           if (Math.abs(size.width - this.width) >= 1 || Math.abs(size.height - this.height) >= 1) {

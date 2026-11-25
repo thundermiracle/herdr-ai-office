@@ -3,6 +3,10 @@
 // 絵の置き方は scripts/build-art.py の見本（preview）と同じ:
 //   立ち・歩き（18x24）は左上を (足の x-9, 足の y-23)、座り（18x18）は (席の x-9, BACK-18)、
 //   椅子は (席の x-7, BACK-9)、ノート PC は (席の机の x+7, BACK-5)、手は (席の机の x, BACK)。
+// 画面に出す文は text.js の表から、今の言語で（tr）。main.js も、ここから同じものを使う
+import { tr, placeName } from "./text.js";
+
+export { LANGS, TEXT, useLang, tr, placeName, inLang, langOf, languageOf } from "./text.js";
 
 export const SCALE = 2;
 // 窓に合わせて大きく描く倍率（絵の 1 ピクセルを何論理 px で描くか。大きい順）。ターミナルを隠して広くなったら、入るいちばん
@@ -93,31 +97,31 @@ export function readTheme(name, json, sizes = {}, base = `mods/ai-office/themes/
   const problems = [];
   const r = json?.room ?? {};
   const int = (key) => {
-    if (!Number.isInteger(r[key])) problems.push(`room.${key} が整数でない`);
+    if (!Number.isInteger(r[key])) problems.push(tr("theme.notInteger", key));
     return r[key];
   };
   const room = {
     height: int("height"), wall: int("wall"), lane: int("lane"), deskBack: int("deskBack"), box: int("box"),
     corridorY: int("corridorY"), partitionEnd: int("partitionEnd"), shelfY: int("shelfY"), decorDy: int("decorDy"),
   };
-  if (typeof r.rightExit !== "boolean") problems.push("room.rightExit が true か false でない");
-  if (!["glass", "partition"].includes(r.hallSide)) problems.push("room.hallSide が glass か partition でない");
+  if (typeof r.rightExit !== "boolean") problems.push(tr("theme.rightExit"));
+  if (!["glass", "partition"].includes(r.hallSide)) problems.push(tr("theme.hallSide"));
   const front = r.wanderFront ?? null;
   if (front !== null && !(Array.isArray(front) && front.length === 2 && front.every(Number.isInteger) && front[0] <= front[1])) {
-    problems.push("room.wanderFront が null か [上, 下] でない");
+    problems.push(tr("theme.wanderFront"));
   }
   const g = json?.glass ?? null;
-  if (g !== null && !(Number.isInteger(g.y) && Number.isInteger(g.height))) problems.push("glass が null か { y, height } でない");
+  if (g !== null && !(Number.isInteger(g.y) && Number.isInteger(g.height))) problems.push(tr("theme.glass"));
   const window = json?.window ?? "cross";
-  if (!Object.prototype.hasOwnProperty.call(WINDOW_FRAMES, window)) problems.push("window が cross（十字の桟）・slide（2 枚の引き違い）・wood（木の枠）でない");
+  if (!Object.prototype.hasOwnProperty.call(WINDOW_FRAMES, window)) problems.push(tr("theme.window"));
   const images = { ...DEFAULT_IMAGES };
   for (const [key, file] of Object.entries(json?.images ?? {})) {
     const size = sizes[file];
     if (!size) {
-      problems.push(`images.${key}（${file}）が読めない`);
+      problems.push(tr("theme.imageUnreadable", key, file));
       continue;
     }
-    if (!Number.isInteger(size.w) || !Number.isInteger(size.h)) problems.push(`images.${key}（${file}）の大きさが 4 の倍数でない`);
+    if (!Number.isInteger(size.w) || !Number.isInteger(size.h)) problems.push(tr("theme.imageSize", key, file));
     images[key] = { src: `${base}/${file}`, w: size.w, h: size.h };
   }
   if (problems.length === 0) {
@@ -125,33 +129,34 @@ export function readTheme(name, json, sizes = {}, base = `mods/ai-office/themes/
     const need = (ok, text) => { if (!ok) problems.push(text); };
     const chair = images.chair ?? CHAIR;
     const free = images["chair-free"] ?? CHAIR;
-    need(room.wall < room.lane && room.lane < room.deskBack - chair.h,
-      `room.lane（机の奥の通路）は、壁（room.wall）より下、椅子（room.deskBack − 椅子の高さ ${chair.h}）より上に`);
-    need(deskEnd <= room.box && room.box <= room.height, "机（room.deskBack + 21 まで）≦ 部屋の枠（room.box）≦ 1 列の高さ（room.height）に");
-    need(room.partitionEnd <= room.box, "仕切り（room.partitionEnd）は部屋の枠（room.box）まで");
-    need(room.shelfY >= 0 && room.shelfY + 76 < room.height, "資料室の本棚（room.shelfY）と読む所（+ 76）が 1 列に入らない");
-    need(6 + room.decorDy >= 0 && 7 + room.decorDy + 18 <= room.wall - 5, "壁の飾り（窓・ホワイトボード。room.decorDy）が壁に入らない");
-    need(images.wall.h === room.wall, `壁の絵の高さ（${images.wall.h}）が room.wall と違う`);
-    if (images.corridor) need(images.corridor.h === room.height - room.box, "横の廊下の絵の高さが、1 列の高さ − 部屋の枠と違う");
+    need(room.wall < room.lane && room.lane < room.deskBack - chair.h, tr("theme.lane", chair.h));
+    need(deskEnd <= room.box && room.box <= room.height, tr("theme.box"));
+    need(room.partitionEnd <= room.box, tr("theme.partition"));
+    need(room.shelfY >= 0 && room.shelfY + 76 < room.height, tr("theme.shelf"));
+    need(6 + room.decorDy >= 0 && 7 + room.decorDy + 18 <= room.wall - 5, tr("theme.decor"));
+    need(images.wall.h === room.wall, tr("theme.wallImage", images.wall.h));
+    if (images.corridor) need(images.corridor.h === room.height - room.box, tr("theme.corridorImage"));
     if (g) {
-      need(g.y >= deskEnd && g.y + g.height === room.box, "ガラス（glass.y から glass.height）は机より手前で、下端が部屋の枠（room.box）に");
-      need(room.box < room.corridorY && room.corridorY < room.height, "room.corridorY（横の廊下）は部屋の枠の下、1 列の中に");
-      need(front === null, "ガラスの部屋の room.wanderFront は null（うろうろは部屋の中だけ）");
-      need(images.glass?.h === g.height, "images.glass（ガラスの壁の 1 枚）が要る。高さは glass.height");
-      need(images.door?.h === g.height + 2 && images.door.w >= 20, "images.door（扉の枠。柱 2・戸口 16・柱 2）が要る。高さは glass.height + 2");
-      if (images.doorPanel) need(images.doorPanel.w >= 16 && images.doorPanel.h <= g.height, "images.doorPanel（自動ドアの戸）は幅 16 以上、高さは glass.height まで");
+      need(g.y >= deskEnd && g.y + g.height === room.box, tr("theme.glassPlace"));
+      need(room.box < room.corridorY && room.corridorY < room.height, tr("theme.corridorY"));
+      need(front === null, tr("theme.glassWander"));
+      need(images.glass?.h === g.height, tr("theme.glassImage"));
+      need(images.door?.h === g.height + 2 && images.door.w >= 20, tr("theme.doorImage"));
+      if (images.doorPanel) need(images.doorPanel.w >= 16 && images.doorPanel.h <= g.height, tr("theme.doorPanel"));
     } else {
-      need(deskEnd < room.corridorY && room.corridorY < room.height, "room.corridorY（手前の通路）は机の下、1 列の中に");
-      need(front !== null && deskEnd < front[0] && front[1] < room.height, "手前が開いた部屋の room.wanderFront は、机の下から 1 列の中まで");
+      need(deskEnd < room.corridorY && room.corridorY < room.height, tr("theme.openCorridorY"));
+      need(front !== null && deskEnd < front[0] && front[1] < room.height, tr("theme.openWander"));
     }
     for (const [key, size] of Object.entries(DESK_SIZES)) {
-      if (json.images?.[key]) need(images[key].w === size.w && images[key].h === size.h, `images.${key}（机）は ${size.w} x ${size.h}`);
+      if (json.images?.[key]) need(images[key].w === size.w && images[key].h === size.h, tr("theme.desk", key, size.w, size.h));
     }
-    need(chair.w <= SEAT_W && free.w === chair.w && free.h === chair.h,
-      `images.chair と images.chair-free（椅子と空いた席の椅子）は同じ大きさで、幅 ${SEAT_W} まで`);
+    need(chair.w <= SEAT_W && free.w === chair.w && free.h === chair.h, tr("theme.chair", SEAT_W));
   }
+  // 名前と説明は、文字列か、言語ごとの { "en": …, "ja": … }（出すときに inLang で今の言語のものを選ぶ）
+  const words = (v) => typeof v === "string"
+    || (v && typeof v === "object" && !Array.isArray(v) && Object.values(v).length > 0 && Object.values(v).every((x) => typeof x === "string"));
   const theme = {
-    name, label: typeof json?.label === "string" ? json.label : name, description: typeof json?.description === "string" ? json.description : "",
+    name, label: words(json?.label) ? json.label : name, description: words(json?.description) ? json.description : "",
     order: Number.isFinite(json?.order) ? json.order : 100,
     ROOM_H: room.height, WALL_H: room.wall, LANE_Y: room.lane, BACK: room.deskBack, BOX_H: room.box, CORRIDOR_Y: room.corridorY,
     PART_END: room.partitionEnd, SHELF_Y: room.shelfY, DECOR_DY: room.decorDy, FRONT_Y: front,
@@ -283,13 +288,16 @@ export function agentModel({ app, argv, cached, codexDefaults }) {
 
 // ---- skill（本棚の本） ----
 
-/** skill の出どころと本の色。この順に本棚へ並べる（左上から）。 */
+/**
+ * skill の出どころと本の色。この順に本棚へ並べる（左上から）。出どころの名前（自分の skill など）は、一覧を出す
+ * ai-office-skills と ai-office-skill が、それぞれの表から今の言語で出す。
+ */
 export const SKILL_SOURCES = {
-  user: { label: "自分の skill", color: "#4a7fd0" },
-  project: { label: "このプロジェクト", color: "#e04545" },
-  synced: { label: "claude.ai から同期", color: "#e8804e" },
-  plugin: { label: "プラグイン", color: "#3aa050" },
-  codex: { label: "Codex", color: "#3fa7a3" },
+  user: { color: "#4a7fd0" },
+  project: { color: "#e04545" },
+  synced: { color: "#e8804e" },
+  plugin: { color: "#3aa050" },
+  codex: { color: "#3fa7a3" },
 };
 
 /**
@@ -1150,27 +1158,28 @@ export function clockHands(min) {
  * 選べる場所（壁時計をクリックして選ぶ。壁時計の時刻・窓の空・天気がその場所になる）。東から西の順。
  * std は冬の UTC からの分、dst は夏時間の決まり（us: 米国、eu: 欧州、au: 豪州の南東部。null はなし）。
  * mod の中には Intl がないので、夏時間は dst の決まりで計算する（tz は IANA の名前。bun test で Intl と比べる）。
+ * 名前は言語ごとに text.js の place.<id>（placeName）。
  */
 export const PLACES = [
-  { id: "sydney", name: "シドニー", lat: -33.8688, lon: 151.2093, std: 600, dst: "au", tz: "Australia/Sydney" },
-  { id: "tokyo", name: "東京", lat: 35.6895, lon: 139.6917, std: 540, dst: null, tz: "Asia/Tokyo" },
-  { id: "seoul", name: "ソウル", lat: 37.5665, lon: 126.978, std: 540, dst: null, tz: "Asia/Seoul" },
-  { id: "shanghai", name: "上海", lat: 31.2304, lon: 121.4737, std: 480, dst: null, tz: "Asia/Shanghai" },
-  { id: "taipei", name: "台北", lat: 25.033, lon: 121.5654, std: 480, dst: null, tz: "Asia/Taipei" },
-  { id: "singapore", name: "シンガポール", lat: 1.3521, lon: 103.8198, std: 480, dst: null, tz: "Asia/Singapore" },
-  { id: "bangkok", name: "バンコク", lat: 13.7563, lon: 100.5018, std: 420, dst: null, tz: "Asia/Bangkok" },
-  { id: "delhi", name: "デリー", lat: 28.6139, lon: 77.209, std: 330, dst: null, tz: "Asia/Kolkata" },
-  { id: "dubai", name: "ドバイ", lat: 25.2048, lon: 55.2708, std: 240, dst: null, tz: "Asia/Dubai" },
-  { id: "moscow", name: "モスクワ", lat: 55.7558, lon: 37.6173, std: 180, dst: null, tz: "Europe/Moscow" },
-  { id: "berlin", name: "ベルリン", lat: 52.52, lon: 13.405, std: 60, dst: "eu", tz: "Europe/Berlin" },
-  { id: "paris", name: "パリ", lat: 48.8566, lon: 2.3522, std: 60, dst: "eu", tz: "Europe/Paris" },
-  { id: "london", name: "ロンドン", lat: 51.5074, lon: -0.1278, std: 0, dst: "eu", tz: "Europe/London" },
-  { id: "sao-paulo", name: "サンパウロ", lat: -23.5505, lon: -46.6333, std: -180, dst: null, tz: "America/Sao_Paulo" },
-  { id: "new-york", name: "ニューヨーク", lat: 40.7128, lon: -74.006, std: -300, dst: "us", tz: "America/New_York" },
-  { id: "chicago", name: "シカゴ", lat: 41.8781, lon: -87.6298, std: -360, dst: "us", tz: "America/Chicago" },
-  { id: "denver", name: "デンバー", lat: 39.7392, lon: -104.9903, std: -420, dst: "us", tz: "America/Denver" },
-  { id: "los-angeles", name: "ロサンゼルス", lat: 34.0522, lon: -118.2437, std: -480, dst: "us", tz: "America/Los_Angeles" },
-  { id: "honolulu", name: "ホノルル", lat: 21.3069, lon: -157.8583, std: -600, dst: null, tz: "Pacific/Honolulu" },
+  { id: "sydney", lat: -33.8688, lon: 151.2093, std: 600, dst: "au", tz: "Australia/Sydney" },
+  { id: "tokyo", lat: 35.6895, lon: 139.6917, std: 540, dst: null, tz: "Asia/Tokyo" },
+  { id: "seoul", lat: 37.5665, lon: 126.978, std: 540, dst: null, tz: "Asia/Seoul" },
+  { id: "shanghai", lat: 31.2304, lon: 121.4737, std: 480, dst: null, tz: "Asia/Shanghai" },
+  { id: "taipei", lat: 25.033, lon: 121.5654, std: 480, dst: null, tz: "Asia/Taipei" },
+  { id: "singapore", lat: 1.3521, lon: 103.8198, std: 480, dst: null, tz: "Asia/Singapore" },
+  { id: "bangkok", lat: 13.7563, lon: 100.5018, std: 420, dst: null, tz: "Asia/Bangkok" },
+  { id: "delhi", lat: 28.6139, lon: 77.209, std: 330, dst: null, tz: "Asia/Kolkata" },
+  { id: "dubai", lat: 25.2048, lon: 55.2708, std: 240, dst: null, tz: "Asia/Dubai" },
+  { id: "moscow", lat: 55.7558, lon: 37.6173, std: 180, dst: null, tz: "Europe/Moscow" },
+  { id: "berlin", lat: 52.52, lon: 13.405, std: 60, dst: "eu", tz: "Europe/Berlin" },
+  { id: "paris", lat: 48.8566, lon: 2.3522, std: 60, dst: "eu", tz: "Europe/Paris" },
+  { id: "london", lat: 51.5074, lon: -0.1278, std: 0, dst: "eu", tz: "Europe/London" },
+  { id: "sao-paulo", lat: -23.5505, lon: -46.6333, std: -180, dst: null, tz: "America/Sao_Paulo" },
+  { id: "new-york", lat: 40.7128, lon: -74.006, std: -300, dst: "us", tz: "America/New_York" },
+  { id: "chicago", lat: 41.8781, lon: -87.6298, std: -360, dst: "us", tz: "America/Chicago" },
+  { id: "denver", lat: 39.7392, lon: -104.9903, std: -420, dst: "us", tz: "America/Denver" },
+  { id: "los-angeles", lat: 34.0522, lon: -118.2437, std: -480, dst: "us", tz: "America/Los_Angeles" },
+  { id: "honolulu", lat: 21.3069, lon: -157.8583, std: -600, dst: null, tz: "Pacific/Honolulu" },
 ];
 /** 東京（場所を選べるようにする前は、窓の外はいつも東京だった。関数の場所の既定）。 */
 export const TOKYO = PLACES.find((p) => p.id === "tokyo");
@@ -1297,23 +1306,24 @@ export const SNOW_FRAMES = 8; // img/sky/snow-<n>.png
 
 /**
  * WMO の天気コード（Open-Meteo の weather_code）→ 窓の空模様（cover: clear / cloudy / overcast）と、
- * 重ねるもの（fx: rain / snow / thunder か null）、ツールチップの名前。霧は曇り。知らないコードは晴れ。
+ * 重ねるもの（fx: rain / snow / thunder か null）、ツールチップの名前（今の言語。text.js の weather.<名前>）。霧は曇り。
+ * 知らないコードは晴れ。
  */
 export function weatherOf(code) {
   const c = Number(code);
-  const w = (cover, fx, label) => ({ code: c, cover, fx, label });
-  if (c === 0) return w("clear", null, "快晴");
-  if (c === 1) return w("clear", null, "晴れ");
-  if (c === 2) return w("cloudy", null, "晴れ時々曇り");
-  if (c === 3) return w("overcast", null, "曇り");
-  if (c === 45 || c === 48) return w("overcast", null, "霧");
-  if (c >= 51 && c <= 57) return w("overcast", "rain", "霧雨");
-  if (c >= 61 && c <= 67) return w("overcast", "rain", { 61: "小雨", 65: "大雨" }[c] ?? "雨");
-  if (c >= 71 && c <= 77) return w("overcast", "snow", { 71: "小雪", 75: "大雪" }[c] ?? "雪");
-  if (c >= 80 && c <= 82) return w("overcast", "rain", "にわか雨");
-  if (c === 85 || c === 86) return w("overcast", "snow", "にわか雪");
-  if (c >= 95 && c <= 99) return w("overcast", "thunder", "雷雨");
-  return w("clear", null, "晴れ（天気コード不明）");
+  const w = (cover, fx, name) => ({ code: c, cover, fx, label: tr(`weather.${name}`) });
+  if (c === 0) return w("clear", null, "clear");
+  if (c === 1) return w("clear", null, "mostlyClear");
+  if (c === 2) return w("cloudy", null, "partlyCloudy");
+  if (c === 3) return w("overcast", null, "cloudy");
+  if (c === 45 || c === 48) return w("overcast", null, "fog");
+  if (c >= 51 && c <= 57) return w("overcast", "rain", "drizzle");
+  if (c >= 61 && c <= 67) return w("overcast", "rain", { 61: "lightRain", 65: "heavyRain" }[c] ?? "rain");
+  if (c >= 71 && c <= 77) return w("overcast", "snow", { 71: "lightSnow", 75: "heavySnow" }[c] ?? "snow");
+  if (c >= 80 && c <= 82) return w("overcast", "rain", "rainShowers");
+  if (c === 85 || c === 86) return w("overcast", "snow", "snowShowers");
+  if (c >= 95 && c <= 99) return w("overcast", "thunder", "thunder");
+  return w("clear", null, "unknown");
 }
 
 /** 試すときの天気（herdr-app do ai-office.sky-rain など）と、その代表の天気コード。 */
@@ -1346,11 +1356,15 @@ export function windowView(ms, weather, t, place = TOKYO, frame = "window") {
   return { phase, layers, key: layers.join("+") };
 }
 
-/** 窓のツールチップ: その場所の時刻と天気（と気温）。試し中なら戻し方も。 */
+/**
+ * 窓のツールチップ: その場所の時刻と天気（と気温）。試し中なら戻し方も。天気の名前は、天気コードから今の言語で出し直す
+ * （shared に置いた天気の label は、取ったときの言語のまま）。
+ */
 export function windowTip(ms, weather, trial = false, place = TOKYO) {
-  const now = weather ? (weather.temp == null ? weather.label : `${weather.label} ${Math.round(weather.temp)}°C`) : "天気はまだ分かりません";
-  const tip = `${place.name} ${placeClock(place, ms).text} · ${now}`;
-  return trial ? `${tip}（試し中。herdr-app do ai-office.sky-auto で本物に戻す）` : tip;
+  const label = Number.isFinite(weather?.code) ? weatherOf(weather.code).label : weather?.label;
+  const now = weather ? (weather.temp == null ? label : `${label} ${Math.round(weather.temp)}°C`) : tr("noWeather");
+  const tip = `${placeName(place)} ${placeClock(place, ms).text} · ${now}`;
+  return trial ? `${tip}${tr("trial")}` : tip;
 }
 
 /**
@@ -1428,9 +1442,7 @@ export function drawables(room, office, skills = [], shortcuts = {}) {
   const talkTo = (address, info) => ({ type: "chat", terminal: address, name: whoOf(info) || address, machine: room.machine ?? null });
   // ツールチップの最後の行: 重ねたターミナルの閉じ方（Esc はエージェントに届くので、閉じるキーか ✕）と、最後に開いた人を
   // もう一度開くキー（keys.json にあれば）
-  const { close, reopen } = shortcuts;
-  const shut = `重ねたターミナルは ${close ? `${close} か ✕` : "✕"} で閉じる（Esc はエージェントに届く）`
-    + (reopen ? `。${reopen} で最後に開いた人をもう一度開く` : "");
+  const shut = tr("shut", shortcuts.close, shortcuts.reopen);
   add({ id: "plant", img: "plant", x: room.w - 18, y: BACK + 4, w: 12, h: 17, z: 95 });
   // ガラスの部屋（テーマの glass）の手前のガラスの壁と扉: 机・植木・部屋の中の人より手前、横の廊下を歩く人より奥。
   // ガラスはテーマの images.glass を横に並べる（tile）。扉の枠（images.door）は、通り道 LEFT_PASS を真ん中に 16 開けた
@@ -1461,18 +1473,16 @@ export function drawables(room, office, skills = [], shortcuts = {}) {
       const talk = talkTo(seat.agent, info);
       add({ id: `chair-${seat.i}`, img: "chair", ...art("chair"), ...chairAt(seat), z: BACK - 2 });
       add({ id: `laptop-${seat.i}`, img: "laptop", x: seat.segX + 5, y: BACK - 5, w: 14, h: 10, z: BACK + 15.5, owner: seat.agent,
-        click: talk, right: { type: "tab-menu", terminal: seat.agent },
-        tip: "PC: クリックでこのエージェントのターミナルを表示（右のターミナルを隠しているときは、オフィスの上に重ねて）。右クリックでタブのメニュー"
-          + `（名前を変える・閉じる）\n${shut}`, glow: true });
+        click: talk, right: { type: "tab-menu", terminal: seat.agent }, tip: `${tr("pcTip")}\n${shut}`, glow: true });
       // 机の前の板の名札（タブバーと同じ名前。長ければ切る）。本人が歩き回っていても席に残るので、誰の席か分かる
       const name = info.seatName ?? info.tab ?? info.name ?? seat.agent;
       add({ id: `name-${seat.i}`, plate: name, x: seat.segX + 1, y: BACK + 10, w: 22, h: 6, z: BACK + 15.9, owner: seat.agent,
-        click: talk, tip: `${name}（クリックでターミナルを表示。右のターミナルを隠しているときは、オフィスの上に重ねて）\n${shut}` });
+        click: talk, tip: `${tr("deskPlateTip", name)}\n${shut}` });
       continue;
     }
     // 空いた席（雇える席）: 緑の椅子、ノート PC なし、上に「＋」の札が揺れる
     const hire = { type: "hire", space: room.id, machine: room.machine };
-    const tip = "空いた席: クリックでエージェントを雇う";
+    const tip = tr("hireTip");
     add({ id: `chair-${seat.i}`, img: "chair-free", ...art("chair-free"), ...chairAt(seat), z: BACK - 2, click: hire, tip, glow: true });
     add({ id: `hire-${seat.i}`, img: "hire-sign", x: seat.cx - 5, y: BACK - 24 - (Math.floor(office.t / 4) % 2), w: 11, h: 11,
       z: BACK - 1.5, click: hire, tip, glow: true });
@@ -1483,10 +1493,10 @@ export function drawables(room, office, skills = [], shortcuts = {}) {
     if (c.room !== room.id) continue;
     const { look, band, flame } = c.look;
     const ph = office.t + c.phase;
-    const state = c.info.silent ? "状態の報告がまだない（起動中か、起動の前の確認で止まっている）" : c.info.status;
+    const state = c.info.silent ? tr("silent") : c.info.status;
     const tip = [whoOf(c.info), state].filter(Boolean).join(" · ");
     const click = talkTo(c.address, c.info); // 名札・PC・「!」と同じ
-    const charTip = `${tip}\nクリック: ターミナルを表示（右のターミナルを隠しているときは、オフィスの上に重ねて）\n${shut}`;
+    const charTip = `${tip}\n${tr("charClick")}\n${shut}`;
     // キャラ。effort の鉢巻きは同じ大きさの重ね絵（over）で、キャラのすぐ上に描く
     const person = (pose, x, y, h, z) => {
       add({ id: `char-${c.address}`, img: `char/${look}-${pose}`, over: band ? `band/${band}-${pose}` : null,
@@ -1534,7 +1544,7 @@ export function drawables(room, office, skills = [], shortcuts = {}) {
       add({ id: `bubble-${c.address}`, img: question ? "bubble-ask" : "bubble-alert", x: x - 6, y: y - 36 - (Math.floor(ph / 3) % 2),
         w: 13, h: 14, z: 1000, glow: true,
         click: question ? { type: "ask", terminal: c.address, name: tip } : click,
-        tip: question ? "クリックで質問に答える" : tip });
+        tip: question ? tr("askTip") : tip });
     }
   }
   return out.sort((a, b) => a.z - b.z);
@@ -1552,5 +1562,5 @@ export function floorDrawables(office, skills = []) {
   return [{ id: "shelf", img: "bookshelf-empty", x: SHELF.x, y: SHELF.y, w: 32, h: 42, z: 56,
     books: books.filter((b) => !reading.some((r) => sameSkill(r, b.skill.id))),
     click: { type: "skills" },
-    tip: `資料室の本棚: 使える skill ${skills.length} 冊${more > 0 ? `（棚に入りきらない ${more} 冊も）` : ""}。クリックで一覧` }];
+    tip: tr("shelfTip", skills.length, more) }];
 }

@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   PLACES, RAIN_FRAMES, TOKYO, TRIAL_WEATHER, defaultPlace, offsetAt, offsetLabel, parseSkyCommand, parseWeather, phaseMinute,
-  placeAt, placeClock, skyPhase, sunAt, sunTimes, weatherOf, windowTip, windowView,
+  placeAt, placeClock, skyPhase, sunAt, sunTimes, weatherOf, windowTip, windowView, useLang,
 } from "../mods/ai-office/scene.js";
+
+// 天気と場所の名前は日本語で確かめる（英語は test/text.test.js）
+useLang("ja");
 
 const place = (id) => PLACES.find((p) => p.id === id);
 const tokyoClock = (ms) => placeClock(TOKYO, ms);

@@ -5,7 +5,20 @@
 // 出し入れはレイアウトのクリックとして覚えられるので、再起動しても残る。
 import { View, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { theme, layout, props, run } from "herdr";
+import { theme, layout, props, shared, run } from "herdr";
+
+// 画面の文（言語ごと。ai-office の text.js と同じ決まりで、表にない言語・文は英語）
+const TEXT = {
+  en: { noBlock: (id) => `This layout has no "${id}" block` },
+  ja: { noBlock: (id) => `このレイアウトに「${id}」のブロックがありません` },
+};
+
+// 今の言語の表: オフィスの上の帯の言語のボタンで選んだもの（shared の ai-office.lang）。OS に合わせるなら、オフィスが調べた
+// OS の言語（ai-office.os-lang）
+function words() {
+  const choice = shared("ai-office.lang");
+  return { ...TEXT.en, ...TEXT[choice && choice !== "auto" ? choice : shared("ai-office.os-lang")] };
+}
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -27,7 +40,7 @@ export default class OfficeToggle extends View {
       .child(h_flex().id("office-toggle").h(26).px(8).gap(5).flex_none().items_center().rounded(6)
         .text_size(12).bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
         .hover((s) => s.bg(t.hover)).on_mouse_down("left", stop)
-        .when(!office, (el) => el.tooltip(`このレイアウトに「${id}」のブロックがありません`))
+        .when(!office, (el) => el.tooltip(words().noBlock(id)))
         .on_click(() => office && run("layout.toggle", { id }))
         .child(svg("mods/ai-office-toggle/office.svg").size(14))
         .child("Office"));

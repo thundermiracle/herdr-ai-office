@@ -1,6 +1,9 @@
 {
-  "label": "モダン",
-  "description": "独立した部屋。隣とは壁、廊下側はガラスの壁と扉で、列ごとに横の廊下",
+  "label": { "en": "Modern", "ja": "モダン" },
+  "description": {
+    "en": "Separate rooms: walls between them, a glass wall and door on the hall side, and a corridor along each row",
+    "ja": "独立した部屋。隣とは壁、廊下側はガラスの壁と扉で、列ごとに横の廊下"
+  },
   "order": 1,
   "window": "slide",
   "room": {

@@ -1,6 +1,9 @@
 {
-  "label": "和風",
-  "description": "畳の部屋。隣とは壁、廊下側は障子の壁と障子戸で、列ごとに縁側",
+  "label": { "en": "Japanese", "ja": "和風" },
+  "description": {
+    "en": "Tatami rooms: walls between them, shoji walls and a shoji door on the hall side, and an engawa veranda along each row",
+    "ja": "畳の部屋。隣とは壁、廊下側は障子の壁と障子戸で、列ごとに縁側"
+  },
   "order": 2,
   "window": "wood",
   "room": {

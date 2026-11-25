@@ -11,13 +11,68 @@
 // 質問しているエージェントのうち最初の人。
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { theme, props, agents, terminals, layout, hc, run, closeOverlay } from "herdr";
+import { theme, props, agents, terminals, layout, hc, run, closeOverlay, shared } from "herdr";
 import { parseQuestion, keysFor, typesAnswer, sameQuestion, nextRead } from "./parse.js";
 
 const FOLLOW_MS = 250; // 答えたあと、画面を読み直す間隔
 const FOLLOW_TRIES = 24; // これだけ読み直しても次の画面が決まらなければ、今の画面を出す（約 6 秒）
 
 const kindOf = (t) => t?.report?.kind ?? t?.status?.kind ?? null;
+
+// 画面の文（言語ごと。ai-office の text.js と同じ決まりで、表にない言語・文は英語）
+const TEXT = {
+  en: {
+    title: (progress) => `Question${progress}`,
+    review: " (review your answers)",
+    step: (n, total) => ` (question ${n} of ${total})`,
+    close: "Close",
+    reload: "Reload",
+    inTerminal: "Answer in the terminal",
+    keys: "↑↓ to pick, Enter to answer · a number answers at once · Esc closes",
+    nobody: "No agent is asking a question",
+    reading: "Reading the screen…",
+    cantRead: "Couldn't read the screen",
+    multi: "This question takes several answers: answer it in the terminal",
+    noOptions: "Couldn't read the choices. The end of the screen:",
+    empty: "(empty)",
+    sending: "Sending…",
+    changed: "The question had changed, so it was read again",
+    notWaiting: "It's no longer waiting for an answer",
+    cantSend: "Couldn't send the keys",
+    waitingNext: "Waiting for the next question…",
+    answered: (label) => `Answered "${label}" to the last question`,
+    unsure: "Couldn't confirm that the answer arrived (Reload reads the screen again)",
+  },
+  ja: {
+    title: (progress) => `質問${progress}`,
+    review: "（答えの確認）",
+    step: (n, total) => `（${n} / ${total} 問目）`,
+    close: "閉じる",
+    reload: "読み直す",
+    inTerminal: "ターミナルで答える",
+    keys: "↑↓ で選んで Enter・数字ですぐ答える・Esc で閉じる",
+    nobody: "質問しているエージェントはいません",
+    reading: "画面を読んでいます…",
+    cantRead: "画面を読めませんでした",
+    multi: "複数を選ぶ質問は、ターミナルで答えてください",
+    noOptions: "選択肢を読み取れませんでした。画面の最後:",
+    empty: "（空）",
+    sending: "送っています…",
+    changed: "質問が変わっていたので、読み直しました",
+    notWaiting: "もう答え待ちではありません",
+    cantSend: "キーを送れませんでした",
+    waitingNext: "次の質問を待っています…",
+    answered: (label) => `前の質問に「${label}」と答えました`,
+    unsure: "答えが届いたか確かめられませんでした（「読み直す」で画面を読み直せます）",
+  },
+};
+
+// 今の言語の表: オフィスの上の帯の言語のボタンで選んだもの（shared の ai-office.lang）。OS に合わせるなら、オフィスが調べた
+// OS の言語（ai-office.os-lang）
+function words() {
+  const choice = shared("ai-office.lang");
+  return { ...TEXT.en, ...TEXT[choice && choice !== "auto" ? choice : shared("ai-office.os-lang")] };
+}
 
 // まだ質問で答え待ちか（blocked で kind が question）
 function stillAsking(terminal) {
@@ -42,16 +97,16 @@ function showTerminal() {
 
 async function screenOf(terminal) {
   const r = await hc(["read", terminal]);
-  if (r.code !== 0) throw new Error(r.stderr || "画面を読めませんでした");
+  if (r.code !== 0) throw new Error(r.stderr || words().cantRead);
   return r.stdout;
 }
 
 // 何問目か（複数の質問のとき）。答えの確認の画面では、そう出す
-function progress(q) {
+function progress(q, T) {
   if (!q?.steps.length) return "";
-  if (q.review !== null) return "（答えの確認）";
+  if (q.review !== null) return T.review;
   const done = q.steps.filter((s) => s.done).length;
-  return `（${Math.min(done + 1, q.steps.length)} / ${q.steps.length} 問目）`;
+  return T.step(Math.min(done + 1, q.steps.length), q.steps.length);
 }
 
 export default class Ask extends View {
@@ -103,7 +158,7 @@ export default class Ask extends View {
   choose(option, cx) {
     if (this.busy) return;
     this.busy = true;
-    this.message = "送っています…";
+    this.message = words().sending;
     cx.notify();
     cx.spawn(async (cx) => {
       try {
@@ -112,15 +167,15 @@ export default class Ask extends View {
         if (!still || !sameQuestion(now, this.q)) {
           this.q = now;
           this.at = now?.cursor ?? 1;
-          this.message = still ? "質問が変わっていたので、読み直しました" : "もう答え待ちではありません";
+          this.message = still ? words().changed : words().notWaiting;
           this.busy = false;
           cx.notify();
           return;
         }
         const r = await hc(["keys", this.who.terminal, ...keysFor(now, option.n)]);
-        if (r.code !== 0) throw new Error(r.stderr || "キーを送れませんでした");
+        if (r.code !== 0) throw new Error(r.stderr || words().cantSend);
         if (typesAnswer(option)) return this.focus(); // 続きはターミナルで書く
-        this.message = "次の質問を待っています…";
+        this.message = words().waitingNext;
         cx.notify();
         await this.follow(now, option, cx);
       } catch (e) {
@@ -158,19 +213,20 @@ export default class Ask extends View {
     }
     if (read.step === "done") return this.close();
     this.show(read.q, text);
-    this.answered = `前の質問に「${option.label}」と答えました`;
-    this.message = read.step === "next" ? "" : "答えが届いたか確かめられませんでした（「読み直す」で画面を読み直せます）";
+    this.answered = words().answered(option.label);
+    this.message = read.step === "next" ? "" : words().unsure;
     this.busy = false;
     cx.notify();
   }
 
   render() {
     const t = theme();
+    const T = words();
     const note = (text, color = t.dim) => div().px(12).py(4).text_size(11.5).text_color(color).child(text);
     const button = (id, text, onClick) => div().id(id).px(10).h(26).flex().items_center().rounded(6).text_size(12)
       .text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(onClick).child(text);
     const root = () => v_flex().id("ask").track_focus(this.handle).on_key_down((e, cx) => this.key(e, cx)).size_full().min_h(0);
-    if (!this.who) return root().p(6).child(note("質問しているエージェントはいません"));
+    if (!this.who) return root().p(6).child(note(T.nobody));
     const q = this.q;
     const answerable = q && !q.multi && q.options.length > 0;
     const option = (o) => v_flex().id(`option-${o.n}`).mx(6).px(10).py(6).gap(2).rounded(6)
@@ -182,31 +238,31 @@ export default class Ask extends View {
     return root().text_color(t.foreground)
       .child(h_flex().flex_none().px(16).pt(14).pb(10).gap(10).items_center().border_b(1).border_color(t.border)
         .child(v_flex().flex_1().min_w(0).gap(2)
-          .child(div().text_size(15).font_semibold().truncate().child(`質問${progress(q)}`))
+          .child(div().text_size(15).font_semibold().truncate().child(T.title(progress(q, T))))
           .child(div().text_size(11.5).text_color(t.dim).truncate().child(this.who.name)))
-        .child(button("ask-close", "閉じる", () => this.close())))
+        .child(button("ask-close", T.close, () => this.close())))
       .child(v_flex().id("ask-body").flex_1().min_h(0).py(6).overflow_y_scrollbar()
         .when(Boolean(this.answered), (el) => el.child(note(this.answered)))
-        .when(this.busy && !q, (el) => el.child(note("画面を読んでいます…")))
+        .when(this.busy && !q, (el) => el.child(note(T.reading)))
         .when(Boolean(q?.review?.length), (el) => el.child(v_flex().mx(12).mt(4).p(8).gap(2).rounded(6).bg(t.surface)
           .children(q.review.map((line) => div().text_size(11.5).text_color(line.startsWith("→") ? t.foreground : t.muted)
             .when(line.startsWith("→"), (d) => d.pl(12)).child(line)))))
         .when(Boolean(q?.question), (el) => el.child(div().px(12).py(6).text_size(14).font_semibold().child(q.question)))
         .when(Boolean(q), (el) => el.children(q.options.map(option)))
-        .when(Boolean(q?.multi), (el) => el.child(note("複数を選ぶ質問は、ターミナルで答えてください")))
+        .when(Boolean(q?.multi), (el) => el.child(note(T.multi)))
         .when(!this.busy && !q, (el) => el
-          .child(note("選択肢を読み取れませんでした。画面の最後:"))
+          .child(note(T.noOptions))
           .child(div().mx(12).p(8).rounded(6).bg(t.surface).text_size(11).font_family("JetBrains Mono").text_color(t.muted)
-            .child(this.screen || "（空）"))))
+            .child(this.screen || T.empty))))
       .child(h_flex().flex_none().px(6).py(6).gap(4).items_center().border_t(1).border_color(t.border)
         .child(div().flex_1().min_w(0)
           .when(Boolean(this.message), (el) => el.child(note(this.message, t.blocked)))
-          .when(!this.message && answerable && !this.busy, (el) => el.child(note("↑↓ で選んで Enter・数字ですぐ答える・Esc で閉じる"))))
-        .child(button("ask-reload", "読み直す", (_e, cx) => {
+          .when(!this.message && answerable && !this.busy, (el) => el.child(note(T.keys))))
+        .child(button("ask-reload", T.reload, (_e, cx) => {
           if (this.busy) return;
           this.message = "";
           this.load(cx);
         }))
-        .child(button("ask-terminal", "ターミナルで答える", () => this.focus())));
+        .child(button("ask-terminal", T.inTerminal, () => this.focus())));
   }
 }

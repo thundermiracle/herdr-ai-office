@@ -8,12 +8,45 @@
 // 本文を top だけ上にずらし、ホイールとキーで top を動かす。右の細いつまみも自前で描く。
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
-import { theme, props, home, readTextFile, closeOverlay } from "herdr";
+import { theme, props, shared, home, readTextFile, closeOverlay } from "herdr";
 
 const RELOAD_MS = 2000;
 const LINE = 40; // ↑↓ で動かす量（px）
 const SIDE_W = 210; // 左の一覧の幅（何本もあるとき）
 const COLOR = { plan: "#c8774a", doc: "#4a7fd0" }; // 見出しと一覧の印の色（ホワイトボードの見出しの橙・青）
+
+// 画面の文（言語ごと。ai-office の text.js と同じ決まりで、表にない言語・文は英語）。sep は見出しの並びの区切り
+const TEXT = {
+  en: {
+    plan: "Plan",
+    planOf: (who) => `Plan: ${who}`,
+    close: "Close",
+    nothing: "Nothing to show",
+    loading: "Loading…",
+    notYet: "Not written yet (it shows up once it is)",
+    hintMany: "← → previous and next · ↑↓ and Space scroll",
+    hintOne: "↑↓ and Space scroll",
+    sep: " · ",
+  },
+  ja: {
+    plan: "プラン",
+    planOf: (who) => `プラン: ${who}`,
+    close: "閉じる",
+    nothing: "表示するものがありません",
+    loading: "読んでいます…",
+    notYet: "まだ書かれていません（書かれたら出ます）",
+    hintMany: "← → で前と次・↑↓ と Space でスクロール",
+    hintOne: "↑↓ と Space でスクロール",
+    sep: "　",
+  },
+};
+
+// 今の言語の表: オフィスの上の帯の言語のボタンで選んだもの（shared の ai-office.lang）。OS に合わせるなら、オフィスが調べた
+// OS の言語（ai-office.os-lang）
+function words() {
+  const choice = shared("ai-office.lang");
+  return { ...TEXT.en, ...TEXT[choice && choice !== "auto" ? choice : shared("ai-office.os-lang")] };
+}
 
 // 引用（> の行）は左の縦線が目立って読みにくいので、> を外してふつうの段落で出す（コードブロックの中はそのまま）
 function unquote(text) {
@@ -30,7 +63,7 @@ function unquote(text) {
 
 const base = (path) => path.split("/").pop();
 // 一覧と見出しの名前: プランは「プラン」、ほかはファイルの名前
-const nameOf = (d) => (d.kind === "plan" ? "プラン" : base(d.path));
+const nameOf = (d, T) => (d.kind === "plan" ? T.plan : base(d.path));
 
 export default class DocsView extends View {
   init(_props, cx) {
@@ -106,7 +139,7 @@ export default class DocsView extends View {
   }
 
   // 左の一覧: 書いた人ごとに見出し、その下にプランと .md（番号は 1〜9 のキー）
-  sidebar(t) {
+  sidebar(t, T) {
     const groups = [];
     this.docs.forEach((d, i) => {
       const last = groups.at(-1);
@@ -123,21 +156,20 @@ export default class DocsView extends View {
           .on_click((_e, cx) => this.select(i, cx))
           .tooltip(d.path.replace(home(), "~"))
           .child(div().w(4).h(12).flex_none().rounded(1).bg(COLOR[d.kind] ?? COLOR.doc))
-          .child(div().flex_1().min_w(0).truncate().child(nameOf(d)))
+          .child(div().flex_1().min_w(0).truncate().child(nameOf(d, T)))
           .when(i < 9, (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child(String(i + 1))))))));
   }
 
   render() {
     const t = theme();
+    const T = words();
     const doc = this.docs[this.index];
     const where = (doc?.path ?? "").replace(home(), "~");
-    const message = !doc ? "表示するものがありません"
-      : !this.loaded ? "読んでいます…"
-        : this.text === null ? "まだ書かれていません（書かれたら出ます）" : null;
+    const message = !doc ? T.nothing : !this.loaded ? T.loading : this.text === null ? T.notYet : null;
     const max = Math.max(0, this.bodyH - this.viewH);
     const thumbH = max ? Math.max(24, (this.viewH * this.viewH) / this.bodyH) : 0;
-    const hint = this.docs.length > 1 ? "← → で前と次・↑↓ と Space でスクロール" : "↑↓ と Space でスクロール";
-    const title = !doc ? "" : doc.kind === "plan" ? `プラン: ${doc.who}` : base(doc.path);
+    const hint = this.docs.length > 1 ? T.hintMany : T.hintOne;
+    const title = !doc ? "" : doc.kind === "plan" ? T.planOf(doc.who) : base(doc.path);
     const body = div().id("docs-view").flex_1().min_w(0).min_h(0).relative().overflow_hidden()
       .on_size_change((size, cx) => this.measure(size.height, this.bodyH, cx))
       .on_scroll_wheel((e, cx) => this.scrollTo(this.top - e.delta.y, cx))
@@ -153,16 +185,16 @@ export default class DocsView extends View {
       .child(h_flex().flex_none().px(16).pt(14).pb(10).gap(10).items_center().border_b(1).border_color(t.border)
         .child(div().w(10).h(18).flex_none().rounded(2).bg(COLOR[doc?.kind] ?? COLOR.plan)) // ホワイトボードの見出しの色
         .child(v_flex().flex_1().min_w(0).gap(2)
-          .child(div().text_size(15).font_semibold().truncate().child([title, props()?.room].filter(Boolean).join("　")))
+          .child(div().text_size(15).font_semibold().truncate().child([title, props()?.room].filter(Boolean).join(T.sep)))
           .child(div().text_size(11.5).text_color(t.dim).truncate().child([doc && doc.kind !== "plan" ? doc.who : "", where]
-            .filter(Boolean).join("　"))))
+            .filter(Boolean).join(T.sep))))
         .child(div().flex_none().text_size(11).text_color(t.dim).child(hint))
         .child(div().id("docs-close").flex_none().px(10).h(26).flex().items_center().rounded(6).text_size(12)
           .text_color(t.muted).cursor_pointer().hover((st) => st.bg(t.hover).text_color(t.foreground))
           .on_click(() => props()?.overlay && closeOverlay(props().overlay))
-          .child("閉じる")))
+          .child(T.close)))
       .child(h_flex().flex_1().min_h(0).items_stretch()
-        .when(this.docs.length > 1, (el) => el.child(this.sidebar(t)))
+        .when(this.docs.length > 1, (el) => el.child(this.sidebar(t, T)))
         .child(body));
   }
 }

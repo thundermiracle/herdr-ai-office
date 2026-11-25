@@ -7,8 +7,11 @@ import {
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
   FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, isNoiseDoc, plateText, openAgents,
   DOOR_HOLD_MS, DOOR_MS, DOOR_SLIDE, doorsMoving, WINDOW_FRAMES, IMAGES, SILENT_MS, withSilent, shownStatus,
-  SCALE, NEW_ROOM_W, fitFloor, closeKeyOf, reopenKeyOf, overlayOpen,
+  SCALE, NEW_ROOM_W, fitFloor, closeKeyOf, reopenKeyOf, overlayOpen, useLang, inLang,
 } from "../mods/ai-office/scene.js";
+
+// これまでのテストは、画面の文を日本語で確かめる（英語は test/text.test.js）
+useLang("ja");
 
 // テーマは、オフィスと同じく mods/ai-office/themes/<名前>/ の theme.json と PNG から読む（確かめで落ちたら、ここで止まる）
 const THEMES_DIR = new URL("../mods/ai-office/themes/", import.meta.url).pathname;
@@ -658,6 +661,28 @@ describe("drawables", () => {
     }
   });
 
+  test("the tooltips are in the language the office shows (English here, with no Japanese left)", () => {
+    const office = new Office(seeded(7));
+    const w = world({ t1: "working", t2: "blocked" }, { kinds: { t2: "question" } });
+    office.sync(w.rooms, w.info);
+    settle(office);
+    useLang("en");
+    try {
+      const d = [...drawables(w.rooms[0], office, [], { close: "⌘.", reopen: "⌘⇧." }), ...floorDrawables(office, [])];
+      const tip = (id) => d.find((x) => x.id === id).tip;
+      expect(tip("char-t1")).toContain("\nClick: show the terminal (over the office while the terminal on the right is hidden)\n");
+      expect(tip("char-t1")).toEndWith("Close the terminal shown over the office with ⌘. or ✕ (Esc goes to the agent). "
+        + "⌘⇧. opens the last one you opened again");
+      expect(tip("laptop-0")).toStartWith("PC: click to show this agent's terminal");
+      expect(tip("bubble-t2")).toBe("Click to answer the question");
+      expect(tip("chair-2")).toBe("Free seat: click to hire an agent");
+      expect(tip("shelf")).toBe("Library shelf: 0 skills you can use. Click for the list");
+      for (const x of d) if (x.tip) expect(x.tip).not.toMatch(/[ぁ-んァ-ヶ一-龠]/);
+    } finally {
+      useLang("ja");
+    }
+  });
+
   test("the reopen key does nothing while something is shown over the office (herdr-app status lists it in overlays)", () => {
     // 重ねたターミナルは "layout"。ダイアログやポップアップも overlays に入る
     expect(overlayOpen('{"layout": "ai-office", "overlays": ["layout"]}')).toBe(true);
@@ -1180,7 +1205,7 @@ describe("talking to another agent (hc send)", () => {
 describe("themes from the themes/ folder", () => {
   test("the bundled themes load in their order, with their own pictures where they differ", () => {
     const bundled = themeList().filter((t) => t.name !== "open"); // open はこのファイルで足した、手前の開いた部屋
-    expect(bundled.map((t) => [t.name, t.label])).toEqual([["modern", "モダン"], ["classic", "和風"]]);
+    expect(bundled.map((t) => [t.name, inLang(t.label)])).toEqual([["modern", "モダン"], ["classic", "和風"]]);
     const [modern, classic] = bundled;
     expect(modern.IMAGES.wall).toEqual({ src: "mods/ai-office/themes/modern/wall.png", w: 512, h: 30 });
     expect(modern.IMAGES.glass).toMatchObject({ w: 24, h: 14 });
