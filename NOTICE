@@ -1,0 +1,13 @@
+AI Office
+Copyright (c) 2026 thundermiracle
+
+AI Office is licensed under the MIT License (see LICENSE), except for the
+files listed below.
+
+These files are derived from mods that ship with Herdr (https://herdr.dev),
+which is licensed under the Apache License, Version 2.0. They stay under the
+Apache License, Version 2.0 (see LICENSE-APACHE), and the top of each file
+says what was changed:
+
+- mods/ai-office-toast/main.js: derived from Herdr's toast mod
+- mods/ai-office-tab/main.js: derived from Herdr's menu mod

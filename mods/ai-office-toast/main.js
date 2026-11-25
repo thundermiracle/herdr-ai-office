@@ -1,3 +1,7 @@
+// SPDX-License-Identifier: Apache-2.0
+// Derived from the toast mod that ships with Herdr 0.1.16 (Apache License 2.0; see NOTICE and LICENSE-APACHE).
+// Changed by thundermiracle in 2026: while the office's toast switch is off, a toast closes at once and draws nothing.
+//
 // ai-office-toast: 右下の通知を描く。レイアウトのいちばん外側の "toast": "ai-office-toast"（layouts/ai-office.json と
 // main-dots-office.json）で、Herdr の同梱の toast の代わりに使われる。Herdr の「エージェントが待っている・終わった」も、
 // mod の notify() も、通知はみんなここを通る。

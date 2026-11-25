@@ -1,3 +1,8 @@
+// SPDX-License-Identifier: Apache-2.0
+// Derived from the menu mod that ships with Herdr (Apache License 2.0; see NOTICE and LICENSE-APACHE).
+// Changed by thundermiracle in 2026: only the tab and space menus, opened with { tab } or { space }, without
+// New tab and New worktree, and each item names its own icon.
+//
 // ai-office-tab: オフィスのメニュー。机の PC を右クリックすると出る、そのエージェントのタブのメニュー（名前を変える・閉じる）と、
 // 壁の名札をクリックすると出る、その部屋（スペース）のメニュー（名前を変える・ワークツリーを開く・外す・閉じる）。
 // Herdr のメニュー（menu）と同じ見た目とキー（↑↓ で選び、Enter、Esc で閉じる）。Herdr のメニューにある、タブの New tab と
