@@ -7,7 +7,7 @@ import {
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
   FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, isNoiseDoc, plateText, openAgents,
   DOOR_HOLD_MS, DOOR_MS, DOOR_SLIDE, doorsMoving, WINDOW_FRAMES, IMAGES, SILENT_MS, withSilent, shownStatus,
-  SCALE, NEW_ROOM_W, fitFloor, closeKeyOf,
+  SCALE, NEW_ROOM_W, fitFloor, closeKeyOf, reopenKeyOf,
 } from "../mods/ai-office/scene.js";
 
 // テーマは、オフィスと同じく mods/ai-office/themes/<名前>/ の theme.json と PNG から読む（確かめで落ちたら、ここで止まる）
@@ -637,12 +637,20 @@ describe("drawables", () => {
       { section: "terminal", keys: "cmd-.", action: "overlay.close" }])).toBe("⌘.");
     expect(closeKeyOf([{ section: "terminal", keys: "escape", action: "overlay.close" }])).toBeNull();
     expect(closeKeyOf()).toBeNull();
+    // 最後に開いた人をもう一度開くキー（ai-office.open-last。どの欄に置いてもよい）
+    expect(reopenKeyOf([{ section: "layout:ai-office", keys: "cmd-shift-.", action: "ai-office.open-last" }])).toBe("⌘⇧.");
+    expect(reopenKeyOf([{ section: "terminal", keys: "cmd-.", action: "overlay.close" }])).toBeNull();
+    expect(reopenKeyOf()).toBeNull();
     const office = new Office(seeded(7));
     const w = world({ t1: "working" });
     office.sync(w.rooms, w.info);
     const tips = (d) => ["char-t1", "name-0", "laptop-0"].map((id) => d.find((x) => x.id === id).tip);
-    for (const tip of tips(drawables(w.rooms[0], office, [], "⌘."))) {
+    for (const tip of tips(drawables(w.rooms[0], office, [], { close: "⌘.", reopen: "⌘⇧." }))) {
+      expect(tip).toContain("重ねたターミナルは ⌘. か ✕ で閉じる（Esc はエージェントに届く）。⌘⇧. で最後に開いた人をもう一度開く");
+    }
+    for (const tip of tips(drawables(w.rooms[0], office, [], { close: "⌘." }))) {
       expect(tip).toContain("重ねたターミナルは ⌘. か ✕ で閉じる（Esc はエージェントに届く）");
+      expect(tip).not.toContain("最後に開いた人");
     }
     for (const tip of tips(drawables(w.rooms[0], office))) {
       expect(tip).toContain("重ねたターミナルは ✕ で閉じる");

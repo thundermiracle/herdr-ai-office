@@ -12,7 +12,7 @@ import {
 import {
   SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, fitFloor, drawables,
   floorDrawables, running, doorsMoving, roomAt, dropTarget, useTheme, geometry, seatName, readTheme, addTheme, themeList, pngSize, plateText,
-  openAgents, withSilent, shownStatus, closeKeyOf,
+  openAgents, withSilent, shownStatus, closeKeyOf, reopenKeyOf,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
   PLACES, WEATHER_MS, TRIAL_WEATHER, defaultPlace, offsetAt, offsetLabel, placeAt, placeClock, weatherOf, parseWeather,
   windowView, windowTip, parseSkyCommand,
@@ -106,6 +106,9 @@ function gather(meta, codexDefaults, present, agentKeys) {
 const TERMINAL_BLOCK = "agent";
 // 重ねて出したターミナルで見た完了（shared。アドレス → 見たターン）。そのターンの完了は ✓ を出さない（scene.js の shownStatus）
 const SEEN = "ai-office.seen";
+// 最後にオフィスで開いた人（shared。アドレス）。ai-office.open-last（keys.json で ⌘⇧.）で、その人をもう一度開く。どのコピーでも、
+// 再起動しても同じ人
+const LAST = "ai-office.last";
 
 // 完了の人のターミナルを重ねて出す（terminal.peek）ときに、そのターンを見たと覚える。Herdr がのぞいただけで「見た」と
 // 数えるかは分からないので、オフィスでも覚える。今はないターミナルの分は捨てる
@@ -312,11 +315,17 @@ export default class AiOffice extends View {
     this.loadWeather(cx);
     cx.timer.every(WEATHER_CHECK_MS, (cx) => this.loadWeather(cx));
     // herdr-app do ai-office.<コマンド>（オフィスが見えている間だけ届く）: 窓を試す（sky-rain、sky-1930、sky-night、sky-auto）と、
-    // 右下の通知のスイッチ（toasts-on で出す、toasts-off で出さない。上の帯の「通知」と同じ）
+    // 右下の通知のスイッチ（toasts-on で出す、toasts-off で出さない。上の帯の「通知」と同じ）。open-last は、最後にオフィスで
+    // 開いた人をもう一度開く（キャラのクリックと同じ。keys.json で ⌘⇧. に割り当てる。その人がもういなければ何もしない）
     this.trial = { weather: null, time: null };
     cx.spawn(async (cx) => {
       for (;;) {
         const command = await nextCommand();
+        if (command === "open-last") {
+          const last = shared(LAST);
+          if (terminals().some((x) => x.address === last)) this.act({ type: "chat", terminal: last }, cx);
+          continue;
+        }
         const toasts = /^toasts-(on|off)$/.exec(command ?? "");
         if (toasts) {
           setShared(TOASTS, toasts[1]); // 描き直しは shared が変わったときに Herdr がする
@@ -466,10 +475,11 @@ export default class AiOffice extends View {
   // ほかの部屋の手前の通路や廊下を歩く人も、正しく前後する
   items(placed) {
     const skills = this.shelfSkills();
-    const closeKey = closeKeyOf(keys()); // 重ねたターミナルを閉じるキー（keys.json。ツールチップに出す）
+    const bindings = keys(); // ツールチップに出す、重ねたターミナルを閉じるキーと、最後に開いた人をもう一度開くキー（keys.json）
+    const shortcuts = { close: closeKeyOf(bindings), reopen: reopenKeyOf(bindings) };
     return [
       ...floorDrawables(this.office, skills),
-      ...placed.flatMap((r) => drawables(r, this.office, skills, closeKey)
+      ...placed.flatMap((r) => drawables(r, this.office, skills, shortcuts)
         .map((d) => ({ ...d, id: `${r.id}-${d.id}`, x: d.x + r.ox, y: d.y + r.oy, z: d.z + r.oy }))),
     ].sort((a, b) => a.z - b.z);
   }
@@ -640,6 +650,7 @@ export default class AiOffice extends View {
       // 使える。上の帯に「go to」と ✕）。Esc はエージェントに届くので、閉じるのは ✕ か、keys.json で overlay.close に割り当てた
       // キー（⌘.）。ターミナルのブロックがないレイアウト（main-dots-office など）は、メインの欄にターミナルが見えているので
       // 切り替え
+      if (shared(LAST) !== click.terminal) setShared(LAST, click.terminal);
       if (terminalShown) run("agent.focus", { terminal: click.terminal });
       else {
         markSeen(click.terminal);

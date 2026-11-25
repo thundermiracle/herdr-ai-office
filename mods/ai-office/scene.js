@@ -418,7 +418,20 @@ const KEY_NAMES = { enter: "Return", space: "Space", tab: "Tab", backspace: "⌫
  */
 export function closeKeyOf(bindings = []) {
   const keys = bindings.find((k) => k.action === "overlay.close" && k.section === "terminal" && !/(^|-)escape$/.test(k.keys))?.keys;
-  if (!keys) return null;
+  return keys ? keyLabel(keys) : null;
+}
+
+/**
+ * 最後にオフィスで開いた人をもう一度開くキー（keys.json で ai-office.open-last に割り当てたもの。README の「会話」の
+ * cmd-shift-.）の書き方（⌘⇧.）。なければ null。
+ */
+export function reopenKeyOf(bindings = []) {
+  const keys = bindings.find((k) => k.action === "ai-office.open-last")?.keys;
+  return keys ? keyLabel(keys) : null;
+}
+
+// keys.json のキーの書き方（cmd-shift-.）を、ツールチップに出す形（⌘⇧.）にする
+function keyLabel(keys) {
   const parts = keys.split(/-(?=.)/); // cmd-- の最後の - はキー
   const key = parts.pop();
   const name = KEY_NAMES[key] ?? key[0].toUpperCase() + key.slice(1);
@@ -1379,9 +1392,10 @@ export function animating(office) {
  * 名札）。main.js は、どれかにマウスが乗ると、同じ持ち主のものを一緒に光らせる。
  * img と over（上に重ねる絵）は img/ の下の名前（.png なし）。books は本棚の上に描く本（shelfBooks、本棚の左上から）。
  * tile があれば、img（幅 tile）を w の幅まで横に並べる（ガラスの壁）。src があれば img/ でなくその絵（テーマの絵）。
- * skills は資料室の本棚の skill（札の色に使う）。closeKey は重ねて出したターミナルを閉じるキー（closeKeyOf。ツールチップに出す）。
+ * skills は資料室の本棚の skill（札の色に使う）。shortcuts はツールチップに出すキー: close は重ねて出したターミナルを閉じる
+ * キー（closeKeyOf）、reopen は最後に開いた人をもう一度開くキー（reopenKeyOf）。
  */
-export function drawables(room, office, skills = [], closeKey = null) {
+export function drawables(room, office, skills = [], shortcuts = {}) {
   const out = [];
   const add = (d) => out.push(d);
   const colorOf = (id) => SKILL_SOURCES[skills.find((x) => sameSkill(id, x.id))?.source]?.color ?? "#9aa4b4";
@@ -1399,8 +1413,11 @@ export function drawables(room, office, skills = [], closeKey = null) {
   // Codex でも、まだ状態を報告していない人の起動の前の確認でも、そのまま答えられる）
   const whoOf = (info) => [info.name, modelLabel(info.model), info.effort, info.where].filter(Boolean).join(" · ");
   const talkTo = (address, info) => ({ type: "chat", terminal: address, name: whoOf(info) || address, machine: room.machine ?? null });
-  // ツールチップの最後の行: 重ねたターミナルの閉じ方（Esc はエージェントに届くので、閉じるキーか ✕）
-  const shut = `重ねたターミナルは ${closeKey ? `${closeKey} か ✕` : "✕"} で閉じる（Esc はエージェントに届く）`;
+  // ツールチップの最後の行: 重ねたターミナルの閉じ方（Esc はエージェントに届くので、閉じるキーか ✕）と、最後に開いた人を
+  // もう一度開くキー（keys.json にあれば）
+  const { close, reopen } = shortcuts;
+  const shut = `重ねたターミナルは ${close ? `${close} か ✕` : "✕"} で閉じる（Esc はエージェントに届く）`
+    + (reopen ? `。${reopen} で最後に開いた人をもう一度開く` : "");
   add({ id: "plant", img: "plant", x: room.w - 18, y: BACK + 4, w: 12, h: 17, z: 95 });
   // ガラスの部屋（テーマの glass）の手前のガラスの壁と扉: 机・植木・部屋の中の人より手前、横の廊下を歩く人より奥。
   // ガラスはテーマの images.glass を横に並べる（tile）。扉の枠（images.door）は、通り道 LEFT_PASS を真ん中に 16 開けた
