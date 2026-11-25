@@ -7,7 +7,7 @@ import {
   modelFamily, modelLabel, parseCodexConfig, parseSkillFile, planPath, roomOf, roomsOf, sameSkill, shelfBooks, sortSkills, SHELF,
   FRONT_Y, GLASS, geometry, useTheme, seatName, readTheme, addTheme, themeList, pngSize, isNoiseDoc, plateText, openAgents,
   DOOR_HOLD_MS, DOOR_MS, DOOR_SLIDE, doorsMoving, WINDOW_FRAMES, IMAGES, SILENT_MS, withSilent, shownStatus,
-  SCALE, NEW_ROOM_W, fitFloor, closeKeyOf, reopenKeyOf,
+  SCALE, NEW_ROOM_W, fitFloor, closeKeyOf, reopenKeyOf, overlayOpen,
 } from "../mods/ai-office/scene.js";
 
 // テーマは、オフィスと同じく mods/ai-office/themes/<名前>/ の theme.json と PNG から読む（確かめで落ちたら、ここで止まる）
@@ -656,6 +656,17 @@ describe("drawables", () => {
       expect(tip).toContain("重ねたターミナルは ✕ で閉じる");
       expect(tip).not.toContain("⌘");
     }
+  });
+
+  test("the reopen key does nothing while something is shown over the office (herdr-app status lists it in overlays)", () => {
+    // 重ねたターミナルは "layout"。ダイアログやポップアップも overlays に入る
+    expect(overlayOpen('{"layout": "ai-office", "overlays": ["layout"]}')).toBe(true);
+    expect(overlayOpen('{"layout": "ai-office", "overlays": ["ai-office-docs"]}')).toBe(true);
+    expect(overlayOpen('{"layout": "ai-office", "overlays": []}')).toBe(false);
+    // 読めない答え（herdr-app が古い・エラーの文）は、出していないとみなす（今までどおり開く）
+    expect(overlayOpen('{"layout": "ai-office"}')).toBe(false);
+    expect(overlayOpen("error: not running")).toBe(false);
+    expect(overlayOpen("")).toBe(false);
   });
 
   test("the empty seat looks different: green chair, no laptop, a + sign", () => {

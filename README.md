@@ -352,7 +352,8 @@ scripts/sky.sh auto         # 本物に戻す
   出していれば、その人のターミナルに切り替える）。keys.json の `"layout:ai-office": { "cmd-shift-.": "ai-office.open-last" }`
   （オフィスの mod に届くコマンドなので、オフィスのある ai-office レイアウトの欄に置く。main-dots-office などほかのレイアウトでは
   何もしない）。最後に開いた人は shared の `ai-office.last` に覚えるので、再起動しても残る。その人がもういなければ何もしない。
-  割り当ててあれば、ツールチップにも出る
+  何かを重ねて出している間（重ねたターミナル・ダイアログ・ポップアップ。`herdr-app status` の overlays で見る）も何もしない
+  （重ねたターミナルの上で押すと、同じ人を出し直して画面がちらついたので）。割り当ててあれば、ツールチップにも出る
 - この 2 つのキーはリポジトリの `keys.json` にあり、`install.sh` が `scripts/keys.sh add` で herdr の keys.json に足す（Herdr の、
   キーのある mod の入れ方と同じ。ないキーだけ足し、同じキーをほかに使っていれば変えずに知らせる。足すものがなければ書かない）。
   keys.json はパソコンごとなので、ほかのパソコンでも `install.sh` を流すと効く。keys.json は一字でも書き換えると人のものになり、

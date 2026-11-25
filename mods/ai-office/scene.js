@@ -439,6 +439,19 @@ function keyLabel(keys) {
 }
 
 /**
+ * 何かを重ねて出しているか（重ねたターミナル・ダイアログ・ポップアップ）。status は herdr-app status の出力（JSON の文字列）で、
+ * その overlays（重ねたターミナルは "layout"）に何かあれば true。mod からは重ねものが見えないので、こう聞く。読めなければ
+ * false（出していないとみなす）。
+ */
+export function overlayOpen(status) {
+  try {
+    return (JSON.parse(status).overlays ?? []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 状態から動きを決める。act はターミナルのラベル office.act（read / edit / run ...）。
  * type: 席でタイピング、read: 本棚で読む、raise: 手を挙げて待つ、done: 席で ✓、wander: うろうろ
  */

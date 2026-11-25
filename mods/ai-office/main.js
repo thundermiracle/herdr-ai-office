@@ -7,12 +7,12 @@ import { v_flex, h_flex } from "gpui-base";
 import * as fs from "fs/promises";
 import {
   spaces, agents, terminals, panes, theme, window, run, openOverlay, pickFolder, home, appHome, readTextFile, layout, props, setShared,
-  shared, nextCommand, knownAgents, keys,
+  shared, nextCommand, knownAgents, keys, exec,
 } from "herdr";
 import {
   SCALE, TICK_ACTIVE, TICK_INACTIVE, TICK_RUN, HALL_W, PART_W, LEFT_PASS, Office, roomsOf, fitFloor, drawables,
   floorDrawables, running, doorsMoving, roomAt, dropTarget, useTheme, geometry, seatName, readTheme, addTheme, themeList, pngSize, plateText,
-  openAgents, withSilent, shownStatus, closeKeyOf, reopenKeyOf,
+  openAgents, withSilent, shownStatus, closeKeyOf, reopenKeyOf, overlayOpen,
   clockHands, agentModel, parseCodexConfig, parseSkillFile, sortSkills, SKILL_SOURCES,
   PLACES, WEATHER_MS, TRIAL_WEATHER, defaultPlace, offsetAt, offsetLabel, placeAt, placeClock, weatherOf, parseWeather,
   windowView, windowTip, parseSkyCommand,
@@ -322,6 +322,10 @@ export default class AiOffice extends View {
       for (;;) {
         const command = await nextCommand();
         if (command === "open-last") {
+          // 何かを重ねて出している間（重ねたターミナル・ダイアログ・ポップアップ）は何もしない。重ねたターミナルの上で押すと、
+          // 同じ人を重ねて出し直して画面がちらついた。聞けなければ（herdr-app がない）今までどおり開く
+          const status = await exec("herdr-app", ["status"], { timeout: 5000 }).catch(() => null);
+          if (status?.code === 0 && overlayOpen(status.stdout)) continue;
           const last = shared(LAST);
           if (terminals().some((x) => x.address === last)) this.act({ type: "chat", terminal: last }, cx);
           continue;
