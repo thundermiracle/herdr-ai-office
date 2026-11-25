@@ -419,7 +419,7 @@ const KEY_NAMES = { enter: "Return", space: "Space", tab: "Tab", backspace: "⌫
 
 /**
  * オフィスの上に重ねて出したターミナル（terminal.peek）を閉じるキーの書き方（⌘. など）。Esc はエージェントに届く（Claude
- * Code なら作業の中断）ので、閉じるのは keys.json で overlay.close に割り当てたキー（README の「会話」の cmd-.）か、
+ * Code なら作業の中断）ので、閉じるのは keys.json で overlay.close に割り当てたキー（README の「キー」の ⌘.）か、
  * 上の帯の ✕。bindings は herdr の keys()（{ section, keys, action }）。重ねたターミナルがキーを受け取っているので、効くと
  * 確かめた terminal のものだけを見て、なければ null（ツールチップは ✕ だけを言う）。Esc のキーは ⌘ を付けても重ねた
  * ターミナルが受け取り、閉じない（この Mac で cmd-escape を試した）ので数えない。
@@ -430,8 +430,8 @@ export function closeKeyOf(bindings = []) {
 }
 
 /**
- * 最後にオフィスで開いた人をもう一度開くキー（keys.json で ai-office.open-last に割り当てたもの。README の「会話」の
- * cmd-shift-.）の書き方（⌘⇧.）。なければ null。
+ * 最後にオフィスで開いた人をもう一度開くキー（keys.json で ai-office.open-last に割り当てたもの。README の「キー」の
+ * ⌘⇧.）の書き方（⌘⇧.）。なければ null。
  */
 export function reopenKeyOf(bindings = []) {
   const keys = bindings.find((k) => k.action === "ai-office.open-last")?.keys;
