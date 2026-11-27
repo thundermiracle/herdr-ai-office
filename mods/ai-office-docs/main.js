@@ -1,5 +1,6 @@
 // ai-office-docs: 部屋の壁のホワイトボードをクリックすると出る、部屋の人が書いたもの（プランと、AI が書いた .md）の中身を
-// マークダウンで。props: { room: 部屋の名前, docs: [{ path, kind, who }] }（kind: plan / doc。順はプラン、人ごとの .md）。
+// マークダウンで。props: { room: 部屋の名前, machine: 部屋のマシン（この Mac は null）, docs: [{ path, kind, who }] }
+// （kind: plan / doc。順はプラン、人ごとの .md）。ファイルは部屋のマシンから読む（ほかのマシンの部屋の道は、そのマシンのもの）。
 // 何本もあれば左に一覧（書いた人ごと）。開いている間は 2 秒ごとに読み直す（変わったときだけ描き直す）。
 // フックは書く直前にラベルを付けるので、開いたときにまだファイルがないこともある。Esc か「閉じる」で閉じる。
 // キー: ↑↓ で少しずつ、Space・PageDown と Shift+Space・PageUp で 1 画面ずつ、Home・End で端までスクロール。
@@ -68,6 +69,7 @@ const nameOf = (d, T) => (d.kind === "plan" ? T.plan : base(d.path));
 export default class DocsView extends View {
   init(_props, cx) {
     this.docs = props()?.docs ?? [];
+    this.machine = props()?.machine ?? null; // ファイルを読むマシン（null: この Mac）
     this.index = 0;
     this.text = null; // 選んでいるものの中身（null: 読めない・まだない）
     this.loaded = false; // 一度でも読みにいったか
@@ -87,7 +89,7 @@ export default class DocsView extends View {
     cx.spawn(async (cx) => {
       let text = null;
       try {
-        text = await readTextFile(doc.path);
+        text = await readTextFile(doc.path, { on: this.machine });
       } catch {}
       if (index !== this.index || (this.loaded && text === this.text)) return; // 読む間に替えた・変わっていない
       this.text = text;

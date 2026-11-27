@@ -693,7 +693,7 @@ export default class AiOffice extends View {
 
   // scene.js の click: { type: "chat", terminal, name, machine } / { type: "ask", terminal, name } / { type: "hire", space, machine } /
   // { type: "skills" }。
-  // 壁のホワイトボード: { type: "docs", room, docs: [{ path, kind, who }] }。机の PC の右クリック: { type: "tab-menu", terminal }
+  // 壁のホワイトボード: { type: "docs", room, machine, docs: [{ path, kind, who }] }。机の PC の右クリック: { type: "tab-menu", terminal }
   act(click, cx) {
     // 上に重ねるもの（ターミナル・ダイアログ・ポップアップ）を出すクリックでは、マウスが乗っている印（明るさと頭の上の名前）を
     // 消す。消さないと、閉じたあともクリックした人が選んだままに見えた（乗せ直せばまた付く）。右のターミナルに切り替える
@@ -730,8 +730,10 @@ export default class AiOffice extends View {
       }
     }
     if (click.type === "docs") {
-      // プランは長い行（コードや表）が多いので、skill の中身より広く、窓の幅に合わせる
-      openOverlay({ mod: "ai-office-docs", kind: "dialog", width: 0.65, height: 0.8, props: { room: click.room, docs: click.docs } });
+      // プランは長い行（コードや表）が多いので、skill の中身より広く、窓の幅に合わせる。ほかのマシンの部屋のものは、
+      // そのマシンから読む（machine）
+      openOverlay({ mod: "ai-office-docs", kind: "dialog", width: 0.65, height: 0.8,
+        props: { room: click.room, machine: click.machine, docs: click.docs } });
     }
     if (click.type === "hire") {
       openOverlay({ mod: "ai-office-hire", kind: "popup", width: 240, height: 320, props: { space: click.space, machine: click.machine } });
@@ -931,7 +933,7 @@ export default class AiOffice extends View {
     });
     const plans = docs.filter((d) => d.kind === "plan").length;
     const d = { img: "whiteboard-plan", x: room.ox + room.w - 112, y: room.oy + 7 + geometry().DECOR_DY, w: 30, h: 18, glow: true };
-    return this.button(`board-${room.id}`, d, (cx) => this.act({ type: "docs", room: room.name, docs }, cx),
+    return this.button(`board-${room.id}`, d, (cx) => this.act({ type: "docs", room: room.name, machine: room.machine, docs }, cx),
       tr("boardTip", plans, docs.length - plans));
   }
 
