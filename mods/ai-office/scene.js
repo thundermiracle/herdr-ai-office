@@ -1402,15 +1402,6 @@ export function doorsMoving(office) {
   return false;
 }
 
-/** 今のコマが動きを含むか（含まなければ tick しても絵は変わらない）。 */
-export function animating(office) {
-  for (const c of office.chars.values()) {
-    if (c.path.length || ["type", "raise", "read", "visit"].includes(c.behavior)) return true;
-    if (c.behavior === "wander") return true; // まばたきと、次に歩きだすまでの待ち
-  }
-  return false;
-}
-
 /**
  * 1 つの部屋に描くもの（部屋の中の座標。廊下へ出ている人は x < 0）。奥から手前の順（z の小さい順）に並べて返す。
  * 1 つ 1 つ: { id, img, over?, books?, tile?, x, y, w, h, z, click?, right?, tip?, glow?, char?, owner? } か、
