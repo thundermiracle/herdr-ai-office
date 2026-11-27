@@ -183,6 +183,8 @@ scripts/sync.sh                             # mod とレイアウトをコピー
 uv run --with pillow scripts/build-art.py   # 絵を作り直す
 ```
 
+GitHub Actions（`.github/workflows/ci.yml`）が、main への push とプルリクエストのたびに、macOS で `bun test`・`test/keys-test.sh` と、スクリプト・mod・JSON の構文の確かめを流す。`test/hook-test.sh` と `test/ask-test.sh` は動いている herdr-app が要るので、手元で流す。
+
 `mods/ai-office/` がオフィス本体（`scene.js` は計算だけ、`main.js` が描く、`text.js` は画面の文、`hook/` は Claude Code のフック）、`mods/ai-office-*/` はオフィスから開くダイアログやメニュー。仕組みの細かいことと開発の注意は [docs/internals.md](docs/internals.md)。
 
 ## ライセンス

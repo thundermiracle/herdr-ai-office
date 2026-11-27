@@ -1,0 +1,44 @@
+# Herdr なしで流せる確かめを、main への push とプルリクエストのたびに流す。
+# test/hook-test.sh と test/ask-test.sh は、動いている herdr-app の hc（使い捨てのターミナル）が要るので、ここでは流さない（手元で流す）
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同じブランチに続けて push したら、前の実行は止める
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # Herdr は macOS だけなので、使う人と同じ macOS（/bin/bash 3.2・BSD のコマンド）で流す
+    runs-on: macos-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: bun test
+        run: bun test
+      - name: test/keys-test.sh
+        run: test/keys-test.sh
+      # テストが読まないもの（各 mod の main.js、フック、install.sh、mod.json など）も、少なくとも読めるかを確かめる
+      - name: Syntax of the scripts, mods and JSON
+        run: |
+          git ls-files -z '*.sh' | xargs -0 -n1 /bin/bash -n
+          git ls-files -z '*.js' | xargs -0 -n1 node --check
+          # jq はファイルを並べると 1 つにつないで読むので、1 つずつ読む
+          git ls-files '*.json' | while IFS= read -r f; do jq empty "$f" || { echo "JSON として読めない: $f"; exit 1; }; done

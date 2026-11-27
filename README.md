@@ -183,6 +183,8 @@ scripts/sync.sh                             # copy the mods and layouts and run 
 uv run --with pillow scripts/build-art.py   # redraw the art
 ```
 
+GitHub Actions (`.github/workflows/ci.yml`) runs `bun test`, `test/keys-test.sh` and a syntax check of the scripts, mods and JSON files on macOS for every push to main and every pull request. `test/hook-test.sh` and `test/ask-test.sh` need herdr-app running, so run them yourself.
+
 `mods/ai-office/` is the office (`scene.js` only computes, `main.js` draws, `text.js` holds the sentences, `hook/` is the Claude Code hook), and `mods/ai-office-*/` are the dialogs and menus it opens. How it works and notes for development are in [docs/internals.md](docs/internals.md) (in Japanese).
 
 ## License
