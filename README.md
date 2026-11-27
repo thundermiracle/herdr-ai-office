@@ -4,7 +4,7 @@
 
 [Herdr](https://herdr.dev)（herdr-app）のスペースを部屋に、AI エージェントをキャラクターにして、カイロソフト風のドット絵のオフィスで見せる mod とレイアウト。絵はすべてこのリポジトリで描いたオリジナル。
 
-![見本の部屋 office-test と office-test-2（偽エージェント 10 人、モダンのテーマ）](docs/office.png)
+![見本の部屋 office-test と office-test-2（偽エージェント 10 人、モダンのテーマ）](preview.png)
 
 - エージェントの状態で、キャラの動きが変わる（作業中はタイピング、調べ物は資料室の本棚へ、質問・許可待ちは挙手、終わると ✓、手が空くとうろうろ）
 - キャラをクリックすると、そのエージェントのターミナルが出る。本物のターミナルなので、そのまま話せる
@@ -15,7 +15,17 @@
 
 ## 入れる
 
-必要なもの: herdr-app（と、ついてくる `hc`）、`jq`
+必要なもの: herdr-app（と、ついてくる `hc`）、`jq`。先に一度 herdr-app を起動しておく（キーを足す keys.json は、そのときにできる）。
+
+いちばん簡単なのは、Herdr の中のエージェント（Claude Code など）に頼むこと:
+
+```text
+https://github.com/thundermiracle/herdr-ai-office のレイアウトを Herdr に入れて。Claude Code のフックも登録して
+```
+
+エージェントは Herdr の説明書（`~/.config/herdr-app/AGENTS.md`）と [RECIPE.md](RECIPE.md) を読み、ネットや外のファイルに触ることを先に伝えてから、レイアウトと mod をコピーし、キーを足し（使っているキーは聞いてから）、フックを登録して、レイアウトを切り替える。更新も外すのも、同じように頼めばよい。
+
+手で入れるなら:
 
 ```sh
 git clone https://github.com/thundermiracle/herdr-ai-office.git
@@ -24,35 +34,42 @@ scripts/install.sh                            # mod とレイアウトのコピ�
 herdr-app do layout.switch --name ai-office   # オフィスのレイアウトにする（ctrl-shift-l でも選べる）
 ```
 
-`install.sh` は Claude Code のフック（`hooks/claude-office-act.sh`）も登録する。Claude Code の調べ物・使った skill・書いた .md・話しかけた相手をオフィスに伝えるもので、なくても部屋・キャラ・タイピング・挙手・✓ は動く。
-
-- 先に一度 herdr-app を起動しておく（キーを足す keys.json は、そのときにできる）。フックの登録には `~/.claude/settings.json` が要る（なければ `echo '{}' > ~/.claude/settings.json`）
-- フックを新しく登録したときは、動いている Claude Code を起動し直す（フックは起動したときに読まれる）
 - 更新は `git pull && scripts/install.sh`
-- フックはリポジトリの場所を指すので、リポジトリを動かすときは、先に `hooks/register.sh remove`、動かしたあとに `scripts/install.sh`
 - うまく動かないときは `scripts/doctor.sh`。NG の行に直し方が出る（設定は変えない。確かめるのに、見えない使い捨てのターミナルを作って消す）
 - `--no-hook`: フックを登録しない（最後の doctor でフックの行が NG になり、`install.sh` も失敗で終わる）
 - `--no-keys`: keys.json にキーを足さない（⌘. と ⌘⇧. は使えない）
 - `--no-hook` と `--no-keys` は足さないだけで、前に入れたものは外さない（外すのは下の「外す」）
+
+### Claude Code のフック
+
+フック（mod の中の `hook/claude-office-act.sh`）は、Claude Code の調べ物・使った skill・書いた .md・話しかけた相手をオフィスに伝える。なくても部屋・キャラ・タイピング・挙手・✓ は動く。mod と一緒にコピーされるので、リポジトリを動かしたり消したりしても効く。
+
+```sh
+bash ~/.config/herdr-app/mods/ai-office/hook/register.sh add      # 登録する（install.sh もこれを流す）
+bash ~/.config/herdr-app/mods/ai-office/hook/register.sh status   # 登録されているか
+```
+
+- 登録には `~/.claude/settings.json` が要る（なければ `echo '{}' > ~/.claude/settings.json`）
+- 新しく登録したときは、動いている Claude Code を起動し直す（フックは起動したときに読まれる）
 
 ### このオフィスが触るもの
 
 Herdr の mod は信頼して動かすコードなので、描く以外にすること:
 
 - **ネット**: 窓の外の天気を [Open-Meteo](https://open-meteo.com/) から取る（キーは要らない。送るのは選んだ町の緯度経度だけ）
-- **`install.sh` が書き換えるもの**: `~/.config/herdr-app/` の `mods/` と `layouts/`、`~/.claude/settings.json`（フック）、`~/.config/herdr-app/keys.json`（キー 2 つ。元は `keys.json.before-ai-office` に残す。一度書き換えると、Herdr を更新しても新しい既定のキーが自動では入らなくなる）
+- **入れるときに書き換えるもの**: `~/.config/herdr-app/` の `mods/` と `layouts/`、`~/.claude/settings.json`（フック）、`~/.config/herdr-app/keys.json`（キー 2 つ。元は `keys.json.before-ai-office` に残す。一度書き換えると、Herdr を更新しても新しい既定のキーが自動では入らなくなる）
 - **フックが書くもの**: Claude Code が動いているターミナルのラベル（`office.*`）と、`$TMPDIR` の小さな記録
 - **読むもの**（書かない）: skill（`~/.claude/skills/`、プラグイン、`~/.codex/skills/`、各スペースのフォルダの `.claude/skills/`）、model と effort（`~/.codex/config.toml`、`~/.cache/claude-model/`・`~/.cache/claude-effort/`）、エージェントが書いたプランと .md、自分で足したテーマ
 - **動かすもの**: `sh`（OS の言語を調べる）、`herdr-app status`、`git rev-parse`、`hc read`・`hc keys`（質問に答えるとき）
 
 ### 外す
 
-先にほかのレイアウトにしてから:
+エージェントに「AI Office を外して」と頼むか、手で（先にほかのレイアウトにしてから）:
 
 ```sh
-herdr-app do layout.switch --name main   # Herdr の既定のレイアウトへ
-hooks/register.sh remove                 # このフックだけ外す（ほかのフックはそのまま）
-scripts/keys.sh remove                   # オフィスのキーを外す（同じ割り当てなら、前からあったものも）
+herdr-app do layout.switch --name main                            # Herdr の既定のレイアウトへ
+bash ~/.config/herdr-app/mods/ai-office/hook/register.sh remove   # フックを外す（mod を消す前に）
+scripts/keys.sh remove                                            # リポジトリで: オフィスのキーを外す（同じ割り当てなら、前からあったものも）
 rm -r ~/.config/herdr-app/mods/ai-office ~/.config/herdr-app/mods/ai-office-*
 rm ~/.config/herdr-app/layouts/ai-office.json
 ```
@@ -166,7 +183,7 @@ scripts/sync.sh                             # mod とレイアウトをコピー
 uv run --with pillow scripts/build-art.py   # 絵を作り直す
 ```
 
-`mods/ai-office/` がオフィス本体（`scene.js` は計算だけ、`main.js` が描く、`text.js` は画面の文）、`mods/ai-office-*/` はオフィスから開くダイアログやメニュー。仕組みの細かいことと開発の注意は [docs/internals.md](docs/internals.md)。
+`mods/ai-office/` がオフィス本体（`scene.js` は計算だけ、`main.js` が描く、`text.js` は画面の文、`hook/` は Claude Code のフック）、`mods/ai-office-*/` はオフィスから開くダイアログやメニュー。仕組みの細かいことと開発の注意は [docs/internals.md](docs/internals.md)。
 
 ## ライセンス
 

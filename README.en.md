@@ -4,7 +4,7 @@ English | [日本語](README.md)
 
 A mod and layout for [Herdr](https://herdr.dev) (herdr-app) that shows your spaces as rooms and your AI agents as characters in a Kairosoft-style pixel-art office. All the art was drawn for this repository.
 
-![Sample rooms office-test and office-test-2 (10 fake agents, Modern theme)](docs/office.png)
+![Sample rooms office-test and office-test-2 (10 fake agents, Modern theme)](preview.png)
 
 - Characters act out their agent's state: typing while it works, walking to the library's bookshelf while it looks things up, raising a hand for a question or permission, a ✓ when it's done, wandering around when it's idle
 - Click a character to show that agent's terminal. It's the real terminal, so you can talk to the agent right there
@@ -15,7 +15,17 @@ A mod and layout for [Herdr](https://herdr.dev) (herdr-app) that shows your spac
 
 ## Install
 
-You need herdr-app (with the `hc` that comes with it) and `jq`.
+You need herdr-app (with the `hc` that comes with it) and `jq`. Start herdr-app once first (the keys.json the keys go into is made then).
+
+The easiest way is to ask an agent in Herdr (Claude Code or the like):
+
+```text
+Add the Herdr layout at https://github.com/thundermiracle/herdr-ai-office, and register its Claude Code hook
+```
+
+The agent reads Herdr's guide (`~/.config/herdr-app/AGENTS.md`) and [RECIPE.md](RECIPE.md), tells you first what the office reaches beyond Herdr, copies the layout and the mods, adds the keys (asking before replacing one you use), registers the hook and switches to the layout. Ask the same way to update or remove it.
+
+To install by hand:
 
 ```sh
 git clone https://github.com/thundermiracle/herdr-ai-office.git
@@ -24,35 +34,42 @@ scripts/install.sh                            # copies the mods and layouts, reg
 herdr-app do layout.switch --name ai-office   # switch to the office layout (ctrl-shift-l works too)
 ```
 
-`install.sh` also registers a Claude Code hook (`hooks/claude-office-act.sh`). It tells the office when Claude Code looks things up, uses a skill, writes a .md file or talks to another agent; without it, rooms, characters, typing, raised hands and ✓ still work.
-
-- Start herdr-app once first (the keys.json the keys go into is made then). Registering the hook needs `~/.claude/settings.json` (if it's missing: `echo '{}' > ~/.claude/settings.json`)
-- When the hook is newly registered, restart the Claude Code sessions that are running (Claude Code reads hooks when it starts)
 - To update: `git pull && scripts/install.sh`
-- The hook points at the repository's folder, so to move the repository, run `hooks/register.sh remove` first and `scripts/install.sh` after
 - If something doesn't work, run `scripts/doctor.sh`; an NG line says how to fix it (it changes no settings; to check, it makes a hidden throwaway terminal and removes it)
 - `--no-hook`: don't register the hook (the doctor at the end then shows the hook as NG, and `install.sh` ends with a failure)
 - `--no-keys`: don't add the keys to keys.json (no ⌘. and ⌘⇧.)
 - `--no-hook` and `--no-keys` only skip adding; they don't remove what an earlier install added (see Uninstall for that)
+
+### The Claude Code hook
+
+The hook (`hook/claude-office-act.sh` in the mod) tells the office when Claude Code looks things up, uses a skill, writes a .md file or talks to another agent; without it, rooms, characters, typing, raised hands and ✓ still work. It's copied with the mod, so moving or deleting the repository doesn't break it.
+
+```sh
+bash ~/.config/herdr-app/mods/ai-office/hook/register.sh add      # register it (install.sh runs this too)
+bash ~/.config/herdr-app/mods/ai-office/hook/register.sh status   # is it registered?
+```
+
+- Registering needs `~/.claude/settings.json` (if it's missing: `echo '{}' > ~/.claude/settings.json`)
+- When it's newly registered, restart the Claude Code sessions that are running (Claude Code reads hooks when it starts)
 
 ### What the office touches
 
 Herdr mods are trusted code, so here is what this one does besides drawing:
 
 - **Network**: fetches the weather for the window from [Open-Meteo](https://open-meteo.com/) (no key; it sends only the chosen city's latitude and longitude)
-- **Changed by `install.sh`**: `mods/` and `layouts/` in `~/.config/herdr-app/`, `~/.claude/settings.json` (the hook), and `~/.config/herdr-app/keys.json` (two keys; the original is kept as `keys.json.before-ai-office`, and once the file is changed, Herdr no longer adds its new default keys to it when it updates)
+- **Changed when installing**: `mods/` and `layouts/` in `~/.config/herdr-app/`, `~/.claude/settings.json` (the hook), and `~/.config/herdr-app/keys.json` (two keys; the original is kept as `keys.json.before-ai-office`, and once the file is changed, Herdr no longer adds its new default keys to it when it updates)
 - **Written by the hook**: labels (`office.*`) on the terminal Claude Code runs in, and small records in `$TMPDIR`
 - **Read** (never written): skills (`~/.claude/skills/`, plugins, `~/.codex/skills/`, `.claude/skills/` in each space's folder), model and effort (`~/.codex/config.toml`, `~/.cache/claude-model/`, `~/.cache/claude-effort/`), the plans and .md files the agents wrote, and themes you add
 - **Runs**: `sh` (to read the OS language), `herdr-app status`, `git rev-parse`, and `hc read` and `hc keys` (to answer questions)
 
 ### Uninstall
 
-Switch to another layout first:
+Ask an agent to remove AI Office, or do it by hand (switch to another layout first):
 
 ```sh
-herdr-app do layout.switch --name main   # Herdr's default layout
-hooks/register.sh remove                 # remove only this hook (other hooks stay)
-scripts/keys.sh remove                   # remove the office's keys (also matching ones you had before)
+herdr-app do layout.switch --name main                            # Herdr's default layout
+bash ~/.config/herdr-app/mods/ai-office/hook/register.sh remove   # remove the hook (before deleting the mod)
+scripts/keys.sh remove                                            # in the repository: remove the office's keys (also matching ones you had before)
 rm -r ~/.config/herdr-app/mods/ai-office ~/.config/herdr-app/mods/ai-office-*
 rm ~/.config/herdr-app/layouts/ai-office.json
 ```
@@ -166,7 +183,7 @@ scripts/sync.sh                             # copy the mods and layouts and run 
 uv run --with pillow scripts/build-art.py   # redraw the art
 ```
 
-`mods/ai-office/` is the office (`scene.js` only computes, `main.js` draws, `text.js` holds the sentences), and `mods/ai-office-*/` are the dialogs and menus it opens. How it works and notes for development are in [docs/internals.md](docs/internals.md) (in Japanese).
+`mods/ai-office/` is the office (`scene.js` only computes, `main.js` draws, `text.js` holds the sentences, `hook/` is the Claude Code hook), and `mods/ai-office-*/` are the dialogs and menus it opens. How it works and notes for development are in [docs/internals.md](docs/internals.md) (in Japanese).
 
 ## License
 
