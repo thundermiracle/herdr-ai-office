@@ -91,7 +91,7 @@ export function pngSize(bytes) {
 /**
  * theme.json（JSON.parse したもの）を読んで確かめる。sizes: images に書いたファイル名 → pngSize（読めなかったものはなし）。
  * base: そのテーマのフォルダ（appHome から。絵の src になる）。返すもの: { theme, problems }。problems が空でなければ、
- * そのテーマは使わない（部屋が描けない・人が机や壁を通り抜けるなど）。書き方は README の「テーマを足す」。
+ * そのテーマは使わない（部屋が描けない・人が机や壁を通り抜けるなど）。書き方は README.ja.md の「テーマを足す」。
  */
 export function readTheme(name, json, sizes = {}, base = `mods/ai-office/themes/${name}`) {
   const problems = [];
@@ -419,7 +419,7 @@ const KEY_NAMES = { enter: "Return", space: "Space", tab: "Tab", backspace: "⌫
 
 /**
  * オフィスの上に重ねて出したターミナル（terminal.peek）を閉じるキーの書き方（⌘. など）。Esc はエージェントに届く（Claude
- * Code なら作業の中断）ので、閉じるのは keys.json で overlay.close に割り当てたキー（README の「キー」の ⌘.）か、
+ * Code なら作業の中断）ので、閉じるのは keys.json で overlay.close に割り当てたキー（README.ja.md の「キー」の ⌘.）か、
  * 上の帯の ✕。bindings は herdr の keys()（{ section, keys, action }）。重ねたターミナルがキーを受け取っているので、効くと
  * 確かめた terminal のものだけを見て、なければ null（ツールチップは ✕ だけを言う）。Esc のキーは ⌘ を付けても重ねた
  * ターミナルが受け取り、閉じない（この Mac で cmd-escape を試した）ので数えない。
@@ -430,7 +430,7 @@ export function closeKeyOf(bindings = []) {
 }
 
 /**
- * 最後にオフィスで開いた人をもう一度開くキー（keys.json で ai-office.open-last に割り当てたもの。README の「キー」の
+ * 最後にオフィスで開いた人をもう一度開くキー（keys.json で ai-office.open-last に割り当てたもの。README.ja.md の「キー」の
  * ⌘⇧.）の書き方（⌘⇧.）。なければ null。
  */
 export function reopenKeyOf(bindings = []) {

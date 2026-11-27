@@ -3,7 +3,7 @@
 # Claude Code のフックを登録（コピーした mods/ai-office/hook/register.sh add。前の場所の登録は付け替える）、
 # herdr の keys.json にオフィスのキー（⌘. と ⌘⇧.）を足す（scripts/keys.sh add）、用意がそろっているか調べる（scripts/doctor.sh）。
 # 更新は git pull のあとに、もう一度これを流す。フックを新しく登録したときは、動いている Claude を起動し直す（起動したときの
-# フックを使うので）。レイアウトは切り替えない（画面が動くので。切り替え方は README の「入れる」）。
+# フックを使うので）。レイアウトは切り替えない（画面が動くので。切り替え方は README.ja.md の「入れる」）。
 # 使い方: scripts/install.sh [--no-hook] [--no-keys]（--no-hook: フックを登録しない。ホワイトボード・資料室・話しかけは動かない。
 #   --no-keys: keys.json を書き換えない。⌘. と ⌘⇧. は効かない）
 set -euo pipefail
