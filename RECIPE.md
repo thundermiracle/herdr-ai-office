@@ -64,7 +64,7 @@ Clicks:
 Hovering a character, its laptop or its desk nameplate lights all three and shows a name tag over its head; the agents of the tab
 on screen stay lit. Keys: ⌘. closes a peeked terminal (Esc goes to the agent), and ⌘⇧. opens the last agent opened from the office
 again (it does nothing while something is shown over the office). `herdr-app do ai-office.toasts-off` and `toasts-on` switch the
-toasts; `sky-<weather or time>` tries out the window. The sky follows the sun's height at the chosen city (night, twilight, dawn,
+toasts, `lang-en`, `lang-ja` and `lang-auto` pick the language, and `sky-<weather or time>` tries out the window. The sky follows the sun's height at the chosen city (night, twilight, dawn,
 day, dusk), with that city's landmark in the view; the weather (clear, cloudy, fog, rain, snow, thunderstorm) comes from Open-Meteo
 every 15 minutes while the office is visible.
 

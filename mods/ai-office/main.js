@@ -342,7 +342,8 @@ export default class AiOffice extends View {
     this.loadWeather(cx);
     cx.timer.every(WEATHER_CHECK_MS, (cx) => this.loadWeather(cx));
     // herdr-app do ai-office.<コマンド>（オフィスが見えている間だけ届く）: 窓を試す（sky-rain、sky-1930、sky-night、sky-auto）と、
-    // 右下の通知のスイッチ（toasts-on で出す、toasts-off で出さない。上の帯の「通知」と同じ）。open-last は、最後にオフィスで
+    // 右下の通知のスイッチ（toasts-on で出す、toasts-off で出さない。上の帯の「通知」と同じ）と、画面の言語（lang-en・lang-ja・
+    // lang-auto。地球のボタンと同じで、auto は OS に合わせる）。open-last は、最後にオフィスで
     // 開いた人をもう一度開く（キャラのクリックと同じ。keys.json で ⌘⇧. に割り当てる。その人がもういなければ何もしない）
     this.trial = { weather: null, time: null };
     cx.spawn(async (cx) => {
@@ -360,6 +361,11 @@ export default class AiOffice extends View {
         const toasts = /^toasts-(on|off)$/.exec(command ?? "");
         if (toasts) {
           setShared(TOASTS, toasts[1]); // 描き直しは shared が変わったときに Herdr がする
+          continue;
+        }
+        const lang = /^lang-([a-z]+)$/.exec(command ?? "");
+        if (lang && (lang[1] === "auto" || LANGS[lang[1]])) {
+          setShared(LANG, lang[1]);
           continue;
         }
         const change = parseSkyCommand(command, Date.now(), currentPlace());
