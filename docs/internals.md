@@ -80,9 +80,9 @@ model と effort で見分ける（オフィスの右上の「凡例」をクリ
 | fable: 薄紫の髪・星のピン | xhigh: 赤 |
 | Codex: 黒髪・ヘッドホン | max: 赤、作業中は両側に炎 |
 
-model と effort は、Claude なら statusLine のスクリプトが書くキャッシュ（`~/.cache/claude-model/<セッション>`・
-`~/.cache/claude-effort/<セッション>`。セッションはターミナルの `resume.id` ラベル。作者の環境では dotfiles の effort-recorder と
-agent-resume が書く）を 10 秒ごとに読み、なければ起動引数（`--model`・`--effort`）、それもなければ sonnet の見た目で鉢巻きなし。
+model と effort は、Claude なら statusLine のスクリプトなどが書くキャッシュ（`~/.cache/claude-model/<セッション>`・
+`~/.cache/claude-effort/<セッション>`。セッションはターミナルの `resume.id` ラベル。キャッシュもラベルもこのリポジトリは
+書かない）を 10 秒ごとに読み、なければ起動引数（`--model`・`--effort`）、それもなければ sonnet の見た目で鉢巻きなし。
 Codex は起動引数（`-m`・`-c model_reasoning_effort=`）か `~/.codex/config.toml`。
 同じ model と effort なら同じ見た目になるので、誰かはマウスを乗せたときの表示（場所・状態）で見分ける。
 
@@ -388,7 +388,6 @@ AI（Claude Code など）がここで確かめるときは、使っている人
 
 ## 次の一手
 
-- 作者の環境では chezmoi で入れる（`.chezmoiexternal.toml` でこのリポジトリを取り込み、フックは `dot_claude/modify_settings.json` へ）
 - 大きく描くモード（6 倍の絵）、Codex の本棚、サブエージェントを「バイト」の小さいキャラで出す
 - カイロソフトっぽい演出（作業の数字がポンと出る、部屋の模様替え）
 - herdr.dev/mods に出す（`RECIPE.md` と `preview.png`、トピック `herdr-mod`）

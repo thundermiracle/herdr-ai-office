@@ -1,5 +1,5 @@
 #!/bin/bash
-# hooks/claude-office-act.sh を ~/.claude/settings.json に登録する / 外す（PoC 用。あとで chezmoi に移すかもしれない）。
+# hooks/claude-office-act.sh を ~/.claude/settings.json に登録する / 外す。
 # 使い方: hooks/register.sh add | remove | status
 #   add:    PreToolUse（matcher "*"）・UserPromptSubmit・Stop・SessionEnd に足す（もうあれば何もしない）
 #   remove: このスクリプトのコマンドを持つフックだけ消す（ほかのフックはそのまま。空になったイベントも消す）

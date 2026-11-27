@@ -72,7 +72,7 @@ function gather(meta, codexDefaults, present, agentKeys) {
   const info = new Map(ag.map((a) => {
     const t = terms.get(a.address);
     const app = a.app ?? a.program?.key;
-    const sid = t?.labels?.["resume.id"]; // agent-resume が付ける Claude のセッション ID
+    const sid = t?.labels?.["resume.id"]; // Claude のセッション ID（このラベルはリポジトリの外のスクリプトが付ける）
     const { model, effort } = agentModel({ app, argv: t?.foreground?.argv, cached: sid ? meta.get(sid) : null, codexDefaults });
     return [a.address, {
       status: shownStatus(a.status, t?.turn, seen[a.address]), // 見た完了は待機として出す
@@ -532,7 +532,7 @@ export default class AiOffice extends View {
     });
   }
 
-  // model と effort: Claude は effort-recorder（statusLine）がセッションごとに書くキャッシュ
+  // model と effort: Claude は statusLine のスクリプトなどがセッションごとに書くキャッシュ
   // （~/.cache/claude-model/<id>、~/.cache/claude-effort/<id>）、Codex は ~/.codex/config.toml の既定。
   // コマ送りのたびには読まない。変わったときだけ描き直す
   loadMeta(cx) {

@@ -296,7 +296,6 @@ herdr-app shot tmp/shot.png                 # 今の画面を撮って確かめ�
 | `scripts/sky.sh`、`scripts/check-theme.js` | 窓の外を試す、テーマを確かめる |
 | `test/` | `bun test` と、フック・質問・キーのテスト |
 | `docs/` | スクリーンショットと、仕組みの細かいこと（`internals.md`） |
-| `spike/` | 描き方を決めたときの確認用 mod |
 
 AI（Claude Code など）がここで確かめるときは、使っている人の画面を動かすもの（`open -a Herdr`、`scripts/demo.sh start`、
 `layout.toggle`、`mod.open`、`space.new`・`tab.new`）の前に、必ず人に聞く。Herdr は作ったスペースとタブをすぐ見せるので、

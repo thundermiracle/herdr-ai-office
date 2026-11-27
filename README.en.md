@@ -308,7 +308,6 @@ herdr-app shot tmp/shot.png                 # take a screenshot to check
 | `scripts/sky.sh`, `scripts/check-theme.js` | Try out the window, check a theme |
 | `test/` | `bun test`, and tests for the hook, questions and keys |
 | `docs/` | The screenshot and the fine print (`internals.md`) |
-| `spike/` | Test mods from when the drawing approach was decided |
 
 When an AI (Claude Code and the like) checks things here, it must ask the person first before anything that moves their screen
 (`open -a Herdr`, `scripts/demo.sh start`, `layout.toggle`, `mod.open`, `space.new`, `tab.new`). Herdr shows new spaces and tabs

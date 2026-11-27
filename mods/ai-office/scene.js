@@ -274,7 +274,7 @@ export function parseCodexConfig(text) {
 
 /**
  * エージェント 1 人の model と effort。手がかりの順:
- * Claude は effort-recorder のキャッシュ（cached）→ 起動引数（--model / --effort）。
+ * Claude は statusLine のスクリプトなどが書くキャッシュ（cached）→ 起動引数（--model / --effort）。
  * Codex は起動引数（-m / --model、-c model_reasoning_effort=）→ ~/.codex/config.toml の既定（codexDefaults）。
  */
 export function agentModel({ app, argv, cached, codexDefaults }) {
