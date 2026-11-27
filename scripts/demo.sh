@@ -20,7 +20,7 @@ repo=$(cd "$(dirname "$0")/.." && pwd)
 fa="$repo/scripts/fake-agent.sh"
 name=office-test
 name2=office-test-2
-name3="office-test-3 名前がとても長いスペースで名札とホワイトボードの並びを確かめる部屋"
+name3="office-test-3 a space with a very long name to check the nameplate and the whiteboards"
 
 spaces_named() {
   herdr-app ls | jq -r --arg n "$name" --arg n2 "$name2" --arg n3 "$name3" \

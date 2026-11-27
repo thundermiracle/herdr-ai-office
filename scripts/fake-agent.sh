@@ -83,10 +83,10 @@ case "$mode" in
     while :; do
       n=$((n + 1))
       case $((n % 4)) in
-        1) text="レビューお願いします: src/x.rs" ;;
-        2) text="テストが通りました" ;;
-        3) text="この仕様で合っていますか？" ;;
-        0) text="直したので見てください" ;;
+        1) text="Please review src/x.rs" ;;
+        2) text="The tests pass" ;;
+        3) text="Is this spec right?" ;;
+        0) text="Fixed it, take a look" ;;
       esac
       # 相手のアドレス（見本のスペースの中の、タブの名前から）
       to=$(herdr-app ls 2>/dev/null | jq -r --arg t "$tab" \
