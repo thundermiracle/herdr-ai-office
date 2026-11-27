@@ -269,7 +269,7 @@ office-test-2 の lead が office-test の idle（うろうろ）へ、office-te
 ## Claude Code のフック
 
 状態（OSC 7501）だけでは「調べ物中」かどうか分からないので、Claude Code のフック
-`hooks/claude-office-act.sh` が、これから使うツールをターミナルのラベル `office.act` に書く
+`mods/ai-office/hook/claude-office-act.sh` が、これから使うツールをターミナルのラベル `office.act` に書く
 （Skill と Read / Grep / Glob / Web 検索 → `read`、編集 → `edit`、Bash → `run`、ほか・ターンの始めと終わりは消す）。
 使った skill は `office.skill` に書き、ターンの終わり（Stop）まで残す。
 プランは `office.plan` に書き、セッションの終わり（SessionEnd。`/clear` も）まで残す: プランモードで書く .md
@@ -280,7 +280,7 @@ ExitPlanMode の `planFilePath`。ほかの .md への Write / Edit / MultiEdit 
 `.claude/` の中は除くが、Claude Code のワークツリー `.claude/worktrees/<名前>/` の中は含める。
 一覧はセッションごとに `$TMPDIR` に保存する。
 
-Bash のコマンドに出てくる .md は `hooks/md-writes.jq` の式で拾う（jq 1.6 でも動く）。書いた可能性があるものとして、
+Bash のコマンドに出てくる .md は、同じフォルダの `md-writes.jq` の式で拾う（jq 1.6 でも動く）。書いた可能性があるものとして、
 その時点の状態（inode と ctime）とともに `$TMPDIR` に記録する。次の Bash か .md を書くツールの前と、
 ターンの終わり（Stop・UserPromptSubmit）に状態を比べ、コマンドが始まってから 60 秒まで（`OFFICE_MD_WINDOW` で秒を変えられる）に
 変わっていたら `office.docs` に入れる。
@@ -293,13 +293,15 @@ herdr-app のターミナル内（`HC_TERMINAL_ID` がある場合）だけで�
 `hc` の終了は待たない。
 
 ```sh
-hooks/register.sh status   # ~/.claude/settings.json に登録されているか
-hooks/register.sh add      # 登録（PreToolUse・UserPromptSubmit・Stop・SessionEnd）
-hooks/register.sh remove   # このフックだけ外す（ほかのフックはそのまま）
+bash ~/.config/herdr-app/mods/ai-office/hook/register.sh status   # ~/.claude/settings.json に登録されているか
+bash ~/.config/herdr-app/mods/ai-office/hook/register.sh add      # 登録（PreToolUse・UserPromptSubmit・Stop・SessionEnd）
+bash ~/.config/herdr-app/mods/ai-office/hook/register.sh remove   # このフックだけ外す（ほかのフックはそのまま）
 ```
 
-`~/.claude/settings.json` に直接登録する（`scripts/install.sh` が `hooks/register.sh add` を流す）。Claude Code は起動したときの
-フックを使うので、登録より前から動いている Claude には効かない。Codex にはまだない（座る・うろうろ・挙手だけ）。
+フックは mod のフォルダの中にあるので、mod と一緒にコピーされる。登録するのはコピーした方（`~/.config/herdr-app/mods/ai-office/hook/`）で、
+`~/.claude/settings.json` に `sh "<道>"` の形で直接書く（コピーで実行の権限が落ちても動くように。`scripts/install.sh` も
+これを流す）。`add` は、前の場所（前にリポジトリの `hooks/` から登録したものなど）の登録をこちらに付け替え、`remove` はどこの
+ものでも外す。Claude Code は起動したときのフックを使うので、登録より前から動いている Claude には効かない。Codex にはまだない（座る・うろうろ・挙手だけ）。
 
 ## テーマの細かいこと
 
@@ -367,8 +369,6 @@ hooks/register.sh remove   # このフックだけ外す（ほかのフックは
 - モダンで部屋をドラッグするとき、部屋の前の横の廊下の上で離しても、その部屋に落としたことになる
 - サブエージェント（`hc run` で起動されたペインのないターミナル）はまだ出ない。なので、親と手伝いの間の `hc send` も出ない
 - 話しかけの出来事は、送った人のフックでは `hc send` を実行する前に書くので、送れなかったとき（相手が答え待ちなど）も話しに行く
-- フックのパスはこのリポジトリを指しているので、リポジトリを動かすときは、動かす前に `hooks/register.sh remove`、動かしたあとに
-  `add`（`scripts/install.sh`）。`remove` が外すのは今の場所のフックだけなので、動かしたあとでは前の場所の登録が残る
 - 場所は一覧の 19 の町から選ぶ（好きな緯度経度やタイムゾーンは入れられない）。天気は Open-Meteo の「今」の値（気象モデルの値で、観測そのものではない）
   なので、実際の空と少し違うことがある。雨でも CPU は変わらない（待機 6 人で 雨あり 7.0%・なし 7.6%）
 

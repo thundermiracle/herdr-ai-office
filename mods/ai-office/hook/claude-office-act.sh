@@ -12,7 +12,7 @@
 #                そこ）。AI Office は、その部屋の壁にホワイトボードを掛け、クリックで中身を出す。セッションの終わりまで残す
 #   office.docs: このセッションで書いた .md（プラン以外。改行で区切り、新しい順。プロジェクトの .md は 8 本まで、一時フォルダの
 #                .md は別に 4 本まで。作業フォルダの .md をいくら書いても、プロジェクトの .md は押し出されない）。ホワイトボードで読める。
-#                Write / Edit / MultiEdit の .md と、Bash で書いた .md: コマンドに出てくる .md の道（hooks/md-writes.jq）の、
+#                Write / Edit / MultiEdit の .md と、Bash で書いた .md: コマンドに出てくる .md の道（同じフォルダの md-writes.jq）の、
 #                コマンドの前の状態（inode と ctime）を覚え、あとのフック（次の Bash・.md を書くツール・ターンの終わり）で変わって
 #                いたら書いた .md にする（コマンドが始まってから 60 秒までに変わったものだけ。同じフォルダのほかのエージェントが
 #                あとで直したものを、自分の書いた .md にしない）。
@@ -119,7 +119,7 @@ case "$(field .hook_event_name)" in
         bash=1
         cmd=$(field .tool_input.command)
         case "$cmd" in *"hc send"*) talk=$(printf '%s' "$cmd" | jq -Rrs "$SEND_JQ" 2>/dev/null) ;; esac
-        # コマンドに出てくる .md は、書いたかもしれないもの（式は hooks/md-writes.jq。読めなくても止まらない）
+        # コマンドに出てくる .md は、書いたかもしれないもの（式は同じフォルダの md-writes.jq。読めなくても止まらない）
         case "$cmd" in
           *.[mM][dD]* | *.[mM][aA][rR][kK][dD][oO][wW][nN]*)
             cands=$(printf '%s' "$cmd" | jq -Rrs -f "$(dirname "$0")/md-writes.jq" --arg cwd "$(field .cwd)" --arg home "$HOME" 2>/dev/null)

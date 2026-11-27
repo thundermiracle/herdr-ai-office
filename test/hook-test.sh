@@ -1,12 +1,12 @@
 #!/bin/bash
-# hooks/claude-office-act.sh を、Claude Code と同じ形（sh -c "<コマンド>"、標準入力にフックの JSON）で試す。
+# mods/ai-office/hook/claude-office-act.sh を、Claude Code と同じ形（sh -c "<コマンド>"、標準入力にフックの JSON）で試す。
 # Herdr のラベルを付けない使い捨てのターミナル（herdr-app には出ない）を作り、ラベルの変わり方と、
 # フックがすぐ終わる（hc を待たない）ことを確かめる。終わったらターミナルを消す。
 set -uo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 # HOOK で、置き換える前の写しを試せる（式 md-writes.jq は、フックと同じフォルダのもの）
-hook=${HOOK:-$repo/hooks/claude-office-act.sh}
+hook=${HOOK:-$repo/mods/ai-office/hook/claude-office-act.sh}
 md_jq="$(dirname "$hook")/md-writes.jq"
 tmp=$(mktemp -d)
 # 本物の .md を書くプロジェクトのフォルダ（一時フォルダの外。tmp/ は git に入らない）
@@ -307,7 +307,7 @@ if printf '%s\n' "$got" | grep -qx "$P/slow.md"; then ok=yes; else ok=no; fails=
 echo "$ok  a write within the window is still mine        docs=$(printf '%s' "$got" | sed "s#$proj#P#g" | tr '\n' ',')"
 doc_check "SessionEnd clears the docs (s5)" "$(event SessionEnd | jq -c '.session_id = "s5"')" ""
 
-# Bash の .md の式（hooks/md-writes.jq）は、この PC のどの jq でも同じ答え（jq 1.6 には flags を渡す scan がなく、
+# Bash の .md の式（hook/md-writes.jq）は、この PC のどの jq でも同じ答え（jq 1.6 には flags を渡す scan がなく、
 # 前は式ごと読めずに Bash の .md を 1 つも拾えなかった。フックは PATH の最初の jq を使う）
 md_case() { # md_case <コマンド> <期待する道（改行で区切る）>
   local cmd=$1 want=$2 j got ok

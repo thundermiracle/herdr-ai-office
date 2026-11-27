@@ -1,8 +1,8 @@
 #!/bin/bash
 # この PC で、オフィスが動く用意がそろっているかを調べる（何も変えない。画面も動かさない）。
 # ほかの PC で更新したあとにホワイトボードが出ないときなどに流して、NG の行を見る。
-# 調べること: 道具（jq・hc・herdr-app と jq の版）、フックの登録（このリポジトリのフックを指しているか、4 つのイベント）と文法、
-# Bash の .md の式（hooks/md-writes.jq）がこの jq で動くか、フックを試す（herdr-app に出ない使い捨てのターミナルで、Write は
+# 調べること: 道具（jq・hc・herdr-app と jq の版）、フックの登録（コピーした mod のフック mods/ai-office/hook/ を指しているか、
+# 4 つのイベント）と文法、Bash の .md の式（hook/md-writes.jq）がこの jq で動くか、フックを試す（herdr-app に出ない使い捨てのターミナルで、Write は
 # .md を書いたことにし、Bash は一時フォルダに本当に書いて（> x.md と cp）、ラベルが付くか）、mod がリポジトリと同じか、
 # herdr-app のエラー、keys.json のオフィスのキー（⌘. と ⌘⇧.）、今ホワイトボードに載るもの
 # （エージェントごとのラベル。読めないものと、ノイズ扱いで載らない .md には印）。
@@ -11,7 +11,9 @@ set -uo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 app=${HERDR_APP_HOME:-$HOME/.config/herdr-app}
-hook="$repo/hooks/claude-office-act.sh"
+hook="$app/mods/ai-office/hook/claude-office-act.sh" # 登録するのは、コピーした mod の中のフック
+want="sh \"$hook\""                                   # register.sh が登録するコマンド
+register="bash $app/mods/ai-office/hook/register.sh"
 bad=0
 ok() { printf '  ok   %s\n' "$*"; }
 ng() { printf '  NG   %s\n' "$*"; bad=$((bad + 1)); }
@@ -25,15 +27,16 @@ command -v herdr-app >/dev/null 2>&1 && note "herdr-app $(herdr-app --version 2>
 command -v jq >/dev/null 2>&1 && note "$(jq --version 2>/dev/null)（フックは PATH の最初の jq を使う）"
 
 echo "フックの登録（ホワイトボード・本棚・話しかけは、このフックが書くラベルで動く）"
-if sh -n "$hook" 2>/dev/null; then ok "フックの文法（${hook}）"; else ng "フックに文法エラー（Claude のツールが止まる）: $hook"; fi
-if [ ! -f "$repo/hooks/md-writes.jq" ]; then
-  ng "hooks/md-writes.jq がない（Bash で書いた .md を拾えない）"
+if [ ! -f "$hook" ]; then ng "フックがコピーされていない（${hook}。scripts/install.sh か scripts/sync.sh）"
+elif sh -n "$hook" 2>/dev/null; then ok "フックの文法（${hook}）"; else ng "フックに文法エラー（Claude のツールが止まる）: $hook"; fi
+if [ ! -f "$(dirname "$hook")/md-writes.jq" ]; then
+  ng "hook/md-writes.jq がない（Bash で書いた .md を拾えない）"
 else
   # 式がこの jq で読めるか（前は jq 1.6 で式ごと読めず、Bash で書いた .md を 1 つも拾えなかった。フックは黙って続ける）。
   # 式は、コマンドに出てくる .md の道（書いたかもしれないもの）を出す
-  got=$(printf '%s' "cat > docs/a.md <<'EOF'" | jq -Rrs -f "$repo/hooks/md-writes.jq" --arg cwd /p --arg home /h 2>&1)
-  if [ "$got" = /p/docs/a.md ]; then ok "hooks/md-writes.jq がこの jq で動く（Bash で書いた .md を拾える）"
-  else ng "hooks/md-writes.jq がこの jq（$(jq --version 2>/dev/null)）で動かない。Bash で書いた .md を拾えない: $(printf '%s' "$got" | head -n 1)"
+  got=$(printf '%s' "cat > docs/a.md <<'EOF'" | jq -Rrs -f "$(dirname "$hook")/md-writes.jq" --arg cwd /p --arg home /h 2>&1)
+  if [ "$got" = /p/docs/a.md ]; then ok "hook/md-writes.jq がこの jq で動く（Bash で書いた .md を拾える）"
+  else ng "hook/md-writes.jq がこの jq（$(jq --version 2>/dev/null)）で動かない。Bash で書いた .md を拾えない: $(printf '%s' "$got" | head -n 1)"
   fi
 fi
 settings="$HOME/.claude/settings.json"
@@ -43,16 +46,15 @@ else
   registered=$(jq -r '.hooks // {} | to_entries[] | .key as $e | .value[] | .hooks[]?
     | select((.command // "") | test("claude-office-act\\.sh")) | "\($e)\t\(.command)"' "$settings" 2>/dev/null)
   if [ -z "$registered" ]; then
-    ng "フックが登録されていない。このリポジトリで hooks/register.sh add し、そのあと Claude を起動し直す"
+    ng "フックが登録されていない。$register add し、そのあと Claude を起動し直す（--no-hook で入れたなら、そのままでよい）"
   else
     while IFS=$'\t' read -r event cmd; do
-      if [ "$cmd" = "$hook" ]; then ok "$event: このリポジトリのフック"
-      elif [ -f "$cmd" ]; then ng "$event: 別の場所のフックを指している（${cmd}）。hooks/register.sh remove してから、このリポジトリで add"
-      else ng "$event: ないファイルを指している（${cmd}）。このリポジトリで hooks/register.sh add し直す"
+      if [ "$cmd" = "$want" ]; then ok "$event: コピーした mod のフック"
+      else ng "$event: 別の場所のフックを指している（${cmd}）。$register add で付け替える"
       fi
     done <<<"$registered"
     for e in PreToolUse UserPromptSubmit Stop SessionEnd; do
-      printf '%s\n' "$registered" | grep -q "^$e"$'\t' || ng "$e に登録されていない（hooks/register.sh add）"
+      printf '%s\n' "$registered" | grep -q "^$e"$'\t' || ng "$e に登録されていない（$register add）"
     done
   fi
   note "Claude は起動したときのフックを使う。登録より前から動いている Claude は、起動し直すまでラベルを書かない"

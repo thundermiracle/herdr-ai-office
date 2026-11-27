@@ -8,7 +8,7 @@
 #                  フックが本物の Skill ツールで書くのと同じ出来事で、資料室へ取りに行って読み、戻ってくる）
 #   talks:<タブ>[:<秒>]: working（タイピング）のまま、<秒>（既定 8）たってから 30 秒ごとに、見本のスペース（office-test で
 #                  始まる名前）の中のその名前のタブのエージェントへ（ほかのスペースの本物のエージェントには送らない）
-#                  hc send で話しかける。フック（hooks/claude-office-act.sh）が書くのと同じラベル（office.talk・office.talk_at・
+#                  hc send で話しかける。フック（mods/ai-office/hook/claude-office-act.sh）が書くのと同じラベル（office.talk・office.talk_at・
 #                  office.talk_text）を先に書くので、オフィスでは相手のところへ行って話し、戻ってくる
 #   plan:<ファイル>: working（タイピング）のまま、office.plan=<ファイル>（フックがプランモードのプランで書くのと同じラベル。
 #                  オフィスでは部屋の壁にホワイトボードが掛かり、クリックでそのファイルをマークダウンで出す）
@@ -29,7 +29,7 @@ if [ "$mode" = ask ]; then
 fi
 
 report() { printf '\033]7501;state=%s:app=%s%s\033\\' "$1" "$app" "$2"; }
-# office.act と office.skill（フック hooks/claude-office-act.sh と同じラベル）
+# office.act と office.skill（フック mods/ai-office/hook/claude-office-act.sh と同じラベル）
 labels() { [ -n "${HC_TERMINAL_ID:-}" ] && hc label "$HC_TERMINAL_ID" "office.act=$1" "office.skill=${2:-}" >/dev/null 2>&1; }
 
 show() {
