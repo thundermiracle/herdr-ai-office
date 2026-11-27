@@ -6,12 +6,13 @@ A mod and layout for [Herdr](https://herdr.dev) (herdr-app) that shows your spac
 
 ![Sample rooms office-test and office-test-2 (10 fake agents, Modern theme)](preview.png)
 
-- Characters act out their agent's state: typing while it works, walking to the library's bookshelf while it looks things up, raising a hand for a question or permission, a ✓ when it's done, wandering around when it's idle
-- Click a character to show that agent's terminal. It's the real terminal, so you can talk to the agent right there
-- Hire an agent at a free seat, and make a room (space) with the "+ Room" door
-- Plans and .md files the agents write go up on their room's whiteboard; the skills you can use stand on the library's bookshelf
-- The wall clock and the view out of the window follow the time and weather of a city you pick
-- English and Japanese
+- <b>Characters act out their agent's state</b>: typing while it works, walking to the library's bookshelf while it looks things up, raising a hand for a question or permission, a ✓ when it's done, wandering around when it's idle
+- <b>Click a character to show that agent's terminal</b>. It's the real terminal, so you can talk to the agent right there
+- <b>Hire an agent</b> at a free seat, and <b>make a room</b> (space) with the "+ Room" door
+- <b>Plans and .md files the agents write</b> go up on their room's whiteboard
+- <b>Click the library's bookshelf to see the skills you can use</b>, and what each one says
+- <b>The wall clock and the view out of the window</b> follow the time and weather of a city you pick
+- <b>English and Japanese</b>
 
 ## Install
 
